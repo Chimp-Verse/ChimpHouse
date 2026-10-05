@@ -19,6 +19,10 @@ export interface PreviewState {
   pos: [number, number, number];
   heading: number;
   speed: number;
+  /** walk mode: at avatar height with collisions and gravity, instead of flying */
+  walking: boolean;
+  /** what the walker is walking into, while it is held up */
+  blocked: string | null;
   viewId: string | null;
   night: boolean;
   roofHidden: boolean;
@@ -47,6 +51,8 @@ class Store {
     pos: [0, 0, 0],
     heading: 0,
     speed: 6,
+    walking: false,
+    blocked: null,
     viewId: null,
     night: false,
     roofHidden: false,

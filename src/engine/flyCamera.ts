@@ -1,5 +1,6 @@
 import { Camera, Scene, UniversalCamera, Vector3 } from "@babylonjs/core";
 import { store } from "./store";
+import { AVATAR, Walker } from "./walker";
 
 export interface Pose {
   x: number;
@@ -17,6 +18,7 @@ const POSE_KEY = "chimphouse.pose.v1";
  * Free-fly camera without collisions. Click the canvas to capture the mouse,
  * WASD to move along the view, E/Space up, Q/C down, Shift for speed, wheel
  * adjusts base speed. Right-drag looks around without capturing the mouse.
+ * With a `walker` set, WASD walks it instead and the camera rides at its eye.
  */
 export class FlyCamera {
   readonly camera: UniversalCamera;
@@ -32,6 +34,7 @@ export class FlyCamera {
   private orthoState: Pose["ortho"] = null;
   baseSpeed = 6;
   enabled = true;
+  walker: Walker | null = null;
 
   constructor(
     private scene: Scene,
@@ -120,6 +123,21 @@ export class FlyCamera {
       this.pitch = a.pitch + (b.pitch - a.pitch) * k;
       this.camera.fov = a.fov + (b.fov - a.fov) * k;
       if (tr.t >= 1) this.transition = null;
+    } else if (this.enabled && !this.orthoState && this.walker) {
+      const fast = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
+      const slow = this.keys.has("AltLeft") || this.keys.has("AltRight");
+      const speed = AVATAR.speed * (fast ? AVATAR.run : 1) * (slow ? 0.4 : 1);
+      let fx = 0;
+      let rx = 0;
+      if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) fx += 1;
+      if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) fx -= 1;
+      if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) rx += 1;
+      if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) rx -= 1;
+      const k = fx || rx ? speed / Math.hypot(fx, rx) : 0;
+      const sin = Math.sin(this.yaw);
+      const cos = Math.cos(this.yaw);
+      this.walker.update(dt, (fx * sin + rx * cos) * k, (fx * cos - rx * sin) * k);
+      this.camera.position.set(this.walker.feet.x, this.walker.eyeY, this.walker.feet.z);
     } else if (this.enabled && !this.orthoState) {
       const fast = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
       const slow = this.keys.has("AltLeft") || this.keys.has("AltRight");

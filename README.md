@@ -23,6 +23,7 @@ The first load takes a few seconds while textures are painted and shaders compil
 | E or Space / Q or C | Fly up / down |
 | Shift / Alt (held) | Four times faster / slower |
 | Mouse wheel | Change flying speed (zoom in plan views) |
+| F | Walk mode on / off (see below) |
 | 1–9, 0, `[` `]` | Jump to viewpoints, previous and next viewpoint |
 | N | Day / night |
 | R / U | Hide roofs / hide the upper level |
@@ -33,6 +34,16 @@ The first load takes a few seconds while textures are painted and shaders compil
 | H | Help |
 
 Each reference image has a matching viewpoint, and the reference is shown in the corner so you can compare. The camera position is remembered between reloads.
+
+## Walking
+
+Press **F** to walk instead of fly. You drop onto the floor below the camera and move at avatar height with gravity, using the same mouse look. W A S D walk and Shift runs. Use it to check that the stairs, doorways, corridor, bridge and side entrance work for someone on foot.
+
+- Walls, glass, railings and furniture block you, and you slide along them. Stairs and ledges up to 0.3 m are stepped onto. Leaves and plant stems are passed through.
+- Roofs are ignored, so pressing F above the house drops you into the room below.
+- When something stops you, the status panel shows **Bumped into** and the object's name, and **P** includes it in the copied details.
+- Eye-level viewpoints keep you walking. Choosing a viewpoint in the air, or a plan view, switches back to flying.
+- The avatar is a stand-in, 1.7 m tall and 0.6 m wide with its eyes at 1.55 m, until the chimp avatar is designed. Change `AVATAR` in `src/engine/walker.ts` to try other sizes.
 
 ## Requesting changes
 
@@ -56,7 +67,7 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `src/world/environment/` | Sky, terrain, waterfalls, jungle, giant trees, front approach, canopy bridge |
 | `src/world/materials/` | Procedural textures, leaf atlas, signs, shared material library |
 | `src/world/viewpoints.ts` | Saved camera viewpoints |
-| `src/engine/` | Engine bootstrap, fly camera, lighting, post-processing, HUD state |
+| `src/engine/` | Engine bootstrap, fly camera, walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state |
 | `public/textures/screens/` | Screen artwork extracted from the reference images |
 | `docs/plans/2026-10-02-blender-switch-plan.md` | The plan for moving the house into Blender once the layout is settled |
 

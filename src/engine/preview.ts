@@ -1,6 +1,6 @@
 import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Vector3, VertexData } from "@babylonjs/core";
 import { buildWorld, World } from "../world/build";
-import { MeshMeta } from "../world/context";
+import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
 import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, lowerDeckLoop, upperDeckLoop } from "../world/layout";
 import { VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
@@ -9,6 +9,8 @@ import { FlyCamera, isTyping } from "./flyCamera";
 import { Lighting } from "./lighting";
 import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
+import { CollisionWorld } from "./collision";
+import { Walker } from "./walker";
 
 export interface PreviewController {
   goTo(id: string): void;
@@ -17,6 +19,7 @@ export interface PreviewController {
   setUpperHidden(v: boolean): void;
   setPlanOverlay(v: boolean): void;
   setQuality(q: Quality): void;
+  setWalking(v: boolean): void;
   copyReport(): Promise<string>;
 }
 
@@ -45,6 +48,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const upper = levelMeshes("upper");
   const roof = levelMeshes("roof");
   const planOverlays = makePlanOverlays(scene);
+  // walk mode's collision grid is built the first time it is switched on
+  let walker: Walker | null = null;
 
   const applyVisibility = () => {
     const s = store.get();
@@ -84,6 +89,32 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       lighting.setQuality(q);
       post.setQuality(q);
     },
+    setWalking(v) {
+      if (!v) {
+        fly.walker = null;
+        store.set({ walking: false, blocked: null });
+        return;
+      }
+      if (fly.isOrtho) {
+        flash("Walk mode needs a 3D view: pick a viewpoint or fly first");
+        return;
+      }
+      if (!walker) {
+        const t0 = performance.now();
+        const collision = new CollisionWorld(scene);
+        walker = new Walker(collision);
+        console.info(`Walk mode: ${collision.triangles} triangles, ${collision.nx} x ${collision.nz} cells, built in ${Math.round(performance.now() - t0)} ms`);
+      }
+      fly.setPose(fly.getPose()); // stops a viewpoint transition where it is
+      const p = fly.camera.position;
+      if (!walker.place(p.x, p.y, p.z, 500)) {
+        flash("Nothing to stand on below the camera");
+        return;
+      }
+      fly.walker = walker;
+      store.set({ walking: true });
+      flash("Walking at avatar height · F to fly");
+    },
     async copyReport() {
       const text = report();
       try {
@@ -102,6 +133,16 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (v.night !== undefined || store.get().night) controller.setNight(!!v.night);
     store.set({ upperHidden: !!v.hideUpper, roofHidden: !!v.hideRoof, planOverlay: !!v.planOverlay });
     applyVisibility();
+    if (fly.walker) {
+      // stand on the floor under an eye-level viewpoint; fly to one in the air
+      const { x, y, z } = v.pose;
+      if (!v.pose.ortho && fly.walker.place(x, y, z, 3.5)) {
+        fly.setPose({ ...v.pose, y: fly.walker.eyeY });
+        return;
+      }
+      controller.setWalking(false);
+      flash(v.pose.ortho ? "Plan views are flown, not walked" : "That viewpoint is in the air: flying there");
+    }
     fly.setPose(v.pose, animate ? 1.1 : 0);
   }
 
@@ -113,6 +154,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       `Camera: (${p.x}, ${p.y}, ${p.z})  heading ${Math.round(fly.headingDeg)}°  pitch ${Math.round((-p.pitch * 180) / Math.PI)}°  fov ${p.fov}`,
       `Area: ${s.area}`,
     ];
+    if (s.walking && fly.walker) lines.push(`Walking: feet at y ${fly.walker.feet.y.toFixed(2)}${s.blocked ? `, bumped into ${s.blocked}` : ""}`);
     if (s.picked) lines.push(`Picked: ${s.picked.label} at (${s.picked.point.map((v) => v.toFixed(2)).join(", ")})`);
     lines.push(`Pose JSON: ${JSON.stringify(p)}`);
     return lines.join("\n");
@@ -144,17 +186,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       marker.setEnabled(false);
       return;
     }
-    const md = pick.pickedMesh.metadata as MeshMeta | undefined;
-    let label = pick.pickedMesh.name;
-    if (md) {
-      let l = md.labels[0]?.label ?? label;
-      for (const entry of md.labels) {
-        if (entry.face <= pick.faceId) l = entry.label;
-        else break;
-      }
-      const lvl = md.level === "lower" ? "Lower" : md.level === "upper" ? "Upper" : md.level === "roof" ? "Roof" : "Site";
-      label = `${lvl} › ${md.roomName} › ${l}`;
-    }
+    const label = faceLabel(pick.pickedMesh, pick.faceId);
     const p = pick.pickedPoint;
     marker.position.copyFrom(p);
     marker.setEnabled(true);
@@ -168,6 +200,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     const v = VIEWPOINTS.find((vp) => vp.key === e.key);
     if (v) controller.goTo(v.id);
     else if (e.code === "KeyN") controller.setNight(!s.night);
+    else if (e.code === "KeyF") controller.setWalking(!s.walking);
     else if (e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
     else if (e.code === "KeyU") controller.setUpperHidden(!s.upperHidden);
     else if (e.code === "KeyG") controller.setPlanOverlay(!s.planOverlay);
@@ -212,6 +245,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     whenReady: () => scene.whenReadyAsync(),
     setNight: (n: boolean) => controller.setNight(n),
     setPose: (p: Parameters<typeof fly.setPose>[0]) => fly.setPose(p),
+    setWalking: (v: boolean) => controller.setWalking(v),
+    walker: () => fly.walker,
     info: () => ({
       fps: Math.round(engine.getFps()),
       drawCalls: engine._drawCalls?.lastSecAverage ? Math.round(engine._drawCalls.lastSecAverage) : engine._drawCalls?.current ?? 0,
@@ -248,6 +283,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         pos: [round1(p.x), round1(p.y), round1(p.z)],
         heading: Math.round(fly.headingDeg),
         area: locate(p),
+        blocked: fly.walker?.blockedBy ?? null,
       });
     }
     if (frames === 60) hook.ready = true;

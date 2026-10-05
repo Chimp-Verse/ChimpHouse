@@ -79,6 +79,12 @@ body,
   font-variant-numeric: tabular-nums;
 }
 
+.bumped {
+  margin-top: 5px;
+  max-width: 300px;
+  color: var(--mint);
+}
+
 .views {
   top: 14px;
   right: 14px;

@@ -50,6 +50,19 @@ const ROOM_NAMES: Record<string, string> = {
   sky: "Sky",
 };
 
+/** Inspect label of a mesh face: "Level › Room › Object". */
+export function faceLabel(mesh: AbstractMesh, face: number): string {
+  const md = mesh.metadata as MeshMeta | undefined;
+  if (!md) return mesh.name;
+  let l = md.labels[0]?.label ?? mesh.name;
+  for (const entry of md.labels) {
+    if (entry.face <= face) l = entry.label;
+    else break;
+  }
+  const lvl = md.level === "lower" ? "Lower" : md.level === "upper" ? "Upper" : md.level === "roof" ? "Roof" : "Site";
+  return `${lvl} › ${md.roomName} › ${l}`;
+}
+
 export function zone(room: string, level: Level): Zone {
   return { room, roomName: ROOM_NAMES[room] ?? room, level };
 }

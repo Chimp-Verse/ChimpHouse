@@ -16,8 +16,9 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           x {s.pos[0]} · y {s.pos[1]} · z {s.pos[2]} · {s.heading}°
         </div>
         <div className="perf">
-          {s.fps} fps · {s.drawCalls} draws · speed {s.speed}
+          {s.fps} fps · {s.drawCalls} draws · {s.walking ? "walking" : `speed ${s.speed}`}
         </div>
+        {s.walking && s.blocked && <div className="bumped">Bumped into {s.blocked}</div>}
       </div>
 
       <div className="panel views">
@@ -29,6 +30,7 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           </button>
         ))}
         <div className="section">Display</div>
+        <Toggle on={s.walking} label="Walk mode" k="F" onClick={() => ctl.setWalking(!s.walking)} />
         <Toggle on={s.night} label="Night" k="N" onClick={() => ctl.setNight(!s.night)} />
         <Toggle on={s.roofHidden} label="Hide roofs" k="R" onClick={() => ctl.setRoofHidden(!s.roofHidden)} />
         <Toggle on={s.upperHidden} label="Hide upper level" k="U" onClick={() => ctl.setUpperHidden(!s.upperHidden)} />
@@ -69,10 +71,15 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {view?.ref && s.refOverlay === "full" && <img className="ref-full" src={view.ref} alt={view.refName} />}
 
-      {!s.pointerLocked && (
+      {!s.pointerLocked && !s.walking && (
         <div className="hint">
           Click to fly · <b>WASD</b> move · <b>E/Space</b> up · <b>Q/C</b> down · <b>Shift</b> fast · wheel = speed · right-drag to look ·{" "}
-          <b>Alt-click</b> inspect · <b>H</b> help
+          <b>F</b> walk · <b>Alt-click</b> inspect · <b>H</b> help
+        </div>
+      )}
+      {!s.pointerLocked && s.walking && (
+        <div className="hint">
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -105,6 +112,7 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E or Space / Q or C</td><td>Up / down</td></tr>
             <tr><td>Shift / Alt (held)</td><td>Four times faster / slower</td></tr>
             <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
+            <tr><td>F</td><td>Walk at avatar height (walls, furniture, stairs and gravity) / fly</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>
             <tr><td>R / U</td><td>Hide roofs / hide the upper level</td></tr>
