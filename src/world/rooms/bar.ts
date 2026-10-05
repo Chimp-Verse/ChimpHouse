@@ -47,6 +47,7 @@ function ensureMats(ctx: WorldCtx) {
   add("floatPink", { color: "#ff8fb1", rough: 0.35, clearCoat: 0.6 });
   add("floatYellow", { color: "#f7d046", rough: 0.35, clearCoat: 0.6 });
   add("floatBrown", { color: "#6b4a2f", rough: 0.5 });
+  add("floatDough", { color: "#e8b46e", rough: 0.35, clearCoat: 0.6 });
   add("lavaRock", { color: "#2a2624", rough: 0.95 });
   add("towelCream", { color: "#efe6d2", rough: 0.95 });
   add("towelTeal", { color: "#2f8f88", rough: 0.95 });
@@ -354,7 +355,8 @@ export function buildTerraceLounge(ctx: WorldCtx, pool: PoolInfo): void {
   const fasc = BAR.z0 - 1.4 + 0.03;
   const Y = LEVEL.upperCeil - 0.15;
   const P1 = new Vector3(8.7, U + 3.3, 7.4);
-  const P2 = new Vector3(14.1, U + 3.3, 7.0);
+  // north-east of the pool steps, clear of the way to them and the walk round them
+  const P2 = new Vector3(15.6, U + 3.3, 7.6);
   for (const p of [P1, P2]) festoonPole(ctx, z, p);
   const sail = new Vector3(pool.maxX - 1.2, U + 3.9, pool.maxZ + 5.2);
   for (const [a, b, sag] of [
@@ -554,18 +556,34 @@ function towelTrolley(ctx: WorldCtx, z: Zone, m: Matrix) {
   ctx.g(z, "towelTeal").add(softBox(0.46, 0.07, 0.33, 0.03), xf(-0.15, 1.005, 0, 0.1).multiply(m), "Folded towels");
 }
 
+/** Inflatable frosted donut: a dough ring, pink icing over its top half and sprinkles. p is on the water. */
 function donutFloat(ctx: WorldCtx, z: Zone, p: Vector3, yaw: number) {
-  ctx.g(z, "floatPink").add(torus(0.42, 0.16, 36, 14), xf(p.x, p.y + 0.06, p.z, yaw, 1, 0.8, 1), "Donut pool float");
-  ctx.g(z, "white").add(torus(0.42, 0.1, 36, 8), xf(p.x, p.y + 0.13, p.z, yaw, 1, 0.5, 1), "Donut pool float");
+  const R = 0.42;
+  const m = xf(p.x, p.y, p.z, yaw);
+  ctx.g(z, "floatDough").add(torus(R, 0.16, 40, 16), xf(0, 0.03, 0, 0, 1, 0.8, 1).multiply(m), "Donut pool float");
+  // the icing ring is a little fatter and flatter, so it covers the top and laps over the sides
+  const ir = 0.166;
+  const iy = 0.1;
+  const ih = 0.45;
+  ctx.g(z, "floatPink").add(torus(R, ir, 40, 16), xf(0, iy, 0, 0, 1, ih, 1).multiply(m), "Donut pool float");
+  // sprinkles in colours already on the terrace (towels, the banana), so they add no meshes
+  const cols = ["towelCream", "floatYellow", "towelTeal", "towelCoral"];
+  for (let i = 0; i < 36; i++) {
+    const a = i * 2.39996;
+    const d = (((i * 0.618034) % 1) - 0.5) * 0.17;
+    const y = iy + ir * ih * Math.sqrt(1 - (d / ir) ** 2) - 0.003;
+    ctx.g(z, cols[i % cols.length]).add(box(0.034, 0.01, 0.01), xf(Math.cos(a) * (R + d), y, Math.sin(a) * (R + d), i * 1.7).multiply(m), "Donut pool float");
+  }
 }
 
 function bananaFloat(ctx: WorldCtx, z: Zone, p: Vector3, yaw: number) {
   const pts: Vector3[] = [];
-  for (let i = 0; i <= 16; i++) {
-    const t = -0.85 + (i / 16) * 1.7;
+  for (let i = 0; i <= 40; i++) {
+    const t = -0.85 + (i / 40) * 1.7;
     pts.push(new Vector3(Math.sin(t) * 0.95, 0, -Math.cos(t) * 0.95 + 0.95));
   }
   const m = xf(p.x, p.y + 0.12, p.z, yaw);
-  ctx.g(z, "floatYellow").add(tube(pts, (t) => 0.2 * Math.pow(Math.sin(Math.PI * (0.06 + t * 0.88)), 0.6) + 0.02, 14), m, "Banana pool float");
+  // rounds off to a closed tip at each end, where the brown stem and flower end sit
+  ctx.g(z, "floatYellow").add(tube(pts, (t) => 0.21 * Math.sqrt(Math.sin(Math.PI * t)) + 0.004, 20, true), m, "Banana pool float");
   for (const e of [pts[0], pts[pts.length - 1]]) ctx.g(z, "floatBrown").add(sphere(0.035, 8, 6), xf(e.x, e.y, e.z).multiply(m), "Banana pool float");
 }

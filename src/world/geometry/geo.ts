@@ -341,7 +341,7 @@ export function torus(R: number, r: number, segments = 32, tube = 10): Geo {
     rows.push(row);
   }
   for (let i = 0; i < segments; i++)
-    for (let j = 0; j < tube; j++) g.quad(rows[i][j], rows[i][j + 1], rows[i + 1][j + 1], rows[i + 1][j]);
+    for (let j = 0; j < tube; j++) g.quad(rows[i][j], rows[i + 1][j], rows[i + 1][j + 1], rows[i][j + 1]);
   return g;
 }
 

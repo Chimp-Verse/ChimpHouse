@@ -9,7 +9,7 @@
 
 import { Color3, Constants, PBRMaterial, Vector3 } from "@babylonjs/core";
 import { P2, offsetPath, pointInPolygon, resample, rightOf, tangentAt } from "../geometry/curves";
-import { Geo, alignY, at, beam, cylinder, disc, fixWinding, floorQuad, plane, polygonFace, ribbonWall, torus, tube, xf } from "../geometry/geo";
+import { Geo, alignY, at, beam, circleProfile, cylinder, disc, fixWinding, floorQuad, plane, polygonFace, ribbonWall, sweep, torus, xf } from "../geometry/geo";
 import { WorldCtx, Zone, zone } from "../context";
 import { LEVEL, POOL, lowerDeckLoop, poolLoop, upperDeckLoop } from "../layout";
 import { ledStrip } from "../structure/elements";
@@ -208,33 +208,49 @@ export function buildPool(ctx: WorldCtx): PoolInfo {
   const along = (x0: number, x1: number) => northRun.idx.filter((i) => L[i].z > pc.z && L[i].x >= x0 && L[i].x <= x1);
   const stepIdx = along(minX + 1.4, minX + 3.0);
   const stepPath = (d: number) => stepIdx.map((i) => off(i, d));
-  // two teak steps up to the coping outside, four steps down inside
-  ctx.g(z, "deck").add(beam(at(stepPath(0), 0), 0.42, 0.62, { offsetX: wall + 0.21, offsetY: U + 0.31 }), undefined, "Pool entry steps");
-  ctx.g(z, "deck").add(beam(at(stepPath(0), 0), 0.42, 0.31, { offsetX: wall + 0.63, offsetY: U + 0.155 }), undefined, "Pool entry steps");
-  for (const [k, top] of [
-    [0, W - 0.3],
-    [1, W - 0.6],
-    [2, W - 0.9],
-    [3, W - 1.2],
-  ] as [number, number][])
-    ctx.g(z, "poolTile").add(beam(at(stepPath(0), 0), 0.3, top - B, { offsetX: -0.15 - k * 0.3, offsetY: (top + B) / 2 }), undefined, "Pool steps");
+  // equal risers of about 0.23 m, like the house's stairs and low enough for any avatar to
+  // step: three teak steps up to the coping outside, six steps down to the floor inside
+  const OUT_STEPS = 3;
+  const outRise = (C - U) / (OUT_STEPS + 1);
+  const outTread = 0.32;
+  for (let k = 0; k < OUT_STEPS; k++) {
+    const top = C - (k + 1) * outRise;
+    ctx.g(z, "deck").add(beam(at(stepPath(0), 0), outTread, top - U, { offsetX: wall + outTread * (k + 0.5), offsetY: (U + top) / 2 }), undefined, "Pool entry steps");
+  }
+  const IN_STEPS = 6;
+  const inRise = (C - B) / (IN_STEPS + 1);
+  const inTread = 0.28;
+  for (let k = 0; k < IN_STEPS; k++) {
+    const top = C - (k + 1) * inRise;
+    ctx.g(z, "poolTile").add(beam(at(stepPath(0), 0), inTread, top - B, { offsetX: -inTread * (k + 0.5), offsetY: (top + B) / 2 }), undefined, "Pool steps");
+  }
+  // grab rails either side: a post from the deck past the bottom step, a handrail up along
+  // the steps, over the coping and straight down onto the first step inside
+  const sFoot = wall + OUT_STEPS * outTread + 0.1;
+  const sIn = -inTread * 0.55;
+  const inTop = C - inRise;
   for (const i of [stepIdx[1], stepIdx[stepIdx.length - 2]]) {
-    // grab rail rising from the deck, over the coping, down to the first step
-    const prof: [number, number][] = [];
-    for (let k = 0; k <= 24; k++) {
-      const t = k / 24;
-      const a = Math.PI * t;
-      const s = 0.9 - 0.9 * t - 0.4 * t * t;
-      const y = t < 0.5 ? U + (C + 0.8 - U) * Math.sin(a) : W - 0.32 + (C + 0.8 - (W - 0.32)) * Math.sin(a);
-      prof.push([s, y]);
-    }
-    const pts = prof.map(([s, y]) => {
-      const p = off(i, s);
+    const ctrl: [number, number][] = [
+      [sFoot, U],
+      [sFoot, U + 0.85],
+      [0.12, C + 0.8],
+      [sIn, C + 0.8],
+      [sIn, inTop],
+    ];
+    const pts = roundCorners(ctrl, 0.14, 6).map(([sd, y]) => {
+      const p = off(i, sd);
       return new Vector3(p.x, y, p.z);
     });
-    ctx.g(z, "chrome").add(tube(pts, 0.022, 10), undefined, "Pool grab rail");
-    const foot = off(i, 0.9);
-    ctx.g(z, "chrome").add(cylinder(0.05, 0.015, 14), xf(foot.x, U, foot.z), "Pool grab rail");
+    // the rail lies in a plane across the steps, so the line along them is a steady "up"
+    const along = tangentAt(L, i, true);
+    ctx.g(z, "chrome").add(sweep(circleProfile(0.022, 10), pts, { up: new Vector3(along.x, 0, along.z), caps: false, smooth: true }), undefined, "Pool grab rail");
+    for (const [sd, y] of [
+      [sFoot, U],
+      [sIn, inTop],
+    ]) {
+      const p = off(i, sd);
+      ctx.g(z, "chrome").add(cylinder(0.05, 0.015, 14), xf(p.x, y, p.z), "Pool grab rail");
+    }
   }
   const benchIdx = along(maxX - 4.4, maxX - 1.6);
   ctx.g(z, "poolTile").add(beam(at(benchIdx.map((i) => off(i, 0)), 0), 0.42, W - 0.48 - B, { offsetX: -0.21, offsetY: (W - 0.48 + B) / 2 }), undefined, "Submerged bench");
@@ -384,4 +400,29 @@ export function buildPool(ctx: WorldCtx): PoolInfo {
 
   const entry = off(stepIdx[Math.floor(stepIdx.length / 2)], wall + 1.0);
   return { pc, minX, maxX, minZ, maxZ, entry, corners };
+}
+
+/** Polyline through (s, y) points with each inner corner rounded off by a quadratic curve of radius about r. */
+function roundCorners(pts: [number, number][], r: number, n: number): [number, number][] {
+  const out: [number, number][] = [pts[0]];
+  for (let k = 1; k < pts.length - 1; k++) {
+    const [px, py] = pts[k - 1];
+    const [cx, cy] = pts[k];
+    const [nx, ny] = pts[k + 1];
+    const la = Math.hypot(cx - px, cy - py);
+    const lb = Math.hypot(nx - cx, ny - cy);
+    const ra = Math.min(r, la / 2);
+    const rb = Math.min(r, lb / 2);
+    const ax = cx + ((px - cx) / la) * ra;
+    const ay = cy + ((py - cy) / la) * ra;
+    const bx = cx + ((nx - cx) / lb) * rb;
+    const by = cy + ((ny - cy) / lb) * rb;
+    for (let j = 0; j <= n; j++) {
+      const t = j / n;
+      const u = 1 - t;
+      out.push([u * u * ax + 2 * u * t * cx + t * t * bx, u * u * ay + 2 * u * t * cy + t * t * by]);
+    }
+  }
+  out.push(pts[pts.length - 1]);
+  return out;
 }
