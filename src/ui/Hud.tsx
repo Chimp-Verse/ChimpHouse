@@ -52,6 +52,9 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         <button className="copy" onClick={() => void ctl.copyReport()}>
           Copy view details <kbd>P</kbd>
         </button>
+        <button className="copy" onClick={() => void ctl.downloadRoom()}>
+          Download this room (.glb)
+        </button>
       </div>
 
       {s.picked && (

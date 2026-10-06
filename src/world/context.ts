@@ -22,6 +22,11 @@ export interface MeshMeta {
   roomName: string;
   level: Level;
   labels: { face: number; label: string }[];
+  /** first face of each piece added to a merged mesh, and of those without a label of their own (see Geo.pieces) */
+  pieces?: number[];
+  loose?: number[];
+  /** each piece's turn about the vertical, NaN when unknown (see Geo.yaws) */
+  yaws?: number[];
   matKey: string;
   kind?: "leaves" | "special";
 }
@@ -120,6 +125,9 @@ export class WorldCtx {
     let p = this.parts.get(key);
     if (!p) {
       p = { geo: new Geo(), zone: z, mat, opts };
+      p.geo.pieces = [];
+      p.geo.loose = [];
+      p.geo.yaws = [];
       this.parts.set(key, p);
     }
     return p.geo;
@@ -317,7 +325,7 @@ export class WorldCtx {
       if (p.geo.vertexCount === 0) continue;
       const mesh = p.geo.build(`${p.zone.room}:${p.mat}`, this.scene);
       mesh.material = this.mats.get(p.mat);
-      mesh.metadata = { room: p.zone.room, roomName: p.zone.roomName, level: p.zone.level, labels: p.geo.labels, matKey: p.mat } satisfies MeshMeta;
+      mesh.metadata = { room: p.zone.room, roomName: p.zone.roomName, level: p.zone.level, labels: p.geo.labels, pieces: p.geo.pieces ?? undefined, loose: p.geo.loose ?? undefined, yaws: p.geo.yaws ?? undefined, matKey: p.mat } satisfies MeshMeta;
       mesh.receiveShadows = p.opts.receiveShadow !== false;
       mesh.isPickable = p.opts.pickable !== false;
       if (p.opts.castShadow !== false && p.mat !== "glass" && p.mat !== "glassRail" && p.mat !== "glassBooth") this.shadowCasters.push(mesh);

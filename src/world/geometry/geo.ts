@@ -2,6 +2,9 @@ import { Matrix, Mesh, Quaternion, Scene, Vector3, VertexData } from "@babylonjs
 import earcut from "earcut";
 import { P2, pathLength } from "./curves";
 
+/** Bumped whenever any Geo sets a label, so a piece can tell a label set for it from one its bucket was left with. */
+let labelEpoch = 0;
+
 /**
  * Geometry accumulator. Primitive builders produce small local Geos with
  * normals; rooms append them (transformed) into one Geo per material so the
@@ -18,6 +21,16 @@ export class Geo {
   col: number[] | null = null;
   idx: number[] = [];
   labels: { face: number; label: string }[] = [];
+  /** When set, the first face of every `add`: where each piece of a merged bucket starts, for export. */
+  pieces: number[] | null = null;
+  /**
+   * With `pieces`: the first faces of pieces added without a label of their own, which
+   * only inherit whatever label the bucket was last given (a pot's soil, a plant's stems).
+   */
+  loose: number[] | null = null;
+  /** With `pieces`: each piece's turn about the vertical from the transform it was added with (NaN without one), for export. */
+  yaws: number[] | null = null;
+  private labelledAt = -1;
 
   get vertexCount(): number {
     return this.pos.length / 3;
@@ -60,6 +73,7 @@ export class Geo {
   }
 
   setLabel(label: string): void {
+    this.labelledAt = ++labelEpoch;
     const face = this.faceCount;
     const last = this.labels[this.labels.length - 1];
     if (last && last.face === face) last.label = label;
@@ -76,6 +90,11 @@ export class Geo {
   /** Append another Geo, optionally transformed. */
   add(other: Geo, m?: Matrix, label?: string): this {
     if (label) this.setLabel(label);
+    if (this.pieces) {
+      this.pieces.push(this.faceCount);
+      this.yaws?.push(m ? yawOf(m) : NaN);
+      if (this.labelledAt !== labelEpoch && !other.labels.length) this.loose!.push(this.faceCount);
+    }
     const base = this.vertexCount;
     const p = new Vector3();
     const nm = m ? m.clone().invert().transpose() : null;
@@ -143,6 +162,18 @@ export class Geo {
 }
 
 // ---------------------------------------------------------------- transforms
+
+/**
+ * The turn about the vertical (radians, as xf's rotY) of a transform that keeps up as up,
+ * scaled or not; NaN when it tilts or mirrors.
+ */
+export function yawOf(m: Matrix): number {
+  const a = m.m; // rows: where the x, y and z axes go
+  const sx = Math.hypot(a[0], a[1], a[2]);
+  const sy = Math.hypot(a[4], a[5], a[6]);
+  if (!sx || !sy || Math.abs(a[1]) > 0.01 * sx || a[5] < 0.999 * sy || m.determinant() <= 0) return NaN;
+  return Math.atan2(-a[2], a[0]);
+}
 
 export function xf(
   x = 0,

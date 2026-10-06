@@ -70,6 +70,8 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `src/engine/` | Engine bootstrap, fly camera, walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state |
 | `public/textures/screens/` | Screen artwork extracted from the reference images |
 | `docs/plans/2026-10-02-blender-switch-plan.md` | The plan for moving the house into Blender once the layout is settled |
+| `src/engine/exportRoom.ts`, `tools/blender/` | Room export to glTF and the Blender import script, for the move to Blender |
+| `art/test/` | Output of the Blender round-trip test (not in git) |
 
 ## Tools
 
@@ -81,5 +83,10 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `node tools/plan-grid.mjs …` | Overlay a metre grid on the floor plan, for tracing footprints |
 | `node tools/px-grid.mjs …` | Overlay a pixel grid on a reference image, for locating screens |
 | `node tools/debug-view.mjs <view> <out.png> "<js>"` | With `npm run dev` running, open a viewpoint, run a snippet against the scene and screenshot it |
+| `node tools/export-room.mjs <room>` | With `npm run dev` running, export a room (an id from `ROOMS` in `layout.ts`) to `art/test/<room>.glb`. The preview's **Download this room** button does the same for the room you're in |
+| `node tools/audit-items.mjs [zone…]` | With `npm run dev` running, review how the export splits every room and zone into items and flag what looks wrong; the full item lists go to `art/test/item-audit.txt` |
+| `blender --background --factory-startup --python tools/blender/import_room.py -- <room.glb> <out.blend> [--render out.png]` | Build a Blender file from an exported room: Level › Room collections, quads and welded vertices rebuilt from glTF's triangles (so items can be reshaped), textures saved as PNGs beside it, the room's lights, the sun and its viewpoint camera |
+
+The export splits each room into one object per item (a sofa, a lamp, a planter with its plant), named from its inspect label, turned the way it was placed and with its origin at the centre of its base. Pieces built without a label of their own join the item they belong to; the export prints how it placed them, which is the place to look when an object comes out wrong. Blender lives at `/Applications/Blender.app/Contents/MacOS/Blender` on this Mac.
 
 The screen artwork (Yousef's stream thumbnail, community project screens, arcade art, MixChimp interface and the trading display) is cropped from the concept renders, so it carries their resolution and style. Replace the PNGs in `public/textures/screens/` with real assets when they are available.

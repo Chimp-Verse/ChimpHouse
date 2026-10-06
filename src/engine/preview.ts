@@ -2,7 +2,7 @@ import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Ve
 import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
-import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, lowerDeckLoop, upperDeckLoop } from "../world/layout";
+import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, RoomDef, lowerDeckLoop, upperDeckLoop } from "../world/layout";
 import { VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
@@ -20,6 +20,8 @@ export interface PreviewController {
   setPlanOverlay(v: boolean): void;
   setQuality(q: Quality): void;
   setWalking(v: boolean): void;
+  /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
+  downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
 }
 
@@ -50,6 +52,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const planOverlays = makePlanOverlays(scene);
   // walk mode's collision grid is built the first time it is switched on
   let walker: Walker | null = null;
+  /** while a room is being exported the scene isn't drawn */
+  let exporting = false;
 
   const applyVisibility = () => {
     const s = store.get();
@@ -114,6 +118,30 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       fly.walker = walker;
       store.set({ walking: true });
       flash("Walking at avatar height · F to fly");
+    },
+    async downloadRoom(id) {
+      const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
+      if (!room) {
+        flash("Fly into a room to download it");
+        return;
+      }
+      flash(`Exporting ${room.name}…`);
+      const { exportRoom } = await import("./exportRoom");
+      // the exporter reads textures back from the GPU a frame at a time: with the scene
+      // still drawing every frame that takes tens of seconds, paused about one
+      exporting = true;
+      let blob: Blob;
+      try {
+        blob = await exportRoom(scene, room.id, world.ctx.lights);
+      } finally {
+        exporting = false;
+      }
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `${room.id}.glb`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      flash(`Downloaded ${room.id}.glb (${(blob.size / 1e6).toFixed(1)} MB)`);
     },
     async copyReport() {
       const text = report();
@@ -246,6 +274,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     setNight: (n: boolean) => controller.setNight(n),
     setPose: (p: Parameters<typeof fly.setPose>[0]) => fly.setPose(p),
     setWalking: (v: boolean) => controller.setWalking(v),
+    downloadRoom: (id: string) => controller.downloadRoom(id),
+    auditZone: async (id: string, level?: string) => (await import("./exportRoom")).auditZone(scene, id, level),
+    zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
     walker: () => fly.walker,
     info: () => ({
       fps: Math.round(engine.getFps()),
@@ -265,6 +296,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   let hudTimer = 0;
   let frames = 0;
   engine.runRenderLoop(() => {
+    if (exporting) return;
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
     t += dt;
     fly.update(dt);
@@ -303,13 +335,23 @@ function round1(v: number) {
   return Math.round(v * 10) / 10;
 }
 
+/** The level containing height y, if inside the house's height. */
+function levelAt(y: number): "lower" | "upper" | null {
+  return y < LEVEL.lowerCeil + 0.2 ? "lower" : y < LEVEL.roof ? "upper" : null;
+}
+
+/** The room containing p, if any. */
+function roomAt(p: Vector3): RoomDef | null {
+  const level = levelAt(p.y);
+  return ROOMS.find((r) => r.level === level && pointInPolygon({ x: p.x, z: p.z }, r.loop)) ?? null;
+}
+
 /** Name of the area containing p. */
 function locate(p: Vector3): string {
-  const level = p.y < LEVEL.lowerCeil + 0.2 ? "lower" : p.y < LEVEL.roof ? "upper" : null;
+  const level = levelAt(p.y);
   if (level) {
-    for (const r of ROOMS) {
-      if (r.level === level && pointInPolygon({ x: p.x, z: p.z }, r.loop)) return `${level === "lower" ? "Lower" : "Upper"} · ${r.name}`;
-    }
+    const r = roomAt(p);
+    if (r) return `${level === "lower" ? "Lower" : "Upper"} · ${r.name}`;
     if (level === "lower" && pointInPolygon({ x: p.x, z: p.z }, lowerDeckLoop)) return "Lower · Deck";
     if (level === "upper" && pointInPolygon({ x: p.x, z: p.z }, upperDeckLoop)) return "Upper · Deck & balcony";
   }
