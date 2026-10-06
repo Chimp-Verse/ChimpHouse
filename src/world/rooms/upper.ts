@@ -297,36 +297,44 @@ function clearOfRoom(loop: P2[], zLine: number, fromX: number, dirX: number): nu
 function buildTheatre(ctx: WorldCtx) {
   const z = zone("theatre", "upper");
   const r = rng(81);
-  const { c, x0, x1, z0, z1 } = THEATRE;
+  const { c, x0, x1, z0 } = THEATRE;
   const wx = x1 - 0.1; // screen wall face
   const cz = c.z;
 
-  // ---- screen wall: slats, screen with warm backlight, proscenium, curtains
-  ctx.g(z, "panelHoney").add(box(0.1, UC - U, z1 - z0 - 0.6), xf(wx + 0.05, U + (UC - U) / 2, cz), "Screen wall (timber slats)");
+  // ---- screen wall: slats, screen with warm backlight, proscenium, curtains.
+  // The room's north-east corner is rounded, so at the wall it reaches only 2.4 m north of
+  // the seats' centre line (4.7 m south). Everything stays centred on the seats: the screen
+  // stands a little off the slats, and the proscenium frame, curtains and speakers stand
+  // forward of the wall, where the room is wide enough for them on both sides.
+  const [slat0, slat1] = zSpanAt(THEATRE.loop, wx);
+  ctx.g(z, "panelHoney").add(box(0.1, UC - U, slat1 - slat0 - 0.06), xf(wx + 0.05, U + (UC - U) / 2, (slat0 + slat1) / 2), "Screen wall (timber slats)");
   const sw = 5.0;
   const sh = 2.81;
   const sy = U + 2.75;
-  screenPanel(ctx, z, xf(wx - 0.05, sy, cz, faceYaw(-1, 0)), sw, sh, screenMat(ctx, "theatre-stream", 1.15), { bezel: 0.07, depth: 0.08, label: "Theatre screen (Yousef’s stream)" });
+  const sx = wx - 0.2; // screen plane
+  screenPanel(ctx, z, xf(sx, sy, cz, faceYaw(-1, 0)), sw, sh, screenMat(ctx, "theatre-stream", 1.15), { bezel: 0.07, depth: 0.08, label: "Theatre screen (Yousef’s stream)" });
   const glow = [
     [cz - sw / 2 - 0.12, sy - sh / 2 - 0.12],
     [cz - sw / 2 - 0.12, sy + sh / 2 + 0.12],
     [cz + sw / 2 + 0.12, sy + sh / 2 + 0.12],
     [cz + sw / 2 + 0.12, sy - sh / 2 - 0.12],
-  ].map(([zz, y]) => new Vector3(wx - 0.02, y, zz));
+  ].map(([zz, y]) => new Vector3(sx + 0.03, y, zz));
   ledStrip(ctx, z, [...glow, glow[0]], "amberStrip", 0.025, new Vector3(1, 0, 0));
-  for (const s of [-1, 1]) speaker(ctx, z, xf(wx - 0.3, U, cz + s * 3.05, faceYaw(-1, 0)), 0.44, 1.8, 0.42);
-  // proscenium: glulam pilasters and head with mint strips on their inner faces
-  const pz = 4.55;
+  // proscenium: a glulam frame of pilasters and head standing forward of the wall, with
+  // mint strips on its inner faces; the curtains hang just behind it, the speakers in front
+  const px = wx - 0.85; // frame centre plane (0.3 m deep)
+  const pz = 3.4; // pilaster centres from the centre line
   const pro = ctx.g(z, "glulam");
   pro.setLabel("Screen proscenium");
   for (const s of [-1, 1]) {
-    pro.add(box(0.28, UC - U, 0.32), xf(wx - 0.14, U + (UC - U) / 2, cz + s * pz));
-    ledStrip(ctx, z, [new Vector3(wx - 0.3, U + 0.05, cz + s * (pz - 0.17)), new Vector3(wx - 0.3, UC - 0.45, cz + s * (pz - 0.17))], "mint", 0.035, new Vector3(1, 0, 0));
+    pro.add(box(0.3, UC - U, 0.32), xf(px, U + (UC - U) / 2, cz + s * pz));
+    ledStrip(ctx, z, [new Vector3(px - 0.12, U + 0.05, cz + s * (pz - 0.17)), new Vector3(px - 0.12, UC - 0.45, cz + s * (pz - 0.17))], "mint", 0.035, new Vector3(1, 0, 0));
   }
-  pro.add(box(0.32, 0.4, pz * 2 + 0.32), xf(wx - 0.16, UC - 0.2, cz));
-  ledStrip(ctx, z, [new Vector3(wx - 0.33, UC - 0.42, cz - pz + 0.1), new Vector3(wx - 0.33, UC - 0.42, cz + pz - 0.1)], "mint", 0.035);
+  pro.add(box(0.32, 0.4, pz * 2 + 0.32), xf(px, UC - 0.2, cz), "Screen proscenium");
+  ledStrip(ctx, z, [new Vector3(px - 0.17, UC - 0.42, cz - pz + 0.1), new Vector3(px - 0.17, UC - 0.42, cz + pz - 0.1)], "mint", 0.035);
   if (!ctx.mats.has("velvet")) ctx.mats.pbr("velvet", { color: "#7a261b", tex: ctx.mats.textures.fabric, rough: 0.95 });
-  for (const s of [-1, 1]) curtain(ctx, z, wx - 0.24, cz + s * 3.42, cz + s * 4.36, U + 0.02, UC - 0.4);
+  for (const s of [-1, 1]) curtain(ctx, z, wx - 0.6, cz + s * 2.62, cz + s * 3.2, U + 0.02, UC - 0.4);
+  for (const s of [-1, 1]) speaker(ctx, z, xf(wx - 0.95, U, cz + s * 2.85, faceYaw(-1, 0)), 0.44, 1.8, 0.42);
   // media console with under-glow, centre speaker, small plants and lanterns
   ctx.g(z, "panelHoney").add(box(0.5, 0.48, 5.2), xf(wx - 0.35, U + 0.24, cz), "Media console");
   ctx.g(z, "timber").add(box(0.54, 0.04, 5.24), xf(wx - 0.35, U + 0.5, cz), "Media console");
@@ -334,7 +342,7 @@ function buildTheatre(ctx: WorldCtx) {
   ctx.g(z, "black").add(box(0.3, 0.1, 0.42), xf(wx - 0.4, U + 0.57, cz - 0.9), "AV receiver");
   ctx.g(z, "black").add(box(0.3, 0.08, 0.36), xf(wx - 0.4, U + 0.56, cz + 0.9), "Game console");
   ctx.g(z, "black").add(box(0.3, 0.16, 0.9), xf(wx - 0.4, U + 0.6, cz), "Centre speaker");
-  ctx.g(z, "black").add(box(0.45, 0.45, 0.45), xf(wx - 0.5, U + 0.225, cz + 3.02 - 0.75), "Subwoofer");
+  ctx.g(z, "black").add(box(0.45, 0.45, 0.45), xf(wx - 0.95, U + 0.225, cz + 2.2), "Subwoofer");
   for (const s of [-1, 1]) {
     pottedPlant(ctx, z, new Vector3(wx - 0.38, U + 0.52, cz + s * 2.2), "fern", { pot: "terracotta", potR: 0.12, potH: 0.18, scale: 0.55, r });
     candle(ctx, z, new Vector3(wx - 0.4, U + 0.52, cz + s * 1.6));
@@ -437,8 +445,8 @@ function buildTheatre(ctx: WorldCtx) {
   }
 
   // ---- pendants, plants
-  wovenPendant(ctx, z, new Vector3(x1 - 1.4, UC, z0 + 0.8), 0.24, 1.4);
-  wovenPendant(ctx, z, new Vector3(x1 - 1.4, UC, z1 - 0.8), 0.24, 1.4);
+  // either side of the screen, clear of the rounded north-east glazing
+  for (const s of [-1, 1]) wovenPendant(ctx, z, new Vector3(x1 - 1.4, UC, cz + s * 3.8), 0.24, 1.4);
   for (const deg of [132, 228]) {
     const p = arcDeg(c.x, c.z, THEATRE.r - 0.55, deg, deg, 1)[0];
     pottedPlant(ctx, z, new Vector3(p.x, U, p.z), deg < 180 ? "monstera" : "palm", { pot: "cream", potR: 0.28, potH: 0.5, scale: 1.3, r });
@@ -449,6 +457,21 @@ function buildTheatre(ctx: WorldCtx) {
   roomLight(ctx, "theatre", "upper", new Vector3(S.x - Rf - 1.5, U + 3.6, cz), 2.2, 8, 11);
   roomLight(ctx, "theatre", "upper", new Vector3(wx - 1.2, U + 1.5, cz), 1.2, 4, 6, "#c8d8ff");
   roomLight(ctx, "theatre", "upper", new Vector3(x0 + 1.8, U + 2.4, cz), 1.5, 5, 6);
+}
+
+/** The z range a closed plan outline covers along the line at x. */
+function zSpanAt(loop: P2[], x: number): [number, number] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    if ((a.x - x) * (b.x - x) > 0 || a.x === b.x) continue;
+    const zz = a.z + ((x - a.x) / (b.x - a.x)) * (b.z - a.z);
+    lo = Math.min(lo, zz);
+    hi = Math.max(hi, zz);
+  }
+  return [lo, hi];
 }
 
 /** Gathered stage curtain hanging in the plane x = x, between z = za and z = zb. */
