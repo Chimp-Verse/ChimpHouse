@@ -16,14 +16,14 @@ Script an edit by running Blender headless on the file that owns it (`/Applicati
 
 The house is live, not a fixed scene (the plan's "Dynamic rooms and the order of work" section has the detail):
 
-- **Arcade cabinets** in the ChimpVibe Game Room follow ChimpVibe's live catalogue, and anyone can walk up to one and play its game on the cabinet.
+- **Arcade cabinets** in the ChimpVibe Game Room hold the ChimpVibe games that moderators admit to ChimpHouse (a chosen selection, not every new game), and anyone can walk up to one and play its game on the cabinet. Each game gets a cabinet of its own, modelled for it by an AI in Blender after the cut-over. Until then every cabinet is one shared basic design built in code, showing its game's name, colours and art; afterwards that design is the stand-in for a newly admitted game whose own cabinet isn't made yet.
 - **The Game Room's TV** plays any ChimpVibe game somebody loads onto it, live.
 - **The theatre screen** shows YouTube videos and streams that everyone watches together.
 
 These are built on the code world before the Blender cut-over, and built to survive it:
 
 - Attach behaviour by **role** and **slot**: the client finds "the theatre screen" or "cabinet slot 3" through metadata on the object, which the Blender files will carry too, never through how the code happens to build it. Give each new screen, slot or interactive spot its role in the code that creates it.
-- Keep dynamic things as runtime data: the cabinet lineup and each cabinet's art come from the ChimpVibe catalogue, screen images are placeholders, and video and game content loads when someone uses it.
+- Keep dynamic things as runtime data: the list of admitted games and each game's art come from ChimpVibe, screen images are placeholders, and video and game content loads when someone uses it.
 - Show another site's content (a YouTube player, a game hosted on ChimpVibe's site) as an overlay lined up with its screen or in a panel: browsers don't let it be drawn onto a 3D surface. Content running in ChimpVerse's own page can be drawn onto the screen.
 
 ## Committing Git LFS files

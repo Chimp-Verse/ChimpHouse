@@ -2,7 +2,7 @@
 
 Plan date: 2026-10-02.
 
-Online version: [Claude Doc](https://claude.ai/code/artifact/d11d966c-c4b3-45e7-9596-8978ce86d9ce), with the two diagrams this file writes out as lists. The two were brought in step on 2026-10-05; when one changes, update the other.
+Online version: [Claude Doc](https://claude.ai/code/artifact/d11d966c-c4b3-45e7-9596-8978ce86d9ce), with the two diagrams this file writes out as lists. The two were brought in step on 2026-10-06; when one changes, update the other.
 
 Status (2026-10-05): phases 1 to 3 done, phases 4 and 5 deferred. The theatre round trip passed Gate 1, and the whole house builds into `art/`: a file per room in `art/rooms/`, the material library `art/materials.blend`, and the master `art/ChimpHouse.blend` linking them. The house's interactive features come next, built on the code world (see [Dynamic rooms](#dynamic-rooms-and-the-order-of-work)); phases 4 and 5 follow once they have settled. Until the cut-over, the code in `src/world/` is the master copy, `art/` is rebuilt from it, and the generated files stay out of git.
 
@@ -18,15 +18,16 @@ Decision (2026-10-05): build the house's interactive features on the code world 
 
 Parts of the house are live rather than fixed:
 
-- **Arcade cabinets** in the ChimpVibe Game Room follow ChimpVibe's live catalogue: cabinets are added as games are, and anyone can walk up to one and play its game on the cabinet.
+- **Arcade cabinets** in the ChimpVibe Game Room hold the ChimpVibe games that moderators admit to ChimpHouse, a chosen selection rather than every new game, and anyone can walk up to one and play its game on the cabinet. Each game gets a cabinet of its own.
 - **The Game Room's TV** plays any ChimpVibe game that somebody loads onto it, live.
 - **The theatre screen** shows YouTube videos and streams, chosen at any time and watched by everyone together.
 
 Blender only supplies the static look; playing games and videos is behaviour of the browser client in either world. What the features change is what the Blender files hold:
 
-1. **Slots instead of fixed items.** The Game Room's file holds named cabinet slots (a position and facing), not the current cabinets. The cabinet is one reusable asset, in a few styles, placed by the client per catalogue entry and given that game's art from the catalogue. Anything else that is added or removed at run time works the same way.
-2. **Screens with roles.** The theatre screen, the TV and each cabinet screen are surfaces with a role and a clean 0 to 1 texture layout, so the client knows where to show a video or game. Their images are placeholders. Blender's glTF export carries roles and slots as custom properties, as the code export carries labels today.
-3. **Features before the cut-over.** Building the features settles what is dynamic, how many slots there are, screen sizes and where people stand to play. The cut-over then splits each room into a static shell and its slots, and features that find things by role and slot carry over unchanged.
+1. **Slots instead of fixed items.** The Game Room's file holds named cabinet slots (a position and facing), not the current cabinets, so admitting or removing a game doesn't change the room. Anything else that is added or removed at run time works the same way.
+2. **A unique cabinet per game.** Each admitted game gets a cabinet designed for it alone: an AI models it in Blender, using a Blender skill, and places it in a slot. The model is its own file, tied to the game's permanent ChimpVibe ID. That approach starts after the cut-over (phase 5). Until then every cabinet is one shared basic design built in code, showing its game's name, colours and artwork from ChimpVibe. Afterwards the shared design stays as the stand-in: a newly admitted game appears in it straight away, and its own cabinet replaces it once modelled and placed.
+3. **Screens with roles.** The theatre screen, the TV and each cabinet screen are surfaces with a role and a clean 0 to 1 texture layout, so the client knows where to show a video or game. Their images are placeholders. Blender's glTF export carries roles and slots as custom properties, as the code export carries labels today.
+4. **Features before the cut-over.** Building the features settles what is dynamic, how many slots there are, screen sizes and where people stand to play. The cut-over then splits each room into a static shell and its slots, and features that find things by role and slot carry over unchanged.
 
 One constraint shapes how screens show content: browsers don't let a page draw another site's content (a YouTube player, a game hosted on ChimpVibe's own site) onto a 3D surface. The usual answers are an overlay of the real player or game lined up with the screen, or a panel opened when someone uses the activity, which the [tech-stack research](../research/2026-10-01-chimpverse-technology-stack.md) also recommends. Games that ChimpVerse runs in its own page can be drawn onto the screen directly; how ChimpVibe games are delivered to ChimpVerse is a decision for when the arcade is built. Others watching a player see a live video of the player's screen, or their own copy of the game kept in step. Theatre playback is kept in step by the room server sharing which video and the time.
 
@@ -50,7 +51,7 @@ Switch once the big decisions stop changing. Tick these off as they settle:
 - [ ] Materials and colours are agreed for the main surfaces
 - [ ] Day and night lighting moods are agreed as a reference
 - [ ] The reference viewpoints match the concept art closely enough to guide an artist
-- [ ] The interactive features work on the code world: cabinets from the live catalogue, play at a cabinet and on the TV, theatre playback
+- [ ] The interactive features work on the code world: cabinets for the admitted games, play at a cabinet and on the TV, theatre playback
 - [ ] Slots and screen roles are settled: cabinet positions, screen sizes, where people stand to play or watch
 
 Not worth polishing in code first: small props (cans, jars, books), plant variety, cushion and sofa shapes, and textures. Fix these only when they are wrong or confusing, because they will be rebuilt in Blender.
@@ -80,7 +81,7 @@ Shapes, materials and textures come across; lighting, sky and screen effects are
 | Materials | Mostly | Become standard Blender materials; glass, metal and glowing strips keep their look, fabric may need retouching |
 | Textures | Yes, as images | Code-painted textures are saved as image files that artists can repaint or replace |
 | Screen artwork | As placeholders | The theatre screen, TV and cabinet screens become surfaces with roles; video and game content is shown by the client at run time |
-| Arcade cabinets | As an asset | One cabinet model in a few styles, placed by the client per catalogue entry; the Game Room holds the slots |
+| Arcade cabinets | As a stand-in | The shared coded cabinet becomes the stand-in; each admitted game then gets its own cabinet model, and the Game Room holds the slots |
 | Plants and vines | Partly | Thousands of leaf copies; likely simplified or replaced with proper plant assets |
 | Terrain and distant jungle | Partly | The terrain mesh exports; the distant jungle may stay generated in the game |
 | Lights | Rebuilt | Sun, room lights and lanterns are set up again in Blender |

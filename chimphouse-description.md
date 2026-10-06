@@ -103,7 +103,7 @@ The cabinet lineup shown in the concept includes:
 - Panda Badminton
 - Yousef’s Boom
 
-Each machine has its own illuminated marquee, screen, controls, and artwork. Together they form colourful rows along the room’s perimeter, with space for players and spectators. The cabinet lineup in the game should follow ChimpVibe’s live catalogue as it changes.
+Each machine has its own illuminated marquee, screen, controls, and artwork. Together they form colourful rows along the room’s perimeter, with space for players and spectators. The cabinet lineup in the game shows the ChimpVibe games that moderators admit to ChimpHouse, a chosen selection rather than every new game, and each game gets a cabinet designed for it alone.
 
 A separate console area provides a shared way to play. A curved teal sofa and low table face a large television, with game controllers and console equipment nearby. This arrangement makes the television part of the seating group and supports both players and people watching them.
 
