@@ -2,7 +2,7 @@
 
 Plan date: 2026-10-02.
 
-Online version: [Claude Doc](https://claude.ai/code/artifact/d11d966c-c4b3-45e7-9596-8978ce86d9ce), with the two diagrams this file writes out as lists. This file was updated on 2026-10-05 with the progress and the dynamic-rooms decision below; the online version predates them.
+Online version: [Claude Doc](https://claude.ai/code/artifact/d11d966c-c4b3-45e7-9596-8978ce86d9ce), with the two diagrams this file writes out as lists. The two were brought in step on 2026-10-05; when one changes, update the other.
 
 Status (2026-10-05): phases 1 to 3 done, phases 4 and 5 deferred. The theatre round trip passed Gate 1, and the whole house builds into `art/`: a file per room in `art/rooms/`, the material library `art/materials.blend`, and the master `art/ChimpHouse.blend` linking them. The house's interactive features come next, built on the code world (see [Dynamic rooms](#dynamic-rooms-and-the-order-of-work)); phases 4 and 5 follow once they have settled. Until the cut-over, the code in `src/world/` is the master copy, `art/` is rebuilt from it, and the generated files stay out of git.
 
