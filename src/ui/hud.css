@@ -367,3 +367,109 @@ kbd {
   font-weight: 600;
   cursor: pointer;
 }
+
+/* ------------------------------------------------ arcade */
+
+.play-prompt {
+  position: absolute;
+  left: 50%;
+  top: 62%;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid rgba(111, 247, 198, 0.45);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.play-prompt kbd {
+  margin-right: 8px;
+  background: var(--mint);
+  color: #0d2a22;
+}
+
+.play-prompt span {
+  color: var(--muted);
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.play-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.play-frame {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 960px;
+  height: 600px;
+  border: 0;
+  background: #000;
+  visibility: hidden;
+  pointer-events: auto;
+}
+
+.play-frame.shown {
+  visibility: visible;
+}
+
+.play-ring {
+  position: fixed;
+  border: 2px solid rgba(111, 247, 198, 0.55);
+  border-radius: 8px;
+  box-shadow: 0 0 24px rgba(111, 247, 198, 0.25);
+}
+
+.play-bar {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.play-bar.top .name {
+  font-family: "Nunito", sans-serif;
+  font-weight: 800;
+  font-size: 20px;
+  color: var(--ink);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+}
+
+.play-bar .by,
+.play-bar .play-hint {
+  color: var(--muted);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.play-bar .status {
+  margin-left: auto;
+  color: var(--amber);
+}
+
+.play-bar.bottom {
+  justify-content: space-between;
+}
+
+.play-bar .leave {
+  background: var(--amber);
+  color: #2a1606;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 22px;
+  font: 700 13px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.play-bar .leave:hover {
+  background: #ffc78a;
+}

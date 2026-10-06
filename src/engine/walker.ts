@@ -54,7 +54,8 @@ export class Walker {
   private cp = new Float64Array(3);
   private under = emptyProbe();
 
-  constructor(private world: CollisionWorld) {}
+  /** the house's solid triangles; replaced when cabinets come or go */
+  constructor(public world: CollisionWorld) {}
 
   /** Eye height for the camera, eased over steps. */
   get eyeY(): number {

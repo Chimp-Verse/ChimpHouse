@@ -1,9 +1,8 @@
-// Screens and equipment: monitors, TVs, speakers, projector, arcade cabinets,
-// task chairs, keyboards, consoles.
+// Screens and equipment: monitors, TVs, speakers, projector (arcade cabinets
+// are in cabinet.ts), task chairs, keyboards, consoles.
 
 import { Matrix, Vector3 } from "@babylonjs/core";
-import { Geo, beam, box, cylinder, lathe, plane, slab, softBox, xf } from "../geometry/geo";
-import { ensureCCW } from "../geometry/curves";
+import { beam, box, cylinder, lathe, plane, softBox, xf } from "../geometry/geo";
 import { WorldCtx, Zone } from "../context";
 import { loadImageTexture } from "../materials/library";
 import { makeCanvas, toTexture } from "../materials/canvas";
@@ -68,49 +67,6 @@ export function speaker(ctx: WorldCtx, z: Zone, m: Matrix, w: number, h: number,
     const y = h * ((i + 0.5) / n);
     cones.add(lathe([[w * 0.36, 0], [w * 0.3, 0.02], [w * 0.08, 0.05], [0.001, 0.05]], 20), xf(0, y, -d / 2 - 0.001, 0, 1, 1, 1, Math.PI / 2).multiply(m), "Speaker");
   }
-}
-
-export type CabinetStyle = { side: string; trim: string };
-
-/** Upright arcade cabinet facing -Z, base at m. */
-export function arcadeCabinet(ctx: WorldCtx, z: Zone, m: Matrix, marquee: string, screen: string, style: CabinetStyle, label: string): void {
-  const W = 0.72;
-  // side panel profile in (depth, height); front faces -Z, control deck juts forward
-  const prof = ensureCCW([
-    { x: 0.0, z: 0.0 },
-    { x: 0.62, z: 0.0 },
-    { x: 0.62, z: 1.9 },
-    { x: -0.02, z: 1.9 },
-    { x: -0.02, z: 1.66 },
-    { x: -0.1, z: 1.62 },
-    { x: -0.12, z: 1.06 },
-    { x: -0.22, z: 0.98 },
-    { x: 0.0, z: 0.92 },
-  ]);
-  // permutation: slab (x, y, z) -> world (y, z, x): extrusion axis becomes width
-  const perm = Matrix.FromValues(0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1);
-  const body = new Geo();
-  for (const sx of [-W / 2, W / 2]) body.add(slab(prof, sx - 0.02, sx + 0.02), perm);
-  ctx.g(z, style.side).add(body, m, label);
-  // inner box
-  const inner = new Geo();
-  inner.add(box(W - 0.06, 0.92, 0.6), xf(0, 0.46, 0.31));
-  inner.add(box(W - 0.06, 0.06, 0.32), xf(0, 0.98, 0.0, 0, 1, 1, 1, -0.25));
-  inner.add(box(W - 0.06, 0.25, 0.5), xf(0, 1.78, 0.33));
-  inner.add(box(W - 0.06, 1.0, 0.1), xf(0, 1.35, 0.6));
-  ctx.g(z, "black").add(inner, m, label);
-  // trim strips (neon edge)
-  ctx.g(z, style.trim, { castShadow: false }).add(box(0.015, 1.9, 0.015), xf(-W / 2 - 0.022, 0.95, -0.005).multiply(m), label);
-  ctx.g(z, style.trim, { castShadow: false }).add(box(0.015, 1.9, 0.015), xf(W / 2 + 0.022, 0.95, -0.005).multiply(m), label);
-  // controls
-  const ctl = ctx.g(z, "red");
-  ctl.add(cylinder(0.012, 0.08, 6), xf(-0.15, 1.0, -0.12).multiply(m), label);
-  ctl.add(lathe([[0.001, 0], [0.025, 0.01], [0.022, 0.035], [0.001, 0.04]], 10), xf(-0.15, 1.08, -0.12).multiply(m), label);
-  const btn = ctx.g(z, "bulb", { castShadow: false });
-  for (let i = 0; i < 4; i++) btn.add(cylinder(0.018, 0.02, 10), xf(0.0 + i * 0.065, 1.0, -0.1 - (i % 2) * 0.03).multiply(m));
-  // screen (tilted back) and marquee
-  screenPanel(ctx, z, xf(0, 1.34, 0.03, 0, 1, 1, 1, -0.12).multiply(m), W - 0.12, 0.5, screen, { bezel: 0.02, depth: 0.02, label });
-  ctx.g(z, marquee, { castShadow: false }).add(plane(W - 0.04, 0.24), xf(0, 1.78, -0.03).multiply(m), label);
 }
 
 /** Mesh task chair (5-star base). Seat facing -Z, base at m. */

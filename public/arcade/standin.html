@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stand-in game</title>
+    <!--
+      A same-origin stand-in for a ChimpVibe game, for testing the arcade cabinets
+      before ChimpVibe lets ChimpHouse frame its games (?arcade=standin, and
+      tools/test-arcade.mjs). It shows the keys it receives and whether it has
+      the keyboard, and keeps them in window.received for the test to read.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: radial-gradient(circle at 50% 40%, #2c1f4a, #0c0a14 75%);
+        color: #e9e3ff;
+        font: 600 16px/1.4 system-ui, sans-serif;
+        overflow: hidden;
+      }
+      main {
+        height: 100%;
+        display: grid;
+        place-items: center;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 0.3em;
+        font-size: clamp(18px, 6vw, 48px);
+        color: #7cf2c3;
+      }
+      #focus {
+        font-size: 0.85em;
+        padding: 0.2em 0.7em;
+        border-radius: 999px;
+        background: #3a2a24;
+        color: #ffb25e;
+      }
+      #focus.on {
+        background: #173a2c;
+        color: #7cf2c3;
+      }
+      #keys {
+        margin-top: 0.8em;
+        min-height: 2.6em;
+        font: 700 clamp(14px, 4vw, 30px) ui-monospace, monospace;
+        letter-spacing: 0.08em;
+        word-break: break-all;
+        max-width: 90vw;
+      }
+      #count {
+        opacity: 0.7;
+        font-size: 0.8em;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div>
+        <h1 id="name">Stand-in game</h1>
+        <span id="focus">no keyboard: click here</span>
+        <div id="keys">press some keys</div>
+        <div id="count">0 keys received</div>
+      </div>
+    </main>
+    <script>
+      const name = new URLSearchParams(location.search).get("game");
+      if (name) document.getElementById("name").textContent = name;
+      window.received = [];
+      const keys = document.getElementById("keys");
+      const count = document.getElementById("count");
+      const focus = document.getElementById("focus");
+      addEventListener("keydown", (e) => {
+        window.received.push(e.code);
+        keys.textContent = window.received.slice(-16).map((c) => c.replace(/^Key|^Digit/, "")).join(" ");
+        count.textContent = `${window.received.length} keys received`;
+        // a game keeps its keys: Space and the arrows don't scroll anything
+        e.preventDefault();
+      });
+      const showFocus = () => {
+        const on = document.hasFocus();
+        focus.textContent = on ? "has the keyboard" : "no keyboard: click here";
+        focus.classList.toggle("on", on);
+      };
+      addEventListener("focus", showFocus);
+      addEventListener("blur", showFocus);
+      showFocus();
+      // the optional messages ChimpVibe's play page may send its parent
+      parent.postMessage({ type: "ready" }, location.origin);
+    </script>
+  </body>
+</html>

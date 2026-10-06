@@ -1,4 +1,4 @@
-import { AbstractMesh, Matrix, Mesh, Scene, Vector3 } from "@babylonjs/core";
+import { AbstractMesh, Matrix, Mesh, Quaternion, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { Geo } from "./geometry/geo";
 import { Leaf, LEAF_ASPECT, leafUV } from "./materials/leaves";
 import { Materials } from "./materials/library";
@@ -28,7 +28,28 @@ export interface MeshMeta {
   /** each piece's turn about the vertical, NaN when unknown (see Geo.yaws) */
   yaws?: number[];
   matKey: string;
-  kind?: "leaves" | "special";
+  /** "dynamic": added and removed at run time (a game's cabinet), so solid but never part of the room's export */
+  kind?: "leaves" | "special" | "dynamic";
+  /** what the client attaches behaviour to (see roles.ts), with its slot number when it fills one */
+  role?: string;
+  slot?: number;
+}
+
+/**
+ * A named place in a room that is filled at run time (a cabinet slot): an empty
+ * node at the place, turned the way its contents face (-Z, as items are built).
+ * The client finds it by role and slot number alone; the room export carries the
+ * same fields, so the Blender files hold the slots instead of what fills them.
+ */
+export interface SlotMeta {
+  role: string;
+  slot: number;
+  room: string;
+  roomName: string;
+  level: Level;
+  label: string;
+  /** where a visitor stands to use what fills the slot: a floor point in the slot's own space (its front is -Z) */
+  stand: [number, number, number];
 }
 
 const ROOM_NAMES: Record<string, string> = {
@@ -110,6 +131,8 @@ export class WorldCtx {
   readonly glowMeshes: Mesh[] = [];
   readonly animators: ((t: number, dt: number) => void)[] = [];
   readonly lights: LightDef[] = [];
+  /** slots filled at run time (see `slot`) */
+  readonly slots: TransformNode[] = [];
   /** meshes that only show at night (e.g. fireflies) or day */
   readonly nightOnly: Mesh[] = [];
   private leafBase = new Map<Leaf, Geo>();
@@ -148,6 +171,17 @@ export class WorldCtx {
     if (opts.glow) this.glowMeshes.push(mesh);
     this.meshes.push(mesh);
     return mesh;
+  }
+
+  /** Add a slot: an empty node at m (position and turn) with its role and number, filled at run time; `stand` is in its own space. */
+  slot(z: Zone, role: string, n: number, m: Matrix, stand: Vector3, label: string): TransformNode {
+    const node = new TransformNode(label, this.scene);
+    const q = new Quaternion();
+    m.decompose(undefined, q, node.position);
+    node.rotationQuaternion = q;
+    node.metadata = { role, slot: n, room: z.room, roomName: z.roomName, level: z.level, label, stand: [stand.x, stand.y, stand.z] } satisfies SlotMeta;
+    this.slots.push(node);
+    return node;
   }
 
   private extraFence: { a: { x: number; z: number }; b: { x: number; z: number }; x0: number; x1: number; z0: number; z1: number; y0?: number; y1?: number }[] | null = null;

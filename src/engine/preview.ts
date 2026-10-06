@@ -11,6 +11,8 @@ import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
 import { CollisionWorld } from "./collision";
 import { Walker } from "./walker";
+import { Arcade } from "./arcade";
+import { loadGameList } from "./gameList";
 
 export interface PreviewController {
   goTo(id: string): void;
@@ -20,6 +22,9 @@ export interface PreviewController {
   setPlanOverlay(v: boolean): void;
   setQuality(q: Quality): void;
   setWalking(v: boolean): void;
+  /** Play the game at the cabinet in a slot (walk mode), or leave it. */
+  useCabinet(slot: number): Promise<boolean>;
+  leaveCabinet(): Promise<void>;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -37,6 +42,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
   const fly = new FlyCamera(scene, canvas);
+  // the arcade's game list loads while the house builds
+  const gameList = loadGameList();
 
   const world: World = await buildWorld(scene, async (f, msg) => {
     store.set({ progress: f, message: msg });
@@ -45,6 +52,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const lighting = new Lighting(scene, world.sky);
   lighting.attach(world.ctx);
   const post = new PostFx(scene, fly.camera);
+  // cabinets for the admitted games; the walker's collisions are rebuilt when they come or go
+  const arcade = new Arcade(scene, world.mats, lighting, fly, canvas, () => {
+    if (walker) walker.world = new CollisionWorld(scene);
+  });
+  const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
   const upper = levelMeshes("upper");
@@ -94,6 +106,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       post.setQuality(q);
     },
     setWalking(v) {
+      if (store.get().playing) return;
       if (!v) {
         fly.walker = null;
         store.set({ walking: false, blocked: null });
@@ -119,6 +132,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       store.set({ walking: true });
       flash("Walking at avatar height · F to fly");
     },
+    useCabinet: (slot) => arcade.use(slot),
+    leaveCabinet: () => arcade.leave(),
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -225,8 +240,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   window.addEventListener("keydown", (e) => {
     if (isTyping(e) || e.metaKey || e.ctrlKey) return;
     const s = store.get();
+    // playing at a cabinet: keys are the game's, ChimpHouse's own do nothing
+    if (s.playing) return;
     const v = VIEWPOINTS.find((vp) => vp.key === e.key);
     if (v) controller.goTo(v.id);
+    else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
     else if (e.code === "KeyN") controller.setNight(!s.night);
     else if (e.code === "KeyF") controller.setWalking(!s.walking);
     else if (e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
@@ -294,6 +312,19 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
     zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
     walker: () => fly.walker,
+    pose: () => fly.getPose(),
+    state: () => store.get(),
+    arcade: {
+      slots: () => arcade.slotNumbers,
+      games: () => arcade.games().map(({ slot, game }) => ({ slot, gameId: game.gameId, name: game.name, playUrl: game.playUrl })),
+      source: () => arcade.source,
+      ready: () => arcadeReady,
+      setGames: (games: Parameters<typeof arcade.setGames>[0]) => arcade.setGames(games),
+      refresh: () => arcade.refresh(),
+      use: (slot: number) => arcade.use(slot),
+      leave: () => arcade.leave(),
+      screenRect: (slot: number) => arcade.screenRect(slot),
+    },
     info: () => ({
       fps: Math.round(engine.getFps()),
       drawCalls: engine._drawCalls?.lastSecAverage ? Math.round(engine._drawCalls.lastSecAverage) : engine._drawCalls?.current ?? 0,
@@ -316,6 +347,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
     t += dt;
     fly.update(dt);
+    arcade.update();
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
@@ -340,6 +372,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       else waiters.push(w);
     }
   });
+  // the cabinets join the first view if the list comes quickly, and later otherwise;
+  // the list is checked again every couple of minutes
+  store.set({ message: "Switching on the arcade…", progress: 0.985 });
+  await Promise.race([arcadeReady, new Promise((r) => setTimeout(r, 5000))]);
+  if (!CAPTURE) setInterval(() => void arcade.refresh().catch((e: unknown) => console.warn("[arcade] list refresh failed:", e)), 120_000);
   // keep the loading screen up until the first view's shaders have compiled
   store.set({ message: "Compiling shaders…", progress: 0.99 });
   await scene.whenReadyAsync();

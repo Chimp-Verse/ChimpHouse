@@ -1,4 +1,5 @@
 import {
+  AbstractMesh,
   Color3,
   Color4,
   CubeTexture,
@@ -152,14 +153,23 @@ export class Lighting {
       light.range = def.range;
       light.falloffType = PointLight.FALLOFF_PHYSICAL;
       light.shadowEnabled = false;
-      const rooms = new Set(def.rooms);
-      light.includedOnlyMeshes = ctx.meshes.filter((m) => {
-        const md = m.metadata as MeshMeta | undefined;
-        return !!md && rooms.has(md.room) && (md.level === def.level || md.level === "site" || md.level === "roof");
-      });
+      light.includedOnlyMeshes = ctx.meshes.filter((m) => lights(def, m));
       this.roomLights.push({ light, def });
     }
     this.applyIntensities();
+  }
+
+  /** Light and shade meshes added after the house was built (a game's cabinet), as attach does the house's. */
+  addMeshes(meshes: AbstractMesh[], casters: AbstractMesh[]): void {
+    for (const { light, def } of this.roomLights) for (const m of meshes) if (lights(def, m)) light.includedOnlyMeshes.push(m);
+    for (const c of casters) this.shadows.addShadowCaster(c, false);
+    this.shadows.getShadowMap()!.resetRefreshCounter();
+  }
+
+  /** Before meshes added with addMeshes are disposed (disposing takes them out of the lights' lists). */
+  removeCasters(casters: AbstractMesh[]): void {
+    for (const c of casters) this.shadows.removeShadowCaster(c, false);
+    this.shadows.getShadowMap()!.resetRefreshCounter();
   }
 
   private applyIntensities() {
@@ -211,4 +221,10 @@ export class Lighting {
     this.sun.shadowEnabled = q !== "low";
     this.shadows.filteringQuality = q === "high" ? ShadowGenerator.QUALITY_HIGH : ShadowGenerator.QUALITY_MEDIUM;
   }
+}
+
+/** Whether a room light lights a mesh: the mesh is in one of its rooms, on its level (or the site or a roof). */
+function lights(def: LightDef, m: AbstractMesh): boolean {
+  const md = m.metadata as MeshMeta | undefined;
+  return !!md && def.rooms.includes(md.room) && (md.level === def.level || md.level === "site" || md.level === "roof");
 }

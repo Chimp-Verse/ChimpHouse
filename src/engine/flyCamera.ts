@@ -29,12 +29,14 @@ export class FlyCamera {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
-  private transition: { from: Pose; to: Pose; t: number; dur: number } | null = null;
+  private transition: { from: Pose; to: Pose; t: number; dur: number; done?: () => void } | null = null;
   private saveTimer = 0;
   private orthoState: Pose["ortho"] = null;
   baseSpeed = 6;
   enabled = true;
   walker: Walker | null = null;
+  /** Called on a canvas click before the mouse is captured; returning true keeps it free (the click was used). */
+  onClick: ((e: MouseEvent) => boolean) | null = null;
 
   constructor(
     private scene: Scene,
@@ -52,7 +54,9 @@ export class FlyCamera {
   private bind() {
     const c = this.canvas;
     c.addEventListener("click", (e) => {
-      if (e.altKey || store.get().inspectMode) return;
+      // while playing at a cabinet the mouse stays free for the game and its frame
+      if (e.altKey || store.get().inspectMode || store.get().playing) return;
+      if (this.onClick?.(e)) return;
       if (document.pointerLockElement !== c) {
         // returns a promise in current browsers; it rejects when lock is unavailable
         const req = c.requestPointerLock?.() as unknown as Promise<void> | undefined;
@@ -83,6 +87,7 @@ export class FlyCamera {
       "wheel",
       (e) => {
         e.preventDefault();
+        if (store.get().playing) return;
         if (this.orthoState) {
           this.orthoState.halfHeight = Math.max(4, Math.min(80, this.orthoState.halfHeight * (e.deltaY > 0 ? 1.1 : 0.9)));
           this.applyOrtho();
@@ -94,7 +99,7 @@ export class FlyCamera {
       { passive: false },
     );
     window.addEventListener("keydown", (e) => {
-      if (isTyping(e)) return;
+      if (isTyping(e) || store.get().playing) return;
       this.keys.add(e.code);
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -122,7 +127,10 @@ export class FlyCamera {
       this.yaw = a.yaw + dyaw * k;
       this.pitch = a.pitch + (b.pitch - a.pitch) * k;
       this.camera.fov = a.fov + (b.fov - a.fov) * k;
-      if (tr.t >= 1) this.transition = null;
+      if (tr.t >= 1) {
+        this.transition = null;
+        tr.done?.();
+      }
     } else if (this.enabled && !this.orthoState && this.walker) {
       const fast = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
       const slow = this.keys.has("AltLeft") || this.keys.has("AltRight");
@@ -190,7 +198,23 @@ export class FlyCamera {
     };
   }
 
+  /** Glide to a pose over `dur` seconds; resolves on arrival, or when another pose replaces it. */
+  glide(pose: Pose, dur: number): Promise<void> {
+    return new Promise((resolve) => {
+      this.setPose(pose, dur);
+      if (this.transition) this.transition.done = resolve;
+      else resolve();
+    });
+  }
+
+  /** Forget held keys, so nothing keeps moving once input goes elsewhere. */
+  releaseKeys(): void {
+    this.keys.clear();
+    this.velocity.setAll(0);
+  }
+
   setPose(pose: Pose, animate = 0) {
+    this.transition?.done?.();
     this.velocity.setAll(0);
     if (pose.ortho) {
       this.transition = null;

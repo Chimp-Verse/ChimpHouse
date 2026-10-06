@@ -1,6 +1,6 @@
 import { Color3, DynamicTexture, Material, Matrix, Mesh, MultiMaterial, PBRMaterial, Quaternion, Scene, SubMesh, Texture, TransformNode, Vector3, VertexBuffer, VertexData } from "@babylonjs/core";
 import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0";
-import { LightDef, MeshMeta, ROOM_NAMES } from "../world/context";
+import { LightDef, MeshMeta, ROOM_NAMES, SlotMeta } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
 import { ROOMS } from "../world/layout";
 import { SUN_DIR } from "../world/environment/sky";
@@ -107,6 +107,17 @@ export async function exportZone(scene: Scene, zoneId: string, level: string | u
     mesh.parent = zoneNode;
     mesh.metadata = { gltf: { extras: { zone: zoneId, level: room?.level ?? level ?? "", item: it.label, order: i } } };
   }
+  // the zone's slots, filled at run time (cabinet slots): empties carrying their role, number and stand point
+  for (const n of scene.transformNodes) {
+    const sm = n.metadata as SlotMeta | undefined;
+    if (!sm?.role || sm.room !== zoneId || (room && sm.level !== room.level)) continue;
+    const e = new TransformNode(sm.label, scene);
+    e.position.copyFrom(n.position);
+    e.rotationQuaternion = n.rotationQuaternion?.clone() ?? null;
+    e.parent = zoneNode;
+    // the stand point in the slot's own space, converted to glTF's axes like the geometry
+    e.metadata = { gltf: { extras: { zone: zoneId, level: sm.level, role: sm.role, slot: sm.slot, stand: [-sm.stand[0], sm.stand[1], sm.stand[2]] } } };
+  }
   // in the scene only for the export: never drawn
   for (const n of root.getDescendants(false)) if (n instanceof Mesh) n.layerMask = 0;
 
@@ -171,7 +182,8 @@ function selectZone(scene: Scene, zoneId: string, level?: string, roofsOver = fa
   const leafMeshes: Mesh[] = [];
   for (const m of scene.meshes) {
     const md = m.metadata as MeshMeta | undefined;
-    if (!(m instanceof Mesh) || !md || !m.material || m.getTotalIndices() === 0 || SCENERY.test(m.name)) continue;
+    // a game's cabinet is put in its slot at run time: the room file holds the slot (slotNodes), not the cabinet
+    if (!(m instanceof Mesh) || !md || md.kind === "dynamic" || !m.material || m.getTotalIndices() === 0 || SCENERY.test(m.name)) continue;
     if (md.room === zoneId && (!room || md.level === room.level)) {
       if (md.kind === "leaves") leafMeshes.push(m);
       else if (m.name === "terrain") segs.push(...segmentsOf(m).map((sg) => clipToPlan(sg, siteBounds(scene))));

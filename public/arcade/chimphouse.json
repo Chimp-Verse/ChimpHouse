@@ -1,0 +1,141 @@
+{
+  "version": 1,
+  "games": [
+    {
+      "gameId": "game-ef0358f8-7880-4995-ac81-36ae3109bd71",
+      "slug": "ssnake",
+      "name": "Snake",
+      "blurb": "the classic, ported",
+      "author": "JacobHolst",
+      "palette": [
+        "#2b3442",
+        "#5b30e8",
+        "#815ff1",
+        "#9beb51",
+        "#fefefd"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-7a911c11-ba9046e3.png",
+      "playUrl": "https://play.chimpvibe.dev/ssnake",
+      "order": 0
+    },
+    {
+      "gameId": "game-0017e699-5e2c-495c-948b-33ffd5785430",
+      "slug": "pixelplatformer",
+      "name": "Pixel Platformer",
+      "blurb": "Pixel Platformer Ultra: jump through themed worlds with chiptune music, fire flowers, turtles, checkpoints, moving platforms and a boss.",
+      "author": "Ying",
+      "palette": [
+        "#c84c0c",
+        "#3f9e37",
+        "#64a3ff",
+        "#6fc46a",
+        "#98c8ff"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-737e8c89-bee46066.png",
+      "playUrl": "https://play.chimpvibe.dev/pixelplatformer",
+      "order": 1
+    },
+    {
+      "gameId": "game-5a51d453-b94c-4490-95ee-3d49f6013f97",
+      "slug": "lumencoil",
+      "name": "Lumen Coil",
+      "blurb": "The swarm game, split out of Ssnake's tree: a cooperative top-down survival run with evolving spirit weapons, companion formations, escalating swarms, elites and a multi-phase boss.",
+      "author": "MEME",
+      "palette": [
+        "#28463a",
+        "#789c69",
+        "#d6bc82",
+        "#89e0b0",
+        "#fcf6dc"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-fa71e81b-cd19438a.png",
+      "playUrl": "https://play.chimpvibe.dev/lumencoil",
+      "order": 2
+    },
+    {
+      "gameId": "game-51a7167f-95ef-43d2-9649-620016682c80",
+      "slug": "chimp-battle",
+      "name": "Chimp Battle",
+      "blurb": "Fight as a chimp in fast 1v1 arena duels. Waiting players spectate in a fair queue, the winner stays to face the next challenger, and a lone player battles an AI chimp.",
+      "author": "JacobHolst",
+      "palette": [
+        "#243c2b",
+        "#6b6943",
+        "#a38b59",
+        "#f1c469",
+        "#f3ecd3"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-23314a38-8c2fe06d.png",
+      "playUrl": "https://play.chimpvibe.dev/chimp-battle",
+      "order": 3
+    },
+    {
+      "gameId": "game-86bf5517-a0a7-4c91-84e9-8e40c3463d4b",
+      "slug": "broadside-battle",
+      "name": "Broadside Battle",
+      "blurb": "Renaissance ships duel at sea. Captains sail galleons, carracks and caravels by wind-driven physics, steer clear of islands, rocks and shoals, and sink rivals with rippling cannon volleys.",
+      "author": "JacobHolst",
+      "palette": [
+        "#5f6357",
+        "#65928e",
+        "#a6a998",
+        "#d3cdb2",
+        "#eaebe3"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-ee71cabc-9306ae79.png",
+      "playUrl": "https://play.chimpvibe.dev/broadside-battle",
+      "order": 4
+    },
+    {
+      "gameId": "game-c4aab665-de3d-48dc-99ff-9d5d740c0764",
+      "slug": "paws-pantry",
+      "name": "Paws & Pantry",
+      "blurb": "Cozy co-op farm-to-table kitchen slice alternating morning prep and high-stress meal rushes with shared stations and day-cycle reset. Each player runs their own cat chef in the same kitchen, farming grass, chopping, braving the danger hob, plating and washing for autonomous customers.",
+      "author": "ying",
+      "palette": [
+        "#242d3b",
+        "#694c31",
+        "#a06cd5",
+        "#bd9361",
+        "#c3ced8"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-c875961f-f633dec1.png",
+      "playUrl": "https://play.chimpvibe.dev/paws-pantry",
+      "order": 5
+    },
+    {
+      "gameId": "game-ca369ede-b826-4e28-9fd2-bc8b7f5c7598",
+      "slug": "panda-badminton",
+      "name": "Panda Badminton",
+      "blurb": "Cute pandas play real singles badminton in a Chinese courtyard. From the lobby, play an AI panda, host a match and wait for a friend, join an open match, or watch any court. BWF rules: best of three games to 21, win by 2, rally scoring, diagonal serves and change of ends.",
+      "author": "jake",
+      "palette": [
+        "#ca4a3c",
+        "#8c7b6c",
+        "#34a47c",
+        "#7bb47b",
+        "#ebdbbb"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-ec377004-fc5190fc.png",
+      "playUrl": "https://play.chimpvibe.dev/panda-badminton",
+      "order": 6
+    },
+    {
+      "gameId": "game-b22b5d41-122f-44d6-bff5-612beb289c6a",
+      "slug": "skate-chimp",
+      "name": "Skate Chimp",
+      "blurb": "An isometric skatepark in an overgrown jungle city: punk chimps carve two bowls, launch the banks and grind vine-wrapped rails across a wide concrete plot, steering their own line and chaining real tricks into scored combos across rolling best-line jams.",
+      "author": "jake",
+      "palette": [
+        "#2e3433",
+        "#9f4d39",
+        "#56635c",
+        "#a08974",
+        "#aeb8b0"
+      ],
+      "art": "https://chimpvibe.dev/brand/native-e1637d52-364fb555.png",
+      "playUrl": "https://play.chimpvibe.dev/skate-chimp",
+      "order": 7
+    }
+  ]
+}

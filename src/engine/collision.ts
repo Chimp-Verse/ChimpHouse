@@ -284,7 +284,7 @@ function solid(m: Mesh): boolean {
   const md = m.metadata as MeshMeta | undefined;
   if (!md || m.hasThinInstances) return false;
   if (md.kind === "special") return SOLID_SPECIALS.has(m.name);
-  return !md.kind && md.level !== "roof" && !SKIP_ROOMS.has(md.room) && !SKIP_MATS.has(md.matKey);
+  return (!md.kind || md.kind === "dynamic") && md.level !== "roof" && !SKIP_ROOMS.has(md.room) && !SKIP_MATS.has(md.matKey);
 }
 
 /**

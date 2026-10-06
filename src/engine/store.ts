@@ -8,6 +8,25 @@ export interface PickedInfo {
   point: [number, number, number];
 }
 
+/** A game being played at a cabinet. */
+export interface PlayingInfo {
+  slot: number;
+  gameId: string;
+  name: string;
+  author: string;
+  url: string;
+  /** gliding in to the screen, at it, or gliding back out */
+  phase: "in" | "playing" | "out";
+}
+
+/** Where the cabinet's screen is on the page, in CSS pixels. */
+export interface ScreenRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface PreviewState {
   loading: boolean;
   progress: number;
@@ -35,6 +54,12 @@ export interface PreviewState {
   help: boolean;
   pointerLocked: boolean;
   toast: string | null;
+  /** walking up to a cabinet: the one that E (or a click on its screen) plays */
+  arcadePrompt: { slot: number; name: string } | null;
+  /** playing at a cabinet: ChimpHouse's own keys and mouse look do nothing meanwhile */
+  playing: PlayingInfo | null;
+  /** the playing cabinet's screen on the page, once the camera is square onto it */
+  playRect: ScreenRect | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -65,6 +90,9 @@ class Store {
     help: false,
     pointerLocked: false,
     toast: null,
+    arcadePrompt: null,
+    playing: null,
+    playRect: null,
   };
   private listeners = new Set<Listener>();
 

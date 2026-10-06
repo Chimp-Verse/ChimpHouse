@@ -124,6 +124,14 @@ export class Materials {
     return this.map.has(key);
   }
 
+  /** Forget and dispose a material made at run time (a game's cabinet), with its textures. */
+  remove(key: string): void {
+    const m = this.map.get(key);
+    if (!m) return;
+    this.map.delete(key);
+    m.dispose(false, true);
+  }
+
   add(key: string, m: Material): Material {
     m.name = key;
     this.map.set(key, m);

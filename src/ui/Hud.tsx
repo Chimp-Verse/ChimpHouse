@@ -2,24 +2,21 @@ import { PreviewController } from "../engine/preview";
 import { PreviewState, Quality } from "../engine/store";
 import { store } from "../engine/store";
 import { VIEWPOINTS, findView } from "../world/viewpoints";
+import { PlayOverlay } from "./PlayOverlay";
 
 export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
   const view = findView(s.viewId);
+  // playing at a cabinet: only the game and its frame
+  if (s.playing)
+    return (
+      <>
+        <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />
+        {s.toast && <div className="toast">{s.toast}</div>}
+      </>
+    );
   return (
     <>
-      <div className="panel status">
-        <div className="title">
-          ChimpHouse <span>preview</span>
-        </div>
-        <div className="area">{s.area}</div>
-        <div className="coords">
-          x {s.pos[0]} · y {s.pos[1]} · z {s.pos[2]} · {s.heading}°
-        </div>
-        <div className="perf">
-          {s.fps} fps · {s.drawCalls} draws · {s.walking ? "walking" : `speed ${s.speed}`}
-        </div>
-        {s.walking && s.blocked && <div className="bumped">Bumped into {s.blocked}</div>}
-      </div>
+      <StatusPanel s={s} />
 
       <div className="panel views">
         <div className="section">Viewpoints</div>
@@ -82,13 +79,37 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
+      {s.walking && s.arcadePrompt && (
+        <div className="play-prompt">
+          <kbd>E</kbd>Play {s.arcadePrompt.name}
+          <span>or click its screen</span>
+        </div>
+      )}
       {s.toast && <div className="toast">{s.toast}</div>}
       {s.help && <Help onClose={() => store.set({ help: false })} />}
     </>
+  );
+}
+
+function StatusPanel({ s }: { s: PreviewState }) {
+  return (
+    <div className="panel status">
+      <div className="title">
+        ChimpHouse <span>preview</span>
+      </div>
+      <div className="area">{s.area}</div>
+      <div className="coords">
+        x {s.pos[0]} · y {s.pos[1]} · z {s.pos[2]} · {s.heading}°
+      </div>
+      <div className="perf">
+        {s.fps} fps · {s.drawCalls} draws · {s.walking ? "walking" : `speed ${s.speed}`}
+      </div>
+      {s.walking && s.blocked && <div className="bumped">Bumped into {s.blocked}</div>}
+    </div>
   );
 }
 
@@ -116,6 +137,7 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>Shift / Alt (held)</td><td>Four times faster / slower</td></tr>
             <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
             <tr><td>F</td><td>Walk at avatar height (walls, furniture, stairs and gravity) / fly</td></tr>
+            <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>
             <tr><td>R / U</td><td>Hide roofs / hide the upper level</td></tr>

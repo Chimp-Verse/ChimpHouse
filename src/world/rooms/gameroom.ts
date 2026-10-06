@@ -1,6 +1,7 @@
 // ChimpVibe Game Room (lower level, front-right). Two rows of arcade
-// cabinets, one along the north wall under the 3D ChimpVibe sign and one along
-// the south glass; a console lounge facing the big TV in the round east end
+// cabinet slots, one along the north wall under the 3D ChimpVibe sign and one
+// along the south glass, filled at run time with the cabinets of the games
+// admitted to ChimpHouse (engine/arcade.ts); a console lounge facing the big TV in the round east end
 // with bean bags in front; air hockey and foosball on the open floor; pinball
 // machines in the north-east curve; a claw machine and a snack machine in the
 // south-east curve; a GAME ON neon over the north wall's west end.
@@ -16,7 +17,8 @@ import { drumTable, lowStool, roundRug, sofa } from "../props/furniture";
 import { chimpVibeSign, neonWord, neonWordWidth } from "../props/lettering3d";
 import { ringPendant, wovenPendant } from "../props/lights";
 import { pottedPlant } from "../props/plants";
-import { arcadeCabinet, screenMat, tvConsole } from "../props/tech";
+import { screenMat, tvConsole } from "../props/tech";
+import { ROLE } from "../roles";
 import { trunkPlanter } from "../structure/trunks";
 import { K, arcDeg, at3, faceToward, faceYaw, interiorArch, roomLight } from "./common";
 import { rugs } from "./rugs";
@@ -25,16 +27,16 @@ const C = LEVEL.lowerCeil;
 const F = LEVEL.lower + 0.012;
 const tree = (id: string) => TREES.find((t) => t.id === id)!;
 
-const CABINETS = [
-  { id: "snake", name: "Snake", side: "tealDeep", trim: "mint" },
-  { id: "lumen", name: "Lumen Coil", side: "plum", trim: "mint" },
-  { id: "pixel", name: "Pixel Platformer", side: "navy", trim: "amberStrip" },
-  { id: "chimpbattle", name: "Chimp Battle", side: "rust", trim: "amberStrip" },
-  { id: "broadside", name: "Broadside Battle", side: "navy", trim: "amberStrip" },
-  { id: "paws", name: "Paws & Pantry", side: "mustard", trim: "amberStrip" },
-  { id: "panda", name: "Panda Badminton", side: "tealDeep", trim: "mint" },
-  { id: "yousef", name: "Yousef’s Boom", side: "rust", trim: "amberStrip" },
-];
+/** How far in front of a cabinet a visitor stands to play: behind its stool, with the whole cabinet in view. */
+const STAND = 1.55;
+
+/**
+ * A cabinet slot: an admitted ChimpVibe game's cabinet is put here at run time
+ * (engine/arcade.ts). Base at (x, z) on the floor, facing (dx, dz).
+ */
+function cabinetSlot(ctx: WorldCtx, z: ReturnType<typeof zone>, n: number, x: number, zz: number, dx: number, dz: number) {
+  ctx.slot(z, ROLE.cabinetSlot, n, xf(x, F, zz, faceYaw(dx, dz)), new Vector3(0, 0, -STAND), `Cabinet slot ${n}`);
+}
 
 export function buildGameRoom(ctx: WorldCtx): void {
   const z = zone("gameRoom", "lower");
@@ -71,17 +73,15 @@ export function buildGameRoom(ctx: WorldCtx): void {
   const stools = ["tealDeep", "plum", "tealDeep", "rust"];
   for (let i = 0; i < 4; i++) {
     const x = rowX0 + i * pitch;
-    const cab = CABINETS[i];
-    arcadeCabinet(ctx, z, xf(x, F, rowZ, faceYaw(0, -1)), screenMat(ctx, `marquee-${cab.id}`, 1.3), screenMat(ctx, `screen-${cab.id}`, 1.15), cab, `Arcade cabinet: ${cab.name}`);
+    cabinetSlot(ctx, z, 1 + i, x, rowZ, 0, -1);
     lowStool(ctx, z, new Vector3(x + 0.05, F, rowZ - 0.95), stools[i]);
   }
-  // right row in front of the south glazing (Broadside furthest from the hall)
+  // right row in front of the south glazing (slot 5 furthest from the hall)
   const stools2 = ["tealDeep", "mustard", "tealDeep", "rust"];
   for (let i = 0; i < 4; i++) {
     const x = c.x - 0.6 * K - i * 0.95;
-    const cab = CABINETS[4 + i];
     const zz = 0.75 + (3 - i) * 0.08;
-    arcadeCabinet(ctx, z, xf(x, F, zz, faceYaw(-0.35, 1)), screenMat(ctx, `marquee-${cab.id}`, 1.3), screenMat(ctx, `screen-${cab.id}`, 1.15), cab, `Arcade cabinet: ${cab.name}`);
+    cabinetSlot(ctx, z, 5 + i, x, zz, -0.35, 1);
     lowStool(ctx, z, new Vector3(x - 0.3, F, zz + 1.0), stools2[i]);
   }
   // console lounge: TV before the east window, curved sofa, table, rug, pouf
