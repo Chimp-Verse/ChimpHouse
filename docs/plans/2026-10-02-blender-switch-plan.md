@@ -2,15 +2,33 @@
 
 Plan date: 2026-10-02.
 
-Online version: [Claude Doc](https://claude.ai/code/artifact/d11d966c-c4b3-45e7-9596-8978ce86d9ce). That doc is the one to edit and comment on; this file is a copy kept in the project so a future session can find the plan. Its two diagrams are written out as lists here. If the two differ, check the online version.
+Online version: [Claude Doc](https://claude.ai/code/artifact/d11d966c-c4b3-45e7-9596-8978ce86d9ce), with the two diagrams this file writes out as lists. This file was updated on 2026-10-05 with the progress and the dynamic-rooms decision below; the online version predates them.
 
-Status: not started. The house is still being refined code-first until the readiness checklist below is complete.
+Status (2026-10-05): phases 1 to 3 done, phases 4 and 5 deferred. The theatre round trip passed Gate 1, and the whole house builds into `art/`: a file per room in `art/rooms/`, the material library `art/materials.blend`, and the master `art/ChimpHouse.blend` linking them. The house's interactive features come next, built on the code world (see [Dynamic rooms](#dynamic-rooms-and-the-order-of-work)); phases 4 and 5 follow once they have settled. Until the cut-over, the code in `src/world/` is the master copy, `art/` is rebuilt from it, and the generated files stay out of git.
 
 ## Summary
 
 Keep building ChimpHouse code-first until the layout is settled, then move it into Blender once and make Blender the master copy from then on.
 
 The move is a one-time conversion, not a two-way sync. After it, changes happen in Blender, and the browser preview loads Blender's export instead of generating the house. Before committing, a one-room test (the theatre) shows exactly what the Blender file will look like.
+
+## Dynamic rooms and the order of work
+
+Decision (2026-10-05): build the house's interactive features on the code world first, then check and cut over to Blender.
+
+Parts of the house are live rather than fixed:
+
+- **Arcade cabinets** in the ChimpVibe Game Room follow ChimpVibe's live catalogue: cabinets are added as games are, and anyone can walk up to one and play its game on the cabinet.
+- **The Game Room's TV** plays any ChimpVibe game that somebody loads onto it, live.
+- **The theatre screen** shows YouTube videos and streams, chosen at any time and watched by everyone together.
+
+Blender only supplies the static look; playing games and videos is behaviour of the browser client in either world. What the features change is what the Blender files hold:
+
+1. **Slots instead of fixed items.** The Game Room's file holds named cabinet slots (a position and facing), not the current cabinets. The cabinet is one reusable asset, in a few styles, placed by the client per catalogue entry and given that game's art from the catalogue. Anything else that is added or removed at run time works the same way.
+2. **Screens with roles.** The theatre screen, the TV and each cabinet screen are surfaces with a role and a clean 0 to 1 texture layout, so the client knows where to show a video or game. Their images are placeholders. Blender's glTF export carries roles and slots as custom properties, as the code export carries labels today.
+3. **Features before the cut-over.** Building the features settles what is dynamic, how many slots there are, screen sizes and where people stand to play. The cut-over then splits each room into a static shell and its slots, and features that find things by role and slot carry over unchanged.
+
+One constraint shapes how screens show content: browsers don't let a page draw another site's content (a YouTube player, a game hosted on ChimpVibe's own site) onto a 3D surface. The usual answers are an overlay of the real player or game lined up with the screen, or a panel opened when someone uses the activity, which the [tech-stack research](../research/2026-10-01-chimpverse-technology-stack.md) also recommends. Games that ChimpVerse runs in its own page can be drawn onto the screen directly; how ChimpVibe games are delivered to ChimpVerse is a decision for when the arcade is built. Others watching a player see a live video of the player's screen, or their own copy of the game kept in step. Theatre playback is kept in step by the room server sharing which video and the time.
 
 ## Where things stand
 
@@ -32,6 +50,8 @@ Switch once the big decisions stop changing. Tick these off as they settle:
 - [ ] Materials and colours are agreed for the main surfaces
 - [ ] Day and night lighting moods are agreed as a reference
 - [ ] The reference viewpoints match the concept art closely enough to guide an artist
+- [ ] The interactive features work on the code world: cabinets from the live catalogue, play at a cabinet and on the TV, theatre playback
+- [ ] Slots and screen roles are settled: cabinet positions, screen sizes, where people stand to play or watch
 
 Not worth polishing in code first: small props (cans, jars, books), plant variety, cushion and sofa shapes, and textures. Fix these only when they are wrong or confusing, because they will be rebuilt in Blender.
 
@@ -45,7 +65,7 @@ The switch runs in five phases, and Blender becomes the master copy only after t
 3. **Export the whole house into Blender.** Collections per level and room, materials, image textures, plants simplified. Rebuild the sun, room lights and cameras, and save `art/ChimpHouse.blend`.
 4. **Verify against the references.** Render the reference viewpoints in Blender and compare them with the preview and the concept art. Fix gaps in shape, material or layout before cutting over.
    - **Gate 2:** the Blender file matches the preview.
-5. **Cut over: Blender becomes the master copy.** The browser preview loads the exported `.glb` instead of generating the house. The generator code is archived as a reference, and new changes happen in Blender.
+5. **Cut over: Blender becomes the master copy.** The browser preview loads the exported room files instead of generating the house, merging them back into a few meshes per room and material for speed, and attaches the interactive features by role and slot. The generated files in `art/` are committed once, as the starting master copy. The generator code is archived as a reference, and new changes happen in Blender.
 
 If the theatre test shows the file is awkward to work with, adjust the export in code and repeat phase 2 before moving on.
 
@@ -59,7 +79,8 @@ Shapes, materials and textures come across; lighting, sky and screen effects are
 | Names and grouping | Yes, after prep | Collections by level and room, such as Upper › Theatre › Front row sofa |
 | Materials | Mostly | Become standard Blender materials; glass, metal and glowing strips keep their look, fabric may need retouching |
 | Textures | Yes, as images | Code-painted textures are saved as image files that artists can repaint or replace |
-| Screen artwork | Yes | The images cropped from the concept art come across as textures |
+| Screen artwork | As placeholders | The theatre screen, TV and cabinet screens become surfaces with roles; video and game content is shown by the client at run time |
+| Arcade cabinets | As an asset | One cabinet model in a few styles, placed by the client per catalogue entry; the Game Room holds the slots |
 | Plants and vines | Partly | Thousands of leaf copies; likely simplified or replaced with proper plant assets |
 | Terrain and distant jungle | Partly | The terrain mesh exports; the distant jungle may stay generated in the game |
 | Lights | Rebuilt | Sun, room lights and lanterns are set up again in Blender |
@@ -72,7 +93,7 @@ After the switch, people and Claude both edit the Blender file, and the browser 
 
 The working loop:
 
-1. **Editing the master file** (`art/ChimpHouse.blend`, collections by level and room):
+1. **Editing the Blender files**: a room in its own file in `art/rooms/`, shared materials in `art/materials.blend`, and lights, cameras and render settings in the master `art/ChimpHouse.blend`, which links every room:
    - You or an artist, in the Blender UI: modelling and remodelling props; sculpting, materials and lighting; anything judged by eye.
    - Claude, via Blender Python scripts: renames, placement, material swaps; batch edits across rooms; check renders and exports.
 2. **Export glTF** to `chimphouse.glb` and its textures in `public/models/`, split by room for fast loading.
@@ -81,30 +102,30 @@ The working loop:
 
 Claude works through Blender's Python scripting in the background, with no screen, so judgements made by eye stay with people in the Blender window.
 
-- The master file is `art/ChimpHouse.blend`. Exports go to `public/models/` as one file per room or zone.
+- The master file is `art/ChimpHouse.blend`, linking the room files in `art/rooms/` and the material library `art/materials.blend`. Exports go to `public/models/` as one file per room or zone.
 - Collections are named Level › Room › Object, matching the preview's inspect labels, so Alt-click change requests still point at the right thing.
 - Everything stays in real-world metres. Blender's glTF exporter handles the switch between Blender's Z-up and the preview's Y-up.
 - After each export, the capture run compares every viewpoint with the concept art.
 
 ## Prerequisites and setup
 
-Four things need to be in place before the theatre test:
+All four were in place for the theatre test (2026-10-05):
 
-- [ ] Install Blender on this Mac (it isn't installed yet): `brew install --cask blender`, or download it from blender.org
-- [ ] Put the project under git, so the code-first version stays recoverable after the switch
-- [ ] Add Babylon's glTF exporter package (`@babylonjs/serializers`) to the preview project
-- [ ] Create an `art/` folder for the Blender file and its textures, with Git LFS for the large files
+- [x] Install Blender on this Mac (5.2.2, at `/Applications/Blender.app`)
+- [x] Put the project under git, so the code-first version stays recoverable after the switch
+- [x] Add Babylon's glTF exporter package (`@babylonjs/serializers`) to the preview project
+- [x] Create an `art/` folder for the Blender file and its textures, with Git LFS for the large files
 
 ## Risks and open decisions
 
 The biggest open decision is what the Blender file is for, because it sets how much cleanup the export needs.
 
-- [ ] Decide whether the Blender file becomes the game's real house, or a reference that an artist remodels
+- [x] Decide whether the Blender file becomes the game's real house, or a reference that an artist remodels: the real house (2026-10-05)
 - [ ] Decide who models in Blender day to day: you, a hired artist, or both
 - [ ] Decide which room goes first if the work is split; the theatre test makes it the natural start
 
 Risks to plan for:
 
-- **One-way switch.** Changes made in code after the cutover won't reach Blender, so finish layout work first.
+- **One-way switch.** Changes made in code after the cutover won't reach Blender, so finish layout work and the interactive features first.
 - **Heavy plants.** Thousands of leaf copies can make the file slow; plan to replace them with proper plant assets.
 - **Download size.** The [tech-stack research](../research/2026-10-01-chimpverse-technology-stack.md) targets at most 8 MB for the first load. The house will need splitting by room and compressed textures.

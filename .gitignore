@@ -4,3 +4,9 @@ captures
 .DS_Store
 art/test/
 *.blend1
+art/.whole-house.blend
+# Blender files generated from the code: out of git until the cut-over to Blender (see AGENTS.md)
+art/ChimpHouse.blend
+art/materials.blend
+art/rooms/
+art/textures/
