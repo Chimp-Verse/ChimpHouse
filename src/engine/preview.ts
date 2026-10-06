@@ -276,6 +276,22 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     setWalking: (v: boolean) => controller.setWalking(v),
     downloadRoom: (id: string) => controller.downloadRoom(id),
     auditZone: async (id: string, level?: string) => (await import("./exportRoom")).auditZone(scene, id, level),
+    /** Download one zone of the house as `<level>-<zone>.glb` (or `<zone>.glb`), for the Blender build. */
+    downloadZone: async (id: string, level?: string) => {
+      const { exportZone } = await import("./exportRoom");
+      exporting = true;
+      try {
+        const blob = await exportZone(scene, id, level, world.ctx.lights);
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = `${level ? `${level}-` : ""}${id}.glb`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+      } finally {
+        exporting = false;
+      }
+    },
+    houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
     zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
     walker: () => fly.walker,
     info: () => ({

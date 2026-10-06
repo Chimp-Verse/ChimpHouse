@@ -1,13 +1,13 @@
 import { Color3, DynamicTexture, Material, Matrix, Mesh, MultiMaterial, PBRMaterial, Quaternion, Scene, SubMesh, Texture, TransformNode, Vector3, VertexBuffer, VertexData } from "@babylonjs/core";
 import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0";
-import { LightDef, MeshMeta } from "../world/context";
+import { LightDef, MeshMeta, ROOM_NAMES } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
 import { ROOMS } from "../world/layout";
 import { SUN_DIR } from "../world/environment/sky";
 import { VIEWPOINTS } from "../world/viewpoints";
 
 /**
- * Export one room as a .glb for Blender, at the quality the master file
+ * Export a room or other zone as a .glb for Blender, at the quality the master file
  * needs: one object per item (a sofa, a lamp, a planter with its plant)
  * named after its label, turned to face the way the item was placed and with
  * its origin at the centre of its base, under Level › Room nodes. The house is generated as a few merged meshes per
@@ -30,6 +30,8 @@ interface Segment {
   pos: number[];
   nrm: number[];
   uv: number[];
+  /** vertex colours (RGBA), for the few meshes painted that way (the terrain, the gravel path) */
+  col: number[] | null;
   idx: number[];
   min: Vector3;
   max: Vector3;
@@ -48,51 +50,97 @@ const FABRIC = /wall|glazing|\barch\b|floor|ceiling|roof|fascia|slab|soffit|stri
 /** Items that leaves are attached to: plants, planters, vines, trees. */
 const PLANT = /plant|planter|pot\b|fern|palm|vine|bush|shrub|grass|bed\b|tree|trunk|limb|branch|canopy/i;
 
+/** Export one room, with the roof pieces over it and its lights, sun and viewpoint, as a standalone file. */
 export async function exportRoom(scene: Scene, roomId: string, lights: LightDef[]): Promise<Blob> {
   const room = ROOMS.find((r) => r.id === roomId);
   if (!room) throw new Error(`Unknown room ${roomId}`);
-  const levelName = room.level === "lower" ? "Lower" : "Upper";
-  const { items, joins } = buildItems(selectZone(scene, roomId, room.level));
+  return exportZone(scene, roomId, room.level, lights, true);
+}
+
+/**
+ * Where a zone sits in the master file: its group (Lower or Upper for rooms,
+ * Building for the structure and roofs, Site for the approach, bridge, trees and
+ * terrain) and its own name, unique across the house.
+ */
+export function zonePlace(zoneId: string, level?: string): { group: string; name: string } {
+  const room = ROOMS.find((r) => r.id === zoneId && (!level || r.level === level));
+  if (room) {
+    const group = room.level === "lower" ? "Lower" : "Upper";
+    const twin = ROOMS.some((r) => r !== room && r.name === room.name);
+    return { group, name: twin ? `${room.name} (${group})` : room.name };
+  }
+  return { group: zoneId === "structure" || zoneId === "roofs" ? "Building" : "Site", name: ROOM_NAMES[zoneId] ?? zoneId };
+}
+
+/**
+ * Export one zone of the house as a .glb: Group › Zone › items. A standalone
+ * room export also takes the roof pieces over it and carries its lights, the
+ * sun and its viewpoint; for the whole house those come from houseScene().
+ */
+export async function exportZone(scene: Scene, zoneId: string, level: string | undefined, lights: LightDef[], standalone = false): Promise<Blob> {
+  const { group, name } = zonePlace(zoneId, level);
+  const room = ROOMS.find((r) => r.id === zoneId && (!level || r.level === level));
+  const { items, joins } = buildItems(selectZone(scene, zoneId, level, standalone));
   for (const [what, n] of joins) console.info(`[export] ${n} unlabelled ${what}`);
 
-  // ---- build the export nodes: Level › Room › items
-  const root = new TransformNode(levelName, scene);
-  const roomNode = new TransformNode(room.name, scene);
-  roomNode.parent = root;
-  const view = VIEWPOINTS.find((v) => v.id === roomId);
-  // lights, sun and viewpoint for rebuilding the scene in Blender, as one JSON string
-  // (Blender keeps glTF extras as custom properties, which can't hold lists of objects)
-  const preview = {
-    coordinates: "Babylon preview: left-handed, y up, metres; glTF = (-x, y, z)",
-    lights: lights.filter((l) => l.rooms.includes(roomId) && l.level === room.level).map((l) => ({ ...l, pos: l.pos.asArray(), dir: l.dir?.asArray() })),
-    sun: { dir: SUN_DIR.asArray(), color: "#ffc98f" },
-    camera: view && { name: view.label, ...view.pose, ref: view.refName ?? null },
-  };
-  roomNode.metadata = { gltf: { extras: { room: roomId, level: room.level, preview: JSON.stringify(preview) } } };
+  const root = new TransformNode(group, scene);
+  const zoneNode = new TransformNode(name, scene);
+  zoneNode.parent = root;
+  const extras: Record<string, unknown> = { zone: zoneId, level: room?.level ?? level ?? "", group };
+  if (standalone) {
+    // lights, sun and viewpoint for rebuilding the scene in Blender, as one JSON string
+    // (Blender keeps glTF extras as custom properties, which can't hold lists of objects)
+    const view = VIEWPOINTS.find((v) => v.id === zoneId);
+    extras.preview = JSON.stringify({
+      coordinates: "Babylon preview: left-handed, y up, metres; glTF = (-x, y, z)",
+      lights: lights.filter((l) => l.rooms.includes(zoneId) && (!room || l.level === room.level)).map(lightJson),
+      sun: { dir: SUN_DIR.asArray(), color: "#ffc98f" },
+      cameras: view ? [cameraJson(view)] : [],
+    });
+  }
+  zoneNode.metadata = { gltf: { extras } };
   const made: Made = { mats: [], textures: [], restore: [] };
   const matFor = exportMaterials(scene, made);
   for (const [i, it] of nameItems(items).entries()) {
     const mesh = buildItemMesh(scene, it, matFor, made);
     mesh.name = it.label;
-    mesh.parent = roomNode;
-    mesh.metadata = { gltf: { extras: { level: room.level, room: roomId, item: it.label, order: i } } };
+    mesh.parent = zoneNode;
+    mesh.metadata = { gltf: { extras: { zone: zoneId, level: room?.level ?? level ?? "", item: it.label, order: i } } };
   }
   // in the scene only for the export: never drawn
   for (const n of root.getDescendants(false)) if (n instanceof Mesh) n.layerMask = 0;
 
   try {
-    const data = await GLTF2Export.GLBAsync(scene, roomId, {
+    const data = await GLTF2Export.GLBAsync(scene, zoneId, {
       shouldExportNode: (n) => n === root || n.isDescendantOf(root),
       exportWithoutWaitingForScene: true,
       removeNoopRootNodes: false,
     });
-    return data.files[`${roomId}.glb`] as Blob;
+    return data.files[`${zoneId}.glb`] as Blob;
   } finally {
     root.dispose(false, false);
     for (const undo of made.restore) undo();
     for (const m of made.mats) m.dispose(false, false);
     for (const t of made.textures) t.dispose();
   }
+}
+
+/** The house's lights, sun and viewpoint cameras, for the Blender build (preview coordinates). */
+export function houseScene(lights: LightDef[]) {
+  return {
+    coordinates: "Babylon preview: left-handed, y up, metres; glTF = (-x, y, z)",
+    lights: lights.map(lightJson),
+    sun: { dir: SUN_DIR.asArray(), color: "#ffc98f" },
+    cameras: VIEWPOINTS.filter((v) => !v.pose.ortho).map(cameraJson),
+  };
+}
+
+function lightJson(l: LightDef) {
+  return { ...l, pos: l.pos.asArray(), dir: l.dir?.asArray() };
+}
+
+function cameraJson(v: (typeof VIEWPOINTS)[number]) {
+  return { id: v.id, name: v.label, x: v.pose.x, y: v.pose.y, z: v.pose.z, yaw: v.pose.yaw, pitch: v.pose.pitch, fov: v.pose.fov, night: !!v.night, ref: v.refName ?? null };
 }
 
 /** What an export adds to the scene, and how to put the scene's own materials back. */
@@ -108,25 +156,73 @@ interface Selection {
   leafMeshes: Mesh[];
 }
 
+/** Standalone meshes that stay generated by the app: distant scenery, lighting effects and animated sparkle. */
+const SCENERY = /^(lake|waterfall|mist|jungleCrowns|fireflies|poolCaustics)/;
+
 /**
- * The pieces of a zone: a room (by id and level) with the roof pieces over it, or any
- * other zone of the house by its id (structure, approach, bridge, trees…), on all levels.
+ * The pieces of a zone: a room (by id and level), with the roof pieces over it when
+ * `roofsOver`, or any other zone of the house by its id (structure, approach, bridge,
+ * trees…), on all levels. Distant scenery and effects are left out, and the terrain is
+ * cut to the site: the house, its approach, bridge and trees and 30 m round them.
  */
-function selectZone(scene: Scene, zoneId: string, level?: string): Selection {
+function selectZone(scene: Scene, zoneId: string, level?: string, roofsOver = false): Selection {
   const room = ROOMS.find((r) => r.id === zoneId && (!level || r.level === level));
   const segs: Segment[] = [];
   const leafMeshes: Mesh[] = [];
   for (const m of scene.meshes) {
     const md = m.metadata as MeshMeta | undefined;
-    if (!(m instanceof Mesh) || !md || !m.material || m.getTotalIndices() === 0) continue;
+    if (!(m instanceof Mesh) || !md || !m.material || m.getTotalIndices() === 0 || SCENERY.test(m.name)) continue;
     if (md.room === zoneId && (!room || md.level === room.level)) {
       if (md.kind === "leaves") leafMeshes.push(m);
+      else if (m.name === "terrain") segs.push(...segmentsOf(m).map((sg) => clipToPlan(sg, siteBounds(scene))));
       else segs.push(...segmentsOf(m));
-    } else if (room && md.room === "roofs" && !md.kind) {
+    } else if (roofsOver && room && md.room === "roofs" && !md.kind) {
       segs.push(...segmentsOf(m).filter((s) => pointInPolygon({ x: (s.min.x + s.max.x) / 2, z: (s.min.z + s.max.z) / 2 }, room.loop)));
     }
   }
   return { segs, leafMeshes };
+}
+
+/** The plan area of everything but the landscape and scenery, 30 m larger all round. */
+function siteBounds(scene: Scene): { x0: number; x1: number; z0: number; z1: number } {
+  const b = { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity };
+  for (const m of scene.meshes) {
+    const md = m.metadata as MeshMeta | undefined;
+    if (!md || md.room === "landscape" || md.room === "jungle" || md.room === "sky" || SCENERY.test(m.name)) continue;
+    const bb = m.getBoundingInfo().boundingBox;
+    b.x0 = Math.min(b.x0, bb.minimumWorld.x);
+    b.x1 = Math.max(b.x1, bb.maximumWorld.x);
+    b.z0 = Math.min(b.z0, bb.minimumWorld.z);
+    b.z1 = Math.max(b.z1, bb.maximumWorld.z);
+  }
+  return { x0: b.x0 - 30, x1: b.x1 + 30, z0: b.z0 - 30, z1: b.z1 + 30 };
+}
+
+/** A piece cut to the faces whose centres lie inside a plan rectangle. */
+function clipToPlan(sg: Segment, b: { x0: number; x1: number; z0: number; z1: number }): Segment {
+  const out: Segment = { ...sg, pos: [], nrm: [], uv: [], col: sg.col ? [] : null, idx: [], min: new Vector3(Infinity, Infinity, Infinity), max: new Vector3(-Infinity, -Infinity, -Infinity) };
+  const remap = new Map<number, number>();
+  for (let k = 0; k < sg.idx.length; k += 3) {
+    const [a, c, d] = [sg.idx[k], sg.idx[k + 1], sg.idx[k + 2]];
+    const cx = (sg.pos[a * 3] + sg.pos[c * 3] + sg.pos[d * 3]) / 3;
+    const cz = (sg.pos[a * 3 + 2] + sg.pos[c * 3 + 2] + sg.pos[d * 3 + 2]) / 3;
+    if (cx < b.x0 || cx > b.x1 || cz < b.z0 || cz > b.z1) continue;
+    for (const v of [a, c, d]) {
+      let n = remap.get(v);
+      if (n === undefined) {
+        n = out.pos.length / 3;
+        remap.set(v, n);
+        out.pos.push(sg.pos[v * 3], sg.pos[v * 3 + 1], sg.pos[v * 3 + 2]);
+        out.nrm.push(sg.nrm[v * 3], sg.nrm[v * 3 + 1], sg.nrm[v * 3 + 2]);
+        out.uv.push(sg.uv[v * 2], sg.uv[v * 2 + 1]);
+        if (sg.col) out.col!.push(sg.col[v * 4], sg.col[v * 4 + 1], sg.col[v * 4 + 2], sg.col[v * 4 + 3]);
+        out.min.minimizeInPlace(new Vector3(sg.pos[v * 3], sg.pos[v * 3 + 1], sg.pos[v * 3 + 2]));
+        out.max.maximizeInPlace(new Vector3(sg.pos[v * 3], sg.pos[v * 3 + 1], sg.pos[v * 3 + 2]));
+      }
+      out.idx.push(n);
+    }
+  }
+  return out;
 }
 
 /**
@@ -231,7 +327,7 @@ function buildItems({ segs, leafMeshes }: Selection): { items: Item[]; joins: Ma
       if (!host) host = clumpAt(at);
       let seg = foliage.get(host);
       if (!seg) {
-        seg = { label: host.label, generic: true, yaw: NaN, mat: base.mat, pos: [], nrm: [], uv: [], idx: [], min: at.clone(), max: at.clone() };
+        seg = { label: host.label, generic: true, yaw: NaN, mat: base.mat, pos: [], nrm: [], uv: [], col: null, idx: [], min: at.clone(), max: at.clone() };
         foliage.set(host, seg);
       }
       appendTransformed(seg, base, w);
@@ -284,6 +380,7 @@ function segmentsOf(mesh: Mesh, whole = false): Segment[] {
   const P = mesh.getVerticesData(VertexBuffer.PositionKind)!;
   const N = mesh.getVerticesData(VertexBuffer.NormalKind) ?? [];
   const UV = mesh.getVerticesData(VertexBuffer.UVKind) ?? [];
+  const COL = mesh.getVerticesData(VertexBuffer.ColorKind);
   const I = mesh.getIndices()!;
   const faces = I.length / 3;
   const cuts = whole ? [0] : [...new Set([0, ...(md.pieces ?? []), ...md.labels.map((l) => l.face)])].filter((f) => f < faces).sort((a, b) => a - b);
@@ -311,7 +408,7 @@ function segmentsOf(mesh: Mesh, whole = false): Segment[] {
     const f1 = c + 1 < cuts.length ? cuts[c + 1] : faces;
     let label = "";
     for (const l of md.labels) if (l.face <= f0) label = l.label;
-    const seg: Segment = { label: label || mesh.name, generic: !label || loose.has(f0), yaw: whole ? NaN : yawAt(f0), mat: mesh.material!, pos: [], nrm: [], uv: [], idx: [], min: new Vector3(Infinity, Infinity, Infinity), max: new Vector3(-Infinity, -Infinity, -Infinity) };
+    const seg: Segment = { label: label || mesh.name, generic: !label || loose.has(f0), yaw: whole ? NaN : yawAt(f0), mat: mesh.material!, pos: [], nrm: [], uv: [], col: COL ? [] : null, idx: [], min: new Vector3(Infinity, Infinity, Infinity), max: new Vector3(-Infinity, -Infinity, -Infinity) };
     const remap = new Map<number, number>();
     for (let k = f0 * 3; k < f1 * 3; k++) {
       const src = I[k];
@@ -329,6 +426,7 @@ function segmentsOf(mesh: Mesh, whole = false): Segment[] {
         v.normalize();
         seg.nrm.push(v.x, v.y, v.z);
         seg.uv.push(UV[src * 2] ?? 0, UV[src * 2 + 1] ?? 0);
+        if (COL) seg.col!.push(COL[src * 4], COL[src * 4 + 1], COL[src * 4 + 2], COL[src * 4 + 3]);
       }
       seg.idx.push(dst);
     }
@@ -518,6 +616,8 @@ function buildItemMesh(scene: Scene, it: Item, matFor: (m: Material) => Material
   const pos: number[] = [];
   const nrm: number[] = [];
   const uv: number[] = [];
+  const painted = it.segs.some((sg) => sg.col);
+  const col: number[] = [];
   const idx: number[] = [];
   const ranges: { mat: Material; start: number; count: number }[] = [];
   for (const [mat, list] of byMat) {
@@ -531,6 +631,7 @@ function buildItemMesh(scene: Scene, it: Item, matFor: (m: Material) => Material
         nrm.push(v.x, v.y, v.z);
       }
       uv.push(...s.uv);
+      if (painted) for (let i = 0; i < s.pos.length / 3; i++) col.push(...(s.col ? s.col.slice(i * 4, i * 4 + 4) : [1, 1, 1, 1]));
       for (const i of s.idx) idx.push(i + base);
     }
     ranges.push({ mat: matFor(mat), start, count: idx.length - start });
@@ -540,6 +641,7 @@ function buildItemMesh(scene: Scene, it: Item, matFor: (m: Material) => Material
   vd.positions = pos;
   vd.normals = nrm;
   vd.uvs = uv;
+  if (painted) vd.colors = col;
   vd.indices = idx;
   vd.applyToMesh(mesh);
   mesh.position.copyFrom(origin);
@@ -626,6 +728,12 @@ function exportMaterials(scene: Scene, made: Made): (m: Material) => Material {
       const own = m.bumpTexture;
       m.bumpTexture = convertNormal(own);
       made.restore.push(() => (m.bumpTexture = own));
+    }
+    // the leaves' translucency exports as glTF volume, which Blender renders as refracting
+    // glass: export them as the cut-out, two-sided cards they are
+    if (m instanceof PBRMaterial && m.subSurface.isTranslucencyEnabled) {
+      m.subSurface.isTranslucencyEnabled = false;
+      made.restore.push(() => (m.subSurface.isTranslucencyEnabled = true));
     }
     // every image gets a name in the file (the leaf atlas has none)
     for (const t of out.getActiveTextures()) if (!t.name) t.name = m.name;
