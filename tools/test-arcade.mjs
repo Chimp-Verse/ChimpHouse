@@ -100,9 +100,9 @@ await shot("2-walked-up");
 
 // ------------------------------------------------ play
 const pressed = await page.keyboard.press("KeyE").then(() => Date.now());
-await waitFor(() => window.__chimp.state().playing?.phase === "playing" && !!window.__chimp.state().playRect, null, 5000);
+await waitFor(() => window.__chimp.state().focus?.phase === "on" && !!window.__chimp.state().focusRect, null, 5000);
 await settle(10);
-const playing = await ev(() => window.__chimp.state().playing);
+const playing = await ev(() => window.__chimp.state().focus);
 check(!!playing, `E plays it (${((Date.now() - pressed) / 1000).toFixed(1)} s to arrive)`, playing && `${playing.name} · ${playing.url}`);
 check(!(await ev(() => !!document.pointerLockElement)), "the mouse is free");
 const square = await ev((n) => {
@@ -129,12 +129,12 @@ const vw = page.viewportSize();
 check(a1.err < 1, "the game's frame lies exactly over the screen", `off by ${a1.err.toFixed(2)} px; ${Math.round(a1.got.w)} x ${Math.round(a1.got.h)} px = ${((a1.got.h / vw.height) * 100).toFixed(0)}% of the height`);
 await shot("3-playing");
 
-const frame = page.frames().find((f) => f.url().includes(STANDIN ? "standin.html" : playing.url));
+const frame = page.frames().find((f) => f.url().includes(STANDIN ? "arcade/standin.html" : playing.url));
 const keysIn = async () => (frame ? frame.evaluate(() => window.received?.length ?? -1) : -1);
 const houseState = () =>
   ev(() => {
     const s = window.__chimp.state();
-    return JSON.stringify({ pose: window.__chimp.pose(), walking: s.walking, night: s.night, view: s.viewId, roof: s.roofHidden, upper: s.upperHidden, help: s.help, inspect: s.inspectMode, playing: s.playing?.phase });
+    return JSON.stringify({ pose: window.__chimp.pose(), walking: s.walking, night: s.night, view: s.viewId, roof: s.roofHidden, upper: s.upperHidden, help: s.help, inspect: s.inspectMode, focus: s.focus?.phase });
   });
 const h0 = await houseState();
 if (STANDIN) {
@@ -150,7 +150,7 @@ await settle(10);
 check((await houseState()) === h0, "ChimpHouse ignores keys sent to the game (camera, walk, night, views, help…)");
 
 // focus back on ChimpHouse's page (a click on the frame's title): its keys still do nothing
-await page.click(".play-bar.top .name");
+await page.click(".focus-bar.top .name");
 const n0 = await keysIn();
 for (const k of ["KeyF", "KeyN", "Digit2", "KeyU", "KeyE"]) await page.keyboard.press(k);
 await page.keyboard.down("KeyD");
@@ -187,12 +187,12 @@ const a3 = await align();
 check(a3.err < 1, "and back", `off by ${a3.err.toFixed(2)} px`);
 
 // ------------------------------------------------ leave
-await page.click(".play-bar .leave");
-await waitFor(() => window.__chimp.state().playing === null, null, 5000);
+await page.click(".focus-bar .leave");
+await waitFor(() => window.__chimp.state().focus === null, null, 5000);
 await settle(10);
 const left = await ev(() => ({ frames: document.querySelectorAll("iframe.play-frame").length, walking: window.__chimp.state().walking, pose: window.__chimp.pose() }));
 check(left.frames === 0, "Leave removes the game's frame");
-check(!page.frames().some((f) => f.url().includes("standin.html") || f.url().includes("play.chimpvibe.dev")), "the game's page is gone (its connection ends)");
+check(!page.frames().some((f) => f.url().includes("arcade/standin.html") || f.url().includes("play.chimpvibe.dev")), "the game's page is gone (its connection ends)");
 const stand = await ev((n) => {
   const node = window.__chimp.scene.transformNodes.find((t) => t.metadata?.role === "cabinet-slot" && t.metadata.slot === n);
   const V = node.position.constructor;

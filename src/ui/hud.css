@@ -43,9 +43,22 @@ body,
   user-select: none;
 }
 
-.status {
+/* the status panel, and the remote panel under it while a remote is held */
+.left-stack {
+  position: absolute;
   top: 14px;
   left: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.left-stack .panel {
+  position: relative;
+}
+
+.status {
   min-width: 230px;
 }
 
@@ -382,6 +395,9 @@ kbd {
   font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+  max-width: 70vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
   pointer-events: none;
 }
 
@@ -397,13 +413,13 @@ kbd {
   margin-left: 6px;
 }
 
-.play-layer {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 20;
+/* the theatre's prompt sits low, clear of the player on the screen */
+.play-prompt.low {
+  top: auto;
+  bottom: 56px;
 }
 
+/* the game's frame lies over the cabinet's screen (engine/focus.ts), above the frame of UI */
 .play-frame {
   position: fixed;
   left: 0;
@@ -413,21 +429,30 @@ kbd {
   border: 0;
   background: #000;
   visibility: hidden;
-  pointer-events: auto;
+  z-index: 21;
 }
 
 .play-frame.shown {
   visibility: visible;
 }
 
-.play-ring {
+/* ------------------------------------------------ a screen in use: the frame of UI round it */
+
+.focus-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.focus-ring {
   position: fixed;
   border: 2px solid rgba(111, 247, 198, 0.55);
   border-radius: 8px;
   box-shadow: 0 0 24px rgba(111, 247, 198, 0.25);
 }
 
-.play-bar {
+.focus-bar {
   position: fixed;
   display: flex;
   align-items: center;
@@ -437,30 +462,57 @@ kbd {
   user-select: none;
 }
 
-.play-bar.top .name {
+/* the top bar stands on the screen's top edge, so a longer bar grows upwards, never over the screen */
+.focus-bar.top {
+  transform: translateY(-100%);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.focus-bar.top .name {
   font-family: "Nunito", sans-serif;
   font-weight: 800;
   font-size: 20px;
   color: var(--ink);
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.7);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
-.play-bar .by,
-.play-bar .play-hint {
+.focus-bar .by,
+.focus-bar .focus-hint {
   color: var(--muted);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
 }
 
-.play-bar .status {
+.focus-bar .status {
   margin-left: auto;
   color: var(--amber);
 }
 
-.play-bar.bottom {
+.focus-bar.bottom {
+  flex-wrap: wrap;
   justify-content: space-between;
 }
 
-.play-bar .leave {
+.focus-bar .focus-error {
+  flex-basis: 100%;
+  order: 3;
+  padding: 7px 12px;
+  border-radius: 9px;
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  color: var(--amber);
+}
+
+.focus-bar .focus-error a {
+  color: var(--mint);
+}
+
+.focus-bar .leave {
+  margin-left: auto;
   background: var(--amber);
   color: #2a1606;
   border: 0;
@@ -470,6 +522,152 @@ kbd {
   cursor: pointer;
 }
 
-.play-bar .leave:hover {
+.focus-bar .leave:hover {
   background: #ffc78a;
+}
+
+/* ------------------------------------------------ theatre */
+
+/*
+ * YouTube's player (or the test stand-in), placed each frame by engine/theatre.ts: over the
+ * screen, square on or in perspective, or hidden. It draws above the rest of the HUD, which
+ * may never cover it.
+ */
+.theatre-player {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 640px;
+  height: 360px;
+  border: 0;
+  background: #000;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 21;
+}
+
+.video-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.video-picker input {
+  flex: 1;
+  min-width: 0;
+  width: 190px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 6px 8px;
+  color: var(--ink);
+  font: 500 12px "Montserrat", sans-serif;
+  user-select: text;
+}
+
+.video-picker input:focus {
+  outline: none;
+  border-color: rgba(111, 247, 198, 0.6);
+}
+
+.panel .video-picker button,
+.video-picker button {
+  all: unset;
+  padding: 6px 12px;
+  border-radius: 7px;
+  background: var(--mint);
+  color: #0d2a22;
+  font: 700 12px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.video-picker button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.focus-bar .video-picker {
+  flex: 1;
+  max-width: 460px;
+}
+
+/* over the room's timber, the box needs a panel of its own */
+.focus-bar .video-picker input {
+  background: var(--panel);
+  backdrop-filter: blur(8px);
+  padding: 8px 10px;
+}
+
+.picker-problem,
+.theatre-error {
+  flex-basis: 100%;
+  color: var(--amber);
+  font-size: 12px;
+  margin: 2px 2px 0;
+}
+
+.theatre-now {
+  flex-shrink: 0;
+  margin: 0 2px 6px;
+  font-weight: 600;
+  font-size: 12px;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.theatre-now .live {
+  margin-right: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #d6322b;
+  color: #fff;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.theatre-hint {
+  margin: 0 2px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+/* the remote in hand: the theatre's controls */
+.panel.remote {
+  width: 300px;
+  border-color: rgba(111, 247, 198, 0.35);
+}
+
+.remote-buttons {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 8px;
+}
+
+.panel .remote-buttons button {
+  flex: 1;
+  justify-content: center;
+  border: 1px solid var(--edge);
+  background: rgba(0, 0, 0, 0.25);
+  font-weight: 600;
+}
+
+.panel .remote-buttons button.main {
+  flex: 1.4;
+  border-color: rgba(111, 247, 198, 0.5);
+  color: var(--mint);
+}
+
+.panel .remote-buttons button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.panel button.put-back {
+  margin-top: 8px;
+  color: var(--muted);
 }

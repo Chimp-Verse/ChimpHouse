@@ -24,6 +24,8 @@ interface Segment {
   label: string;
   /** no label of its own (a pot's soil, plant stems, glass in a door): joins the item it touches */
   generic: boolean;
+  /** what the client attaches behaviour to (a screen's role, see roles.ts): such a piece is an item of its own */
+  role?: string;
   /** turn about the vertical it was placed with (NaN when built in place) */
   yaw: number;
   mat: Material;
@@ -39,6 +41,8 @@ interface Segment {
 
 interface Item {
   label: string;
+  /** a screen's role: the item is that one quad, which nothing else joins */
+  role?: string;
   segs: Segment[];
   min: Vector3;
   max: Vector3;
@@ -105,7 +109,7 @@ export async function exportZone(scene: Scene, zoneId: string, level: string | u
     const mesh = buildItemMesh(scene, it, matFor, made);
     mesh.name = it.label;
     mesh.parent = zoneNode;
-    mesh.metadata = { gltf: { extras: { zone: zoneId, level: room?.level ?? level ?? "", item: it.label, order: i } } };
+    mesh.metadata = { gltf: { extras: { zone: zoneId, level: room?.level ?? level ?? "", item: it.label, order: i, ...(it.role && { role: it.role }) } } };
   }
   // the zone's slots, filled at run time (cabinet slots): empties carrying their role, number and stand point
   for (const n of scene.transformNodes) {
@@ -270,7 +274,7 @@ function buildItems({ segs, leafMeshes }: Selection): { items: Item[]; joins: Ma
   for (let grew = true; grew; ) {
     grew = false;
     pending = pending.filter((s) => {
-      const it = items.find((i) => i.label === s.label && overlap(s.min, s.max, i.min, i.max, 0.15) > 0);
+      const it = items.find((i) => !i.role && i.label === s.label && overlap(s.min, s.max, i.min, i.max, 0.15) > 0);
       if (it) (grew = true), join(s, it);
       return !it;
     });
@@ -280,7 +284,7 @@ function buildItems({ segs, leafMeshes }: Selection): { items: Item[]; joins: Ma
       let near: Item | null = null;
       let nearGap = 0.5;
       for (const it of items) {
-        if (FABRIC.test(it.label)) continue;
+        if (FABRIC.test(it.label) || it.role) continue;
         const g = gap(s, it);
         if (g < nearGap - 1e-4 || (g < nearGap + 1e-4 && near && volume(it) < volume(near))) (nearGap = g), (near = it);
       }
@@ -293,6 +297,7 @@ function buildItems({ segs, leafMeshes }: Selection): { items: Item[]; joins: Ma
     let best: Item | null = null;
     let bestShare = 0.2;
     for (const it of items) {
+      if (it.role) continue;
       const share = overlap(s.min, s.max, it.min, it.max, 0.03) / own;
       if (share > bestShare * 1.1 || (share > bestShare * 0.9 && best && volume(it) < volume(best))) (bestShare = Math.max(share, bestShare)), (best = it);
     }
@@ -420,7 +425,7 @@ function segmentsOf(mesh: Mesh, whole = false): Segment[] {
     const f1 = c + 1 < cuts.length ? cuts[c + 1] : faces;
     let label = "";
     for (const l of md.labels) if (l.face <= f0) label = l.label;
-    const seg: Segment = { label: label || mesh.name, generic: !label || loose.has(f0), yaw: whole ? NaN : yawAt(f0), mat: mesh.material!, pos: [], nrm: [], uv: [], col: COL ? [] : null, idx: [], min: new Vector3(Infinity, Infinity, Infinity), max: new Vector3(-Infinity, -Infinity, -Infinity) };
+    const seg: Segment = { label: label || mesh.name, generic: !label || loose.has(f0), role: md.role, yaw: whole ? NaN : yawAt(f0), mat: mesh.material!, pos: [], nrm: [], uv: [], col: COL ? [] : null, idx: [], min: new Vector3(Infinity, Infinity, Infinity), max: new Vector3(-Infinity, -Infinity, -Infinity) };
     const remap = new Map<number, number>();
     for (let k = f0 * 3; k < f1 * 3; k++) {
       const src = I[k];
@@ -571,12 +576,16 @@ function addTo(it: Item, s: Segment) {
   it.max.maximizeInPlace(s.max);
 }
 
-/** Group labelled pieces into items: same label and touching (2 cm), across materials. */
+/** Group labelled pieces into items: same label (and role) and touching (2 cm), across materials. */
 function groupItems(segs: Segment[]): Item[] {
   const byLabel = new Map<string, Segment[]>();
-  for (const s of segs) byLabel.set(s.label, [...(byLabel.get(s.label) ?? []), s]);
+  for (const s of segs) {
+    const key = `${s.role ?? ""}|${s.label}`;
+    byLabel.set(key, [...(byLabel.get(key) ?? []), s]);
+  }
   const items: Item[] = [];
-  for (const [label, list] of byLabel) {
+  for (const list of byLabel.values()) {
+    const { label } = list[0];
     const parent = list.map((_, i) => i);
     const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
     for (let i = 0; i < list.length; i++)
@@ -585,7 +594,7 @@ function groupItems(segs: Segment[]): Item[] {
     list.forEach((s, i) => {
       const r = find(i);
       let it = groups.get(r);
-      if (!it) groups.set(r, (it = { label, segs: [], min: s.min.clone(), max: s.max.clone() }));
+      if (!it) groups.set(r, (it = { label, role: s.role, segs: [], min: s.min.clone(), max: s.max.clone() }));
       addTo(it, s);
     });
     items.push(...groups.values());

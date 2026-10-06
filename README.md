@@ -2,7 +2,7 @@
 
 A fly-through preview of ChimpHouse, built from `chimphouse-description.md` and the concept art in `Reference Images/`. It uses the stack recommended in `docs/research/2026-10-01-chimpverse-technology-stack.md`: TypeScript, Vite and a React DOM HUD around a Babylon.js (WebGL2) scene.
 
-This is a look-and-layout preview only. There are no avatars, multiplayer, voice or room activities. The house, its furniture and its jungle setting are generated procedurally in code, so changes are quick to make and hot-reload in the browser.
+This is a look-and-layout preview. There are no avatars, multiplayer or voice yet; the arcade cabinets and the theatre screen are the first room activities. The house, its furniture and its jungle setting are generated procedurally in code, so changes are quick to make and hot-reload in the browser.
 
 ## Running it
 
@@ -54,6 +54,43 @@ The Game Room's cabinets hold the ChimpVibe games admitted to ChimpHouse, one pe
 - The list comes from ChimpVibe (`https://chimpvibe.dev/shared/chimphouse.json`) and is checked every two minutes. Until ChimpVibe serves it, `public/arcade/chimphouse.json` stands in (`node tools/make-arcade-fixture.mjs` rebuilds it from the live catalogue). In development, `/chimpvibe/…` on the dev server is proxied to chimpvibe.dev so the art works as a texture.
 - ChimpVibe only lets its own site frame its games so far, so a real game shows a refusal over the screen. Add `?arcade=standin` to the address to play `public/arcade/standin.html` on every cabinet instead: it shows the keys it receives.
 
+## Watching in the theatre
+
+The theatre screen shows YouTube videos and live streams in YouTube's own player, which YouTube's terms require.
+
+- **The remotes:** two remotes lie on the stand under the screen. Whoever holds one controls the theatre. Walk up to the stand, look at a remote and press **E** (or click it) to pick it up; at the stand, **E** puts it down again, and **B** puts it back from anywhere in the theatre. Leaving the theatre with a remote sends it back to the stand. Handing a remote to another visitor comes with multiplayer.
+- **The remote's panel** shows while you hold one: **Play/Pause** (**K**), **−10 s** (**J**) and **+10 s** (**L**), the same keys as YouTube's player, a box for choosing a video, and **Put it back** (**B**). They work for everyone in the theatre, as does whatever the holder does in YouTube's player on the screen.
+- **Without a remote** you can still use the player, since YouTube's terms don't allow blocking it, but only for yourself: pausing it pauses just your copy, and pressing play rejoins the theatre where it has got to. The theatre's state, including who holds each remote, is ready for the room server to share.
+- **Choosing what plays:** holding a remote, paste a YouTube link (`watch?v=`, `youtu.be/`, `/live/`, `/shorts/`, `/embed/`) or a video ID into the remote's panel, or into the box under the screen while watching, and press **Show**. A `t=` or `start=` time in the link is kept. The screen and the "Now Showing" lightbox in the corridor show the video's thumbnail and title whenever the player isn't over the screen.
+- **Watching:** walk into the theatre and look at the screen, then press **E** (or click the screen while nothing is showing). The camera glides to a seated pose square onto the screen, and the player appears exactly over it with its own controls. The title is above it. Below it are a box for choosing another video and **Leave**. While you watch, ChimpHouse's own keys do nothing, and keys typed into the player go to YouTube.
+- **When a video starts:** at once, since a remote's holder is always in the theatre.
+- **Walking about:** **Leave** puts you back where you stood, and the video keeps playing on the screen. As you move about the theatre the player lies over the screen in perspective, placed afresh in every frame the scene is drawn. With the mouse free, clicks on it go to YouTube's player.
+- **When it hides:** a browser draws the player on top of the 3D scene, so it hides when it can't be seen properly: when you look away, something stands in front of the screen, you see it too steeply or from too far away (smaller than YouTube's 200 px minimum), or you leave the theatre. YouTube's terms don't allow a hidden player to play, so it pauses as it hides. The theatre itself keeps going, as a cinema does: when the screen is back in view, your player catches up.
+- **Sound:** the player's volume falls off with your distance from the screen, scaling whatever you set on the player's own volume slider. Its sound can't come from the speakers' direction: the browser keeps YouTube's sound sealed inside the player.
+- **When YouTube refuses a video** (its owner doesn't allow it outside YouTube, or it's gone), the frame says so in plain words, with a link to watch it on YouTube.
+- The theatre's state is one object, the store's `theatre`: the video, playing or paused, and where it was at a moment. A room server can share it later to keep everyone in step.
+- Add `?theatre=standin` to the address to use `public/theatre/standin.html` instead of YouTube's player. It draws a test card with a solid colour in each corner, a clock and the keys it receives.
+
+### Checking it with real YouTube videos
+
+`tools/test-theatre.mjs` checks the theatre against the stand-in. To check real YouTube, open http://localhost:5173/?view=theatre in your own browser (with `npm run dev` running). Press **F** to walk, go to the stand under the screen, look at a remote and press **E** to pick it up. Then look at the screen and press **E** to watch, paste each of these into the box under the screen and press **Show**:
+
+| Link | What should happen |
+| --- | --- |
+| `https://www.youtube.com/watch?v=aqz-KE-bpKQ&t=30` | Big Buck Bunny plays with sound from 0:30, exactly over the screen. The bar above says "YouTube · Blender". |
+| `https://www.youtube.com/watch?v=M3HKLzjvKPc` | NASA's live view from the space station plays, and the bar above says LIVE once it starts. Live streams come and go: if this one has ended, use any stream that's live on YouTube. |
+| `https://www.youtube.com/watch?v=jfKfPfyJRdk` | An ended stream. YouTube refuses it, and the frame says so, with a link to watch it on YouTube. |
+| `https://youtu.be/aaaaaaaaaaa` | A video that doesn't exist: the same refusal. |
+
+Then try:
+
+- Press **Leave** while it plays and walk about the theatre: the video keeps playing on the screen, in perspective, and gets quieter towards the back.
+- Turn away, or walk out of the door, for ten seconds, then look at the screen again: it pauses meanwhile, and comes back about ten seconds on.
+- Pause with the player's own button, then walk out and back: it is still paused where you left it.
+- The player's fullscreen button, and resizing the window while you watch (the player stays on the screen).
+- With the remote, **K**, **J** and **L** while you walk about; then **B**, and pause and play the player yourself: without a remote, only your copy pauses, and it rejoins the theatre.
+- Walking out of the theatre with the remote: it goes back to the stand. From the corridor, the lightbox shows what's on.
+
 ## Requesting changes
 
 Fly to the spot, Alt-click the object you want changed and press **P**. Paste the copied text into your request, for example:
@@ -72,11 +109,12 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `src/world/layout.ts` | Every dimension: storey heights, room footprints, trees, stairs, bridge. `PLAN_SCALE` (wings and depth) and `HALL_SCALE` (entry hall width) resize the whole house; furniture spacing, terrain and viewpoints follow. |
 | `src/world/structure/` | Floors, glazing, roofs and atrium dome, arches, stairs, railings, substructure |
 | `src/world/rooms/` | Room furnishing (`lower.ts`, `upper.ts`) |
-| `src/world/props/` | Furniture, lights, plants, screens, the shared arcade cabinet (`cabinet.ts`), studio equipment, firetruck |
+| `src/world/props/` | Furniture, lights, plants, screens, the shared arcade cabinet (`cabinet.ts`), what the theatre screen shows when nobody is watching (`theatreScreen.ts`), studio equipment, firetruck |
+| `src/world/roles.ts` | Roles: how code finds a screen or slot (the theatre screen, cabinet slot 3) from its metadata, which the Blender files will carry too |
 | `src/world/environment/` | Sky, terrain, waterfalls, jungle, giant trees, front approach, canopy bridge |
 | `src/world/materials/` | Procedural textures, leaf atlas, signs, shared material library |
 | `src/world/viewpoints.ts` | Saved camera viewpoints |
-| `src/engine/` | Engine bootstrap, fly camera, walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state |
+| `src/engine/` | Engine bootstrap, fly camera, walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state; using a screen (`focus.ts`: the glide onto it and lining content up over it), the arcade (`arcade.ts`) and the theatre (`theatre.ts`, `youtube.ts`) |
 | `public/textures/screens/` | Screen artwork extracted from the reference images |
 | `docs/plans/2026-10-02-blender-switch-plan.md` | The plan for moving the house into Blender once the layout is settled |
 | `art/ChimpHouse.blend` | The Blender master: links every room and zone, and holds the lights, sun, viewpoint cameras and render settings |
@@ -99,10 +137,11 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `node tools/audit-items.mjs [zone…]` | With `npm run dev` running, review how the export splits every room and zone into items and flag what looks wrong; the full item lists go to `art/test/item-audit.txt` |
 | `node tools/test-arcade.mjs [slot]` | With `npm run dev` running, check the arcade round trip in a real browser: slots and cabinets, walking up, playing the stand-in game (keys reach it, ChimpHouse ignores them, the frame lines up with the screen through a resize), leaving and walking on. `GAME=real` plays the real game instead. Screenshots go to `captures/arcade-*.png` |
 | `node tools/make-arcade-fixture.mjs` | Rebuild the arcade's stand-in game list from ChimpVibe's live catalogue |
+| `node tools/test-theatre.mjs` | With `npm run dev` running, check the theatre in a real browser with the stand-in player. It checks that the screen and lightbox are found by role, and the watch-mode round trip: the player exactly over the screen (also in a screenshot), nothing over it, keys going to it and not to ChimpHouse, a window resize. It checks the remotes: taking one, putting it down, leaving the theatre with it, its buttons, and a viewer without one. After Leave it checks the player over the screen in perspective (in screenshots, and in every frame while walking), each reason for it to hide (paused first), catching up, and volume by distance. It also checks choosing videos, live streams and refused videos. Screenshots go to `captures/theatre-*.png` |
 | `node tools/export-house.mjs` | With `npm run dev` running, export every room and zone to `art/test/house/` (one .glb each) with `scene.json`: the house's lights, sun and viewpoint cameras |
 | `blender --background --factory-startup --python tools/blender/build_blend.py -- <out.blend> <export.glb or folder>… [--rooms <dir>]` | Build Blender files from exports: Group › Zone collections (Lower, Upper, Building, Site), shared materials and images, quads and welded vertices rebuilt from glTF's triangles (so items can be reshaped), textures saved as PNGs beside it, each zone's leaves in a "· Foliage" collection, the lights, the sun and a camera per viewpoint. With `--rooms` it writes a file per room, the material library and a master that links them: `-- art/ChimpHouse.blend art/test/house --rooms art/rooms` |
 | `blender --background <file.blend> --python tools/blender/render_views.py -- <out dir> [view…] [--scale 50] [--samples 16]` | Render viewpoint cameras from a Blender file, e.g. to compare with `npm run capture` |
 
 The export splits each room into one object per item (a sofa, a lamp, a planter with its plant), named from its inspect label, turned the way it was placed and with its origin at the centre of its base. Pieces built without a label of their own join the item they belong to; the export prints how it placed them, which is the place to look when an object comes out wrong. Blender lives at `/Applications/Blender.app/Contents/MacOS/Blender` on this Mac.
 
-The screen artwork (Yousef's stream thumbnail, community project screens, MixChimp interface and the trading display) is cropped from the concept renders, so it carries their resolution and style. Replace the PNGs in `public/textures/screens/` with real assets when they are available.
+The screen artwork (community project screens, MixChimp interface and the trading display) is cropped from the concept renders, so it carries their resolution and style. Replace the PNGs in `public/textures/screens/` with real assets when they are available.

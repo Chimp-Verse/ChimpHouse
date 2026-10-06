@@ -8,18 +8,41 @@ export interface PickedInfo {
   point: [number, number, number];
 }
 
-/** A game being played at a cabinet. */
-export interface PlayingInfo {
-  slot: number;
-  gameId: string;
-  name: string;
-  author: string;
-  url: string;
-  /** gliding in to the screen, at it, or gliding back out */
-  phase: "in" | "playing" | "out";
+/** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
+export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" };
+
+/** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
+export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
+
+/** This visitor, as the theatre's state names a remote's holder (the room server will give each visitor an id). */
+export const VIEWER = "local";
+
+/**
+ * What the theatre is showing, as one object that the room server can later
+ * share to keep everyone in step: the video, playing or paused, where it was at
+ * a moment, and who holds each remote. Each viewer's own YouTube player follows it.
+ */
+export interface TheatreState {
+  /** the YouTube video or live stream on the screen, or null */
+  videoId: string | null;
+  playing: boolean;
+  /** seconds into the video at `since` */
+  at: number;
+  /** when it was at `at` (Date.now(), ms) */
+  since: number;
+  /** a live stream: viewers join it live, not at `at` */
+  live: boolean;
+  /** who holds each remote (remote n at n - 1), or null while it is on the stand: a holder controls the theatre */
+  remotes: (string | null)[];
 }
 
-/** Where the cabinet's screen is on the page, in CSS pixels. */
+/** About the theatre's video, from YouTube. */
+export interface TheatreVideo {
+  title: string;
+  channel: string;
+}
+
+/** Where a screen in use is on the page, in CSS pixels. */
 export interface ScreenRect {
   x: number;
   y: number;
@@ -56,10 +79,19 @@ export interface PreviewState {
   toast: string | null;
   /** walking up to a cabinet: the one that E (or a click on its screen) plays */
   arcadePrompt: { slot: number; name: string } | null;
-  /** playing at a cabinet: ChimpHouse's own keys and mouse look do nothing meanwhile */
-  playing: PlayingInfo | null;
-  /** the playing cabinet's screen on the page, once the camera is square onto it */
-  playRect: ScreenRect | null;
+  /** a screen in use (a cabinet's game, the theatre's video): ChimpHouse's own keys and mouse look do nothing meanwhile */
+  focus: Focus | null;
+  /** the screen in use on the page, once the camera is square onto it */
+  focusRect: ScreenRect | null;
+  theatre: TheatreState;
+  /** the theatre's video's title and channel, once YouTube has said */
+  theatreVideo: TheatreVideo | null;
+  /** why the theatre's video can't play, in plain words */
+  theatreError: string | null;
+  /** walking up to the theatre screen: E (or a click on it) watches */
+  theatrePrompt: boolean;
+  /** at the stand under the theatre screen: E picks up remote n, or puts the one held back */
+  remotePrompt: { action: "take" | "put"; remote: number } | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -91,8 +123,13 @@ class Store {
     pointerLocked: false,
     toast: null,
     arcadePrompt: null,
-    playing: null,
-    playRect: null,
+    focus: null,
+    focusRect: null,
+    theatre: { videoId: null, playing: false, at: 0, since: 0, live: false, remotes: [] },
+    theatreVideo: null,
+    theatreError: null,
+    theatrePrompt: false,
+    remotePrompt: null,
   };
   private listeners = new Set<Listener>();
 

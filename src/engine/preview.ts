@@ -2,7 +2,7 @@ import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Ve
 import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
-import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, RoomDef, lowerDeckLoop, upperDeckLoop } from "../world/layout";
+import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
 import { VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
@@ -12,7 +12,11 @@ import { Quality, store } from "./store";
 import { CollisionWorld } from "./collision";
 import { Walker } from "./walker";
 import { Arcade } from "./arcade";
+import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
+import { Remotes } from "./remotes";
+import { Theatre } from "./theatre";
+import { parseYouTube } from "./youtube";
 
 export interface PreviewController {
   goTo(id: string): void;
@@ -25,6 +29,10 @@ export interface PreviewController {
   /** Play the game at the cabinet in a slot (walk mode), or leave it. */
   useCabinet(slot: number): Promise<boolean>;
   leaveCabinet(): Promise<void>;
+  /** The theatre: what it shows, choosing videos, watching (walk mode) and its player. */
+  readonly theatre: Theatre;
+  /** The theatre's remotes: whoever holds one controls the theatre. */
+  readonly remotes: Remotes;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -52,10 +60,16 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const lighting = new Lighting(scene, world.sky);
   lighting.attach(world.ctx);
   const post = new PostFx(scene, fly.camera);
+  // using a screen: a cabinet's game, the theatre's video
+  const focus = new ScreenFocus(scene, fly, canvas);
   // cabinets for the admitted games; the walker's collisions are rebuilt when they come or go
-  const arcade = new Arcade(scene, world.mats, lighting, fly, canvas, () => {
+  const arcade = new Arcade(scene, world.mats, lighting, fly, focus, canvas, () => {
     if (walker) walker.world = new CollisionWorld(scene);
   });
+  const theatre = new Theatre(scene, world.mats, fly, focus, canvas);
+  const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
+  // a click on a screen or a remote in reach uses it, instead of capturing the mouse
+  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
@@ -106,7 +120,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       post.setQuality(q);
     },
     setWalking(v) {
-      if (store.get().playing) return;
+      if (store.get().focus) return;
       if (!v) {
         fly.walker = null;
         store.set({ walking: false, blocked: null });
@@ -134,6 +148,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     },
     useCabinet: (slot) => arcade.use(slot),
     leaveCabinet: () => arcade.leave(),
+    theatre,
+    remotes,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -240,11 +256,21 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   window.addEventListener("keydown", (e) => {
     if (isTyping(e) || e.metaKey || e.ctrlKey) return;
     const s = store.get();
-    // playing at a cabinet: keys are the game's, ChimpHouse's own do nothing
-    if (s.playing) return;
+    // using a screen: keys are the game's or the player's, ChimpHouse's own do nothing
+    if (s.focus) return;
     const v = VIEWPOINTS.find((vp) => vp.key === e.key);
     if (v) controller.goTo(v.id);
     else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
+    else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
+    else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
+    // a remote's buttons (YouTube's own keys for them), and putting it back
+    else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
+      const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
+      if (why) flash(why);
+    } else if (e.code === "KeyB" && remotes.held !== null) {
+      remotes.putBack();
+      flash("The remote is back on the stand");
+    }
     else if (e.code === "KeyN") controller.setNight(!s.night);
     else if (e.code === "KeyF") controller.setWalking(!s.walking);
     else if (e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
@@ -314,6 +340,20 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     walker: () => fly.walker,
     pose: () => fly.getPose(),
     state: () => store.get(),
+    remotes: {
+      held: () => remotes.held,
+      take: (n: number) => remotes.take(n),
+      putBack: () => remotes.putBack(),
+      /** each remote's spot: its number, and where it is in the world */
+      spots: () =>
+        scene.transformNodes.filter((n) => n.metadata?.role === "theatre-remote-spot").map((n) => ({ remote: (n.metadata as { slot: number }).slot, at: n.getAbsolutePosition().asArray() })),
+      /** whether each remote shows on the stand */
+      onStand: () =>
+        scene.transformNodes
+          .filter((n) => n.name.startsWith("Theatre remote "))
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((n) => n.isEnabled()),
+    },
     arcade: {
       slots: () => arcade.slotNumbers,
       games: () => arcade.games().map(({ slot, game }) => ({ slot, gameId: game.gameId, name: game.name, playUrl: game.playUrl })),
@@ -324,6 +364,37 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       use: (slot: number) => arcade.use(slot),
       leave: () => arcade.leave(),
       screenRect: (slot: number) => arcade.screenRect(slot),
+    },
+    theatre: {
+      /** the screen and lightbox found by role, with their corners and size */
+      screens: () =>
+        [theatre.screen, theatre.lightbox].map((m) => {
+          if (!m) return null;
+          const g = screenGeometry(m);
+          return { name: m.name, role: (m.metadata as { role: string }).role, corners: g.corners.map((c) => c.asArray()), normal: g.normal.asArray(), size: [g.width, g.height] };
+        }),
+      /** the screen's corners on the page now (CSS px): bottom-left, bottom-right, top-right, top-left */
+      screenOnPage: () => (theatre.screen ? toPage(screenGeometry(theatre.screen).corners, scene, canvas) : null),
+      parse: (text: string) => parseYouTube(text),
+      command: (button: "toggle" | "back" | "forward") => theatre.command(button),
+      choose: (text: string) => theatre.choose(text),
+      use: () => theatre.use(),
+      leave: () => theatre.leave(),
+      position: () => theatre.position(),
+      thumbnail: () => theatre.thumbnail,
+      /** where the player is ("hidden", "over" the screen in perspective, or "watch"), and why while hidden */
+      placement: () => theatre.placement,
+      /** put a 1 m box in the theatre at [x, y, z] (null takes it away), to check the player hides when the view is blocked */
+      blocker: (at: [number, number, number] | null) => {
+        let box = scene.getMeshByName("testBlocker");
+        if (!at) return box?.dispose();
+        if (!box) {
+          box = MeshBuilder.CreateBox("testBlocker", { size: 1 }, scene);
+          box.renderingGroupId = 1;
+          box.metadata = { room: "theatre", roomName: "Theatre", level: "upper", labels: [{ face: 0, label: "Test blocker" }], matKey: "" } satisfies MeshMeta;
+        }
+        box.position.set(...at);
+      },
     },
     info: () => ({
       fps: Math.round(engine.getFps()),
@@ -347,7 +418,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
     t += dt;
     fly.update(dt);
+    focus.update();
     arcade.update();
+    remotes.update();
+    theatre.update();
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
@@ -386,17 +460,6 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
 
 function round1(v: number) {
   return Math.round(v * 10) / 10;
-}
-
-/** The level containing height y, if inside the house's height. */
-function levelAt(y: number): "lower" | "upper" | null {
-  return y < LEVEL.lowerCeil + 0.2 ? "lower" : y < LEVEL.roof ? "upper" : null;
-}
-
-/** The room containing p, if any. */
-function roomAt(p: Vector3): RoomDef | null {
-  const level = levelAt(p.y);
-  return ROOMS.find((r) => r.level === level && pointInPolygon({ x: p.x, z: p.z }, r.loop)) ?? null;
 }
 
 /** Name of the area containing p. */

@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stand-in video player</title>
+    <!--
+      A same-origin stand-in for YouTube's embedded player, for testing the theatre
+      (?theatre=standin, and tools/test-theatre.mjs). It draws a test card edge to
+      edge (each corner a solid colour, for checking that it lines up with the
+      screen), runs a clock while "playing", records the keys it receives, and
+      answers the IFrame Player API calls and events the theatre uses
+      (engine/youtube.ts, VideoPlayer):
+
+        ?v=<11 characters>   the video; "err150…" (or err101…, err100…) fails with that error code,
+                             "live…" is a live stream (its duration grows as it plays)
+        ?start=<seconds>     where it is cued
+
+      window.standinState() is what the test reads; window.standinSlider(v) moves the
+      volume as a viewer would with the player's slider.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: #000;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="card"></canvas>
+    <script>
+      const q = new URLSearchParams(location.search);
+      const id = q.get("v") ?? "";
+      const S = { unstarted: -1, ended: 0, playing: 1, paused: 2, buffering: 3, cued: 5 };
+      const live = id.startsWith("live");
+      const error = /^err(\d+)/.exec(id)?.[1];
+      const LENGTH = 600;
+      const LIVE_FOR = 3600; // the stream started an hour before the page loaded
+      const loaded = performance.now();
+
+      let state = S.unstarted;
+      let at = Number(q.get("start") ?? 0); // time at `since`, while not playing: the time
+      let since = performance.now();
+      let events = {};
+      let volume = 100;
+      // for each pause, whether the player was still showing: it must be paused before it hides
+      const pauses = [];
+      window.received = [];
+
+      const duration = () => (live ? LIVE_FOR + (performance.now() - loaded) / 1000 : LENGTH);
+      const now = () => Math.min(duration(), state === S.playing ? at + (performance.now() - since) / 1000 : at);
+      const set = (s) => {
+        at = now();
+        since = performance.now();
+        state = s;
+        events.onStateChange?.({ data: s });
+      };
+
+      const player = {
+        playVideo() {
+          if (error || state === S.playing) return;
+          if (live && state !== S.paused) at = duration();
+          set(S.buffering);
+          setTimeout(() => state === S.buffering && set(S.playing), 150);
+        },
+        pauseVideo() {
+          pauses.push(frameElement?.style.visibility !== "hidden");
+          if (state === S.playing || state === S.buffering) set(S.paused);
+        },
+        // as YouTube's: a seek keeps a paused player paused, and plays one in any other state
+        seekTo(t) {
+          if (error) return;
+          at = Math.max(0, Math.min(duration(), t));
+          since = performance.now();
+          if (state !== S.paused) {
+            set(S.buffering);
+            setTimeout(() => state === S.buffering && set(S.playing), 150);
+          }
+        },
+        getCurrentTime: () => now(),
+        getDuration: () => duration(),
+        getPlayerState: () => state,
+        getVolume: () => volume,
+        setVolume(v) {
+          volume = Math.max(0, Math.min(100, Math.round(v)));
+        },
+        destroy() {},
+      };
+
+      window.standin = {
+        /** The theatre's player: YouTube's calls, and its events to `e`. */
+        attach(e) {
+          events = e;
+          setTimeout(() => {
+            if (!error) set(S.cued);
+            events.onReady?.();
+            if (error) events.onError?.({ data: Number(error) });
+          }, 50);
+          return player;
+        },
+      };
+      /** What the test reads, and the viewer moving the player's volume slider. */
+      window.standinState = () => ({ id, state, time: now(), live, volume, pauses: pauses.slice(), keys: window.received.slice() });
+      window.standinSlider = (v) => player.setVolume(v);
+
+      addEventListener("keydown", (e) => {
+        window.received.push(e.code);
+        // like YouTube's player: Space and K toggle playback
+        if (e.code === "Space" || e.code === "KeyK") state === S.playing ? player.pauseVideo() : player.playVideo();
+        e.preventDefault();
+      });
+
+      // ---------------------------------------------------------------- the test card
+      const canvas = document.getElementById("card");
+      const ctx = canvas.getContext("2d");
+      const CORNERS = ["#ff0000", "#00ff00", "#0000ff", "#ffff00"]; // top-left, top-right, bottom-right, bottom-left
+      const BARS = ["#c0c0c0", "#c0c000", "#00c0c0", "#00c000", "#c000c0", "#c00000", "#0000c0"];
+      const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+      function draw() {
+        const w = Math.round(innerWidth * devicePixelRatio);
+        const h = Math.round(innerHeight * devicePixelRatio);
+        if (canvas.width !== w || canvas.height !== h) [canvas.width, canvas.height] = [w, h];
+        BARS.forEach((c, i) => {
+          ctx.fillStyle = c;
+          ctx.fillRect(Math.floor((i * w) / BARS.length), 0, Math.ceil(w / BARS.length), h);
+        });
+        ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+        ctx.fillRect(w * 0.14, h * 0.2, w * 0.72, h * 0.6);
+        const k = Math.round(Math.min(w, h) * 0.09);
+        [
+          [0, 0],
+          [w - k, 0],
+          [w - k, h - k],
+          [0, h - k],
+        ].forEach(([x, y], i) => {
+          ctx.fillStyle = CORNERS[i];
+          ctx.fillRect(x, y, k, k);
+        });
+        ctx.strokeStyle = "#fff";
+        ctx.lineWidth = Math.max(2, h * 0.006);
+        ctx.beginPath();
+        ctx.arc(w / 2, h / 2, h * 0.27, 0, Math.PI * 2);
+        ctx.moveTo(w / 2 - h * 0.3, h / 2);
+        ctx.lineTo(w / 2 + h * 0.3, h / 2);
+        ctx.moveTo(w / 2, h * 0.2);
+        ctx.lineTo(w / 2, h * 0.8);
+        ctx.stroke();
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = `800 ${Math.round(h * 0.08)}px system-ui, sans-serif`;
+        const name = Object.keys(S).find((n) => S[n] === state);
+        ctx.fillText(error ? `error ${error}` : `${clock(now())}${live ? " · LIVE" : ""} · ${name}`, w / 2, h * 0.38);
+        ctx.font = `600 ${Math.round(h * 0.05)}px system-ui, sans-serif`;
+        ctx.fillText(`stand-in player · ${id} · volume ${volume}`, w / 2, h * 0.5);
+        ctx.fillText(window.received.slice(-8).map((c) => c.replace(/^Key|^Digit/, "")).join(" ") || "no keys yet", w / 2, h * 0.62);
+        if (!error && state === S.playing && !live && now() >= LENGTH) set(S.ended);
+        requestAnimationFrame(draw);
+      }
+      draw();
+    </script>
+  </body>
+</html>

@@ -122,7 +122,7 @@ export function buildCabinet(mats: Materials, slot: TransformNode, dress: Cabine
   const q = new Quaternion();
   xf(0, 0, -0.004).multiply(SCREEN_AT).decompose(undefined, q, screen.position);
   screen.rotationQuaternion = q;
-  screen.metadata = { ...meta(screenMat), role: ROLE.cabinetScreen, slot: sm.slot, screenSize: [CABINET_SCREEN.w, CABINET_SCREEN.h] } satisfies ScreenMeta;
+  screen.metadata = { ...meta(screenMat), role: ROLE.cabinetScreen, slot: sm.slot } satisfies ScreenMeta;
 
   // the game's art replaces the screen's placeholder once it loads; without it (or
   // when the browser won't let the page read it) the placeholder stays

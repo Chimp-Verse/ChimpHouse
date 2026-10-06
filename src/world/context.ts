@@ -1,5 +1,5 @@
 import { AbstractMesh, Matrix, Mesh, Quaternion, Scene, TransformNode, Vector3 } from "@babylonjs/core";
-import { Geo } from "./geometry/geo";
+import { Geo, plane } from "./geometry/geo";
 import { Leaf, LEAF_ASPECT, leafUV } from "./materials/leaves";
 import { Materials } from "./materials/library";
 
@@ -170,6 +170,22 @@ export class WorldCtx {
     if (opts.castShadow) this.shadowCasters.push(mesh);
     if (opts.glow) this.glowMeshes.push(mesh);
     this.meshes.push(mesh);
+    return mesh;
+  }
+
+  /**
+   * Add a screen with a role (see roles.ts): a w × h quad of its own, centred at m and
+   * facing -Z, UVs 0..1 across it, where the client shows a video or a game. Unlike
+   * the rest of the house it isn't merged by material, so code can find it by its role.
+   */
+  screen(z: Zone, role: string, m: Matrix, w: number, h: number, mat: string, label: string): Mesh {
+    const mesh = plane(w, h).build(label, this.scene);
+    const q = new Quaternion();
+    m.decompose(undefined, q, mesh.position);
+    mesh.rotationQuaternion = q;
+    mesh.material = this.mats.get(mat);
+    this.addMesh(mesh, z, label);
+    mesh.metadata = { ...(mesh.metadata as MeshMeta), role };
     return mesh;
   }
 

@@ -1,24 +1,48 @@
 import { PreviewController } from "../engine/preview";
-import { PreviewState, Quality } from "../engine/store";
+import { PreviewState, Quality, VIEWER } from "../engine/store";
 import { store } from "../engine/store";
 import { VIEWPOINTS, findView } from "../world/viewpoints";
 import { PlayOverlay } from "./PlayOverlay";
+import { RemotePanel } from "./RemotePanel";
+import { TheatreOverlay } from "./TheatreOverlay";
 
 export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
-  const view = findView(s.viewId);
-  // playing at a cabinet: only the game and its frame
-  if (s.playing)
-    return (
-      <>
-        <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />
-        {s.toast && <div className="toast">{s.toast}</div>}
-      </>
-    );
+  // while a screen is in use, only it and its frame show; the theatre's player stays in
+  // the page throughout (moving or remounting its frame would reload it)
   return (
     <>
-      <StatusPanel s={s} />
+      <TheatreOverlay s={s} theatre={ctl.theatre} />
+      {s.focus?.kind === "cabinet" && <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />}
+      {!s.focus && <Panels ctl={ctl} s={s} />}
+      {s.toast && <div className="toast">{s.toast}</div>}
+    </>
+  );
+}
+
+function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
+  const view = findView(s.viewId);
+  const holding = s.theatre.remotes.includes(VIEWER);
+  return (
+    <>
+      <div className="left-stack">
+        <StatusPanel s={s} />
+        {holding && <RemotePanel ctl={ctl} s={s} />}
+      </div>
 
       <div className="panel views">
+        <div className="section">Theatre</div>
+        <div className="theatre-now" title={s.theatreVideo?.title}>
+          {s.theatre.videoId ? (
+            <>
+              {s.theatre.live && <span className="live">LIVE</span>}
+              {s.theatreVideo?.title || "YouTube video"}
+            </>
+          ) : (
+            "Nothing showing"
+          )}
+        </div>
+        {!holding && <div className="theatre-hint">Pick up a remote from the stand under the screen to choose or control what's showing.</div>}
+        {s.theatreError && <div className="theatre-error">{s.theatreError}</div>}
         <div className="section">Viewpoints</div>
         {VIEWPOINTS.map((v) => (
           <button key={v.id} className={s.viewId === v.id ? "active" : ""} onClick={() => ctl.goTo(v.id)}>
@@ -79,7 +103,7 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen or take a remote · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -89,7 +113,20 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           <span>or click its screen</span>
         </div>
       )}
-      {s.toast && <div className="toast">{s.toast}</div>}
+      {s.walking && s.remotePrompt && (
+        <div className="play-prompt low">
+          <kbd>E</kbd>
+          {s.remotePrompt.action === "take" ? `Pick up remote ${s.remotePrompt.remote}` : "Put the remote down"}
+          <span>{s.remotePrompt.action === "take" ? "to control the screen" : "on the stand"}</span>
+        </div>
+      )}
+      {s.walking && s.theatrePrompt && (
+        <div className="play-prompt low">
+          <kbd>E</kbd>Watch {s.theatre.videoId ? s.theatreVideo?.title || "the video" : "the theatre screen"}
+          {/* with a video, the player lies over the screen and a free mouse's click is the player's */}
+          {!s.theatre.videoId && <span>or click the screen</span>}
+        </div>
+      )}
       {s.help && <Help onClose={() => store.set({ help: false })} />}
     </>
   );
@@ -138,6 +175,9 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
             <tr><td>F</td><td>Walk at avatar height (walls, furniture, stairs and gravity) / fly</td></tr>
             <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
+            <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
+            <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
+            <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>
             <tr><td>R / U</td><td>Hide roofs / hide the upper level</td></tr>

@@ -9,6 +9,8 @@ import { CollisionWorld, closestOnTriangle, emptyProbe } from "./collision";
 export const AVATAR = {
   height: 1.7,
   eye: 1.55,
+  /** eye height sitting down, as when watching the theatre screen */
+  seatedEye: 1.15,
   /** half the shoulder width: the closest the body gets to a wall */
   radius: 0.3,
   /** tallest ledge stepped up without stopping, a common game-engine default: every stair (risers up to 0.23 m), not sofa seats */

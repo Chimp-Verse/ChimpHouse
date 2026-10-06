@@ -1,7 +1,6 @@
 {
   "_comment": "Screen regions in the reference renders: corners TL, TR, BR, BL in image pixels, output size in px. Run: npm run screens",
   "screens": [
-    { "id": "theatre-stream", "src": "TheatreRoom.png", "quad": [[940, 217], [1353, 203], [1353, 441], [940, 431]], "size": [1024, 576] },
     { "id": "featured-build", "src": "CommunityShowRoom.png", "quad": [[703, 308], [1164, 272], [1164, 535], [705, 540]], "size": [1024, 576] },
     { "id": "sub-bhippi-editor", "src": "CommunityShowRoom.png", "quad": [[122, 221], [346, 254], [346, 374], [120, 360]], "size": [512, 288] },
     { "id": "sub-gorillatype", "src": "CommunityShowRoom.png", "quad": [[357, 255], [575, 287], [575, 396], [357, 380]], "size": [512, 288] },

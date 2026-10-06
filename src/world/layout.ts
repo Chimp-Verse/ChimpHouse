@@ -488,3 +488,14 @@ export const ROOMS: RoomDef[] = [
   { id: "sideEntrance", name: "Side Entrance & Corridor", level: "upper", loop: rect(SHOWROOM.x0 - 1.2, SHOWROOM.z1, core.x0, THEATRE.z0) },
   { id: "poolTerrace", name: "Pool Terrace", level: "upper", loop: rect(HALL_HALF + 0.5, -2.0, 20, BAR.z0) },
 ];
+
+/** The level containing height y, if inside the house's height. */
+export function levelAt(y: number): "lower" | "upper" | null {
+  return y < LEVEL.lowerCeil + 0.2 ? "lower" : y < LEVEL.roof ? "upper" : null;
+}
+
+/** The room containing p, if any. */
+export function roomAt(p: { x: number; y: number; z: number }): RoomDef | null {
+  const level = levelAt(p.y);
+  return ROOMS.find((r) => r.level === level && pointInPolygon({ x: p.x, z: p.z }, r.loop)) ?? null;
+}

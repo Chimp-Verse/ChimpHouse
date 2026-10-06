@@ -1,7 +1,7 @@
 // Screens and equipment: monitors, TVs, speakers, projector (arcade cabinets
 // are in cabinet.ts), task chairs, keyboards, consoles.
 
-import { Matrix, Vector3 } from "@babylonjs/core";
+import { Matrix, Mesh, Vector3 } from "@babylonjs/core";
 import { beam, box, cylinder, lathe, plane, softBox, xf } from "../geometry/geo";
 import { WorldCtx, Zone } from "../context";
 import { loadImageTexture } from "../materials/library";
@@ -26,13 +26,19 @@ export function canvasMat(ctx: WorldCtx, key: string, canvas: HTMLCanvasElement,
   return key;
 }
 
-/** Flat screen quad + bezel. Local: centred at m, facing -Z. */
-export function screenPanel(ctx: WorldCtx, z: Zone, m: Matrix, w: number, h: number, mat: string, o: { bezel?: number; depth?: number; label?: string; frameMat?: string } = {}): void {
+/**
+ * Flat screen quad + bezel. Local: centred at m, facing -Z. With a `role` the screen
+ * is a mesh of its own carrying that role (WorldCtx.screen), returned, and the bezel
+ * is labelled "<label> frame".
+ */
+export function screenPanel(ctx: WorldCtx, z: Zone, m: Matrix, w: number, h: number, mat: string, o: { bezel?: number; depth?: number; label?: string; frameMat?: string; role?: string } = {}): Mesh | null {
   const bezel = o.bezel ?? 0.03;
   const depth = o.depth ?? 0.05;
   const label = o.label ?? "Screen";
-  ctx.g(z, o.frameMat ?? "black").add(box(w + bezel * 2, h + bezel * 2, depth), xf(0, 0, depth / 2).multiply(m), label);
+  ctx.g(z, o.frameMat ?? "black").add(box(w + bezel * 2, h + bezel * 2, depth), xf(0, 0, depth / 2).multiply(m), o.role ? `${label} frame` : label);
+  if (o.role) return ctx.screen(z, o.role, xf(0, 0, -0.004).multiply(m), w, h, mat, label);
   ctx.g(z, mat, { castShadow: false }).add(plane(w, h), xf(0, 0, -0.004).multiply(m), label);
+  return null;
 }
 
 /** Desktop monitor on a stand; base at m origin, screen facing -Z. */

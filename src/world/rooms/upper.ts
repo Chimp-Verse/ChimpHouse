@@ -16,6 +16,8 @@ import { lanternPost, sconce, wovenPendant } from "../props/lights";
 import { alongY, firetruck } from "../props/music";
 import { plant, planterAlong, planterBox, pottedPlant, vine } from "../props/plants";
 import { canvasMat, monitor, projector, screenMat, screenPanel, speaker } from "../props/tech";
+import { theatreCardCanvas } from "../props/theatreScreen";
+import { ROLE } from "../roles";
 import { downlights, glazing, ledStrip } from "../structure/elements";
 import { runs } from "../structure/facades";
 import { carveTrunks, trunkSpan } from "../structure/trunks";
@@ -294,6 +296,11 @@ function clearOfRoom(loop: P2[], zLine: number, fromX: number, dirX: number): nu
  * a raised curved platform), a cross-arch behind the seating, and a snack
  * counter along the curved glazing at the back.
  */
+/** The theatre screen's and lightbox's picture until engine/theatre.ts takes them over: the idle card. */
+function theatreIdleMat(ctx: WorldCtx): string {
+  return canvasMat(ctx, "screen:theatre-idle", theatreCardCanvas({ kind: "idle" }), 1.05);
+}
+
 function buildTheatre(ctx: WorldCtx) {
   const z = zone("theatre", "upper");
   const r = rng(81);
@@ -312,7 +319,8 @@ function buildTheatre(ctx: WorldCtx) {
   const sh = 2.81;
   const sy = U + 2.75;
   const sx = wx - 0.2; // screen plane
-  screenPanel(ctx, z, xf(sx, sy, cz, faceYaw(-1, 0)), sw, sh, screenMat(ctx, "theatre-stream", 1.15), { bezel: 0.07, depth: 0.08, label: "Theatre screen (Yousef’s stream)" });
+  // the screen is found by its role: engine/theatre.ts shows the chosen video there
+  screenPanel(ctx, z, xf(sx, sy, cz, faceYaw(-1, 0)), sw, sh, theatreIdleMat(ctx), { bezel: 0.07, depth: 0.08, label: "Theatre screen", role: ROLE.theatreScreen });
   const glow = [
     [cz - sw / 2 - 0.12, sy - sh / 2 - 0.12],
     [cz - sw / 2 - 0.12, sy + sh / 2 + 0.12],
@@ -341,6 +349,10 @@ function buildTheatre(ctx: WorldCtx) {
   ledStrip(ctx, z, [new Vector3(wx - 0.62, U + 0.04, cz - 2.55), new Vector3(wx - 0.62, U + 0.04, cz + 2.55)], "amberStrip", 0.025);
   ctx.g(z, "black").add(box(0.3, 0.1, 0.42), xf(wx - 0.4, U + 0.57, cz - 0.9), "AV receiver");
   ctx.g(z, "black").add(box(0.3, 0.08, 0.36), xf(wx - 0.4, U + 0.56, cz + 0.9), "Game console");
+  // the two remotes' spots on the console top, beside the receiver and the game console: a
+  // remote's holder controls the screen (engine/remotes.ts), and stands a metre in front to take it
+  for (const [n, s] of [[1, -1], [2, 1]])
+    ctx.slot(z, ROLE.theatreRemoteSpot, n, xf(wx - 0.45, U + 0.52, cz + s * 1.25, faceYaw(-1, 0)), new Vector3(0, -0.52, -1.0), `Remote spot ${n}`);
   ctx.g(z, "black").add(box(0.3, 0.16, 0.9), xf(wx - 0.4, U + 0.6, cz), "Centre speaker");
   ctx.g(z, "black").add(box(0.45, 0.45, 0.45), xf(wx - 0.95, U + 0.225, cz + 2.2), "Subwoofer");
   for (const s of [-1, 1]) {
@@ -384,8 +396,6 @@ function buildTheatre(ctx: WorldCtx) {
     const p = pt(Rf - 1.1, deg);
     pouf(ctx, z, new Vector3(p.x, U, p.z), 0.38, 0.4, "mustard", "Mustard ottoman");
   }
-  const remote = pt(Rf - 1.1, 9);
-  ctx.g(z, "black", { castShadow: false }).add(box(0.05, 0.02, 0.18), xf(remote.x, U + 0.41, remote.z, 0.4), "Remote control");
   throwBlanket(ctx, z, S, Rf, thF, U, "juteTeal");
 
   // rear row on a raised curved platform behind a 0.9 m aisle
@@ -661,7 +671,8 @@ function theatreEntrance(ctx: WorldCtx) {
   const pw = 1.1;
   const ph = pw * (9 / 16);
   ctx.g(z, "glulam").add(box(pw + 0.12, ph + 0.4, 0.08), xf(px, U + 1.75, zo - 0.04), "Now Showing lightbox");
-  ctx.g(z, screenMat(ctx, "theatre-stream", 1.05), { castShadow: false }).add(plane(pw, ph), xf(px, U + 1.65, zo - 0.085), "Now Showing lightbox");
+  // the picture shows what's on the theatre screen (engine/theatre.ts finds it by its role)
+  ctx.screen(z, ROLE.theatreLightbox, xf(px, U + 1.65, zo - 0.085), pw, ph, theatreIdleMat(ctx), "Now Showing picture");
   canvasMat(ctx, "sign:nowShowing", roomSignCanvas("NOW SHOWING", { w: 1024, h: 160, font: "700 84px Montserrat", color: "#ffe3a8", bg: "#1d1712", border: "#c9a36a" }), 1.2);
   ctx.g(z, "sign:nowShowing", { castShadow: false }).add(plane(pw, pw * (160 / 1024)), xf(px, U + 1.65 + ph / 2 + 0.11, zo - 0.085), "Now Showing lightbox");
 }

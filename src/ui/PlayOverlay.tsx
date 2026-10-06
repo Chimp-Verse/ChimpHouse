@@ -1,19 +1,20 @@
 import { useEffect, useRef, useState } from "react";
-import { PreviewState } from "../engine/store";
+import { Focus, PreviewState } from "../engine/store";
+import { FocusFrame } from "./FocusFrame";
 
 /**
  * Playing at a cabinet: the game's play page in an iframe lined up over the
- * cabinet's screen (engine/arcade.ts keeps `playRect` on it), framed by the
- * game's name, a hint and a Leave button. ChimpHouse can't see keys typed into
- * the game's frame, so leaving is a click on this frame, not a key.
+ * cabinet's screen (engine/focus.ts keeps `focusRect` on it), framed by the
+ * game's name, a hint and a Leave button (FocusFrame). ChimpHouse can't see keys
+ * typed into the game's frame, so leaving is a click on this frame, not a key.
  *
  * The frame mounts as the camera glides in, so the page loads meanwhile, and
  * shows once the camera is square onto the screen. Leaving unmounts it, which
  * ends the player's connection to the game.
  */
 export function PlayOverlay({ s, onLeave }: { s: PreviewState; onLeave: () => void }) {
-  const p = s.playing!;
-  const r = s.playRect;
+  const p = s.focus as Extract<Focus, { kind: "cabinet" }>;
+  const r = s.focusRect;
   const frame = useRef<HTMLIFrameElement>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -40,7 +41,7 @@ export function PlayOverlay({ s, onLeave }: { s: PreviewState; onLeave: () => vo
 
   if (p.phase === "out") return null;
   return (
-    <div className="play-layer">
+    <>
       <iframe
         ref={frame}
         className={`play-frame ${shown ? "shown" : ""}`}
@@ -51,21 +52,10 @@ export function PlayOverlay({ s, onLeave }: { s: PreviewState; onLeave: () => vo
         onLoad={() => shown && frame.current?.focus()}
       />
       {r && (
-        <>
-          <div className="play-ring" style={{ left: r.x - 6, top: r.y - 6, width: r.w + 12, height: r.h + 12 }} />
-          <div className="play-bar top" style={{ left: r.x - 6, top: r.y - 50, width: r.w + 12 }}>
-            <span className="name">{p.name}</span>
-            {p.author && <span className="by">by {p.author}</span>}
-            {status && <span className="status">{status}</span>}
-          </div>
-          <div className="play-bar bottom" style={{ left: r.x - 6, top: r.y + r.h + 12, width: r.w + 12 }}>
-            <span className="play-hint">Keys not reaching the game? Click it.</span>
-            <button className="leave" onClick={onLeave}>
-              Leave
-            </button>
-          </div>
-        </>
+        <FocusFrame rect={r} title={p.name} byline={p.author ? `by ${p.author}` : undefined} status={status} onLeave={onLeave}>
+          <span className="focus-hint">Keys not reaching the game? Click it.</span>
+        </FocusFrame>
       )}
-    </div>
+    </>
   );
 }
