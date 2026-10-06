@@ -61,7 +61,7 @@ function buildFrontStair(ctx: WorldCtx) {
     const y = LEVEL.lower - i * riser;
     const zf = FRONT_LANDING_Z - i * tread;
     steps.add(box(w, 0.06, tread + 0.04), xf(0, y - 0.03, zf + tread / 2));
-    riserG.add(box(w, riser, 0.04), xf(0, y + riser / 2 - 0.06, zf + tread + 0.0));
+    riserG.add(box(w, riser, 0.04), xf(0, y + riser / 2 - 0.06, zf + tread + 0.0), "Front timber stair");
     if (i < risers) ledStrip(ctx, z, [new Vector3(x0 + 0.1, y - 0.07, zf + 0.03), new Vector3(x1 - 0.1, y - 0.07, zf + 0.03)], "amberStrip", 0.02);
   }
   // cheek walls with timber caps
@@ -252,10 +252,10 @@ function buildCanopyStair(ctx: WorldCtx) {
   }
   // rope-and-timber rails
   for (const sx of [sxW, sxE]) {
-    ctx.g(z, "rope").add(beam([new Vector3(sx, 1.0, zBottom), new Vector3(sx, LEVEL.upper + 1.0, zTop)], 0.07, 0.07));
+    ctx.g(z, "rope").add(beam([new Vector3(sx, 1.0, zBottom), new Vector3(sx, LEVEL.upper + 1.0, zTop)], 0.07, 0.07), undefined, "Canopy stair handrail");
     for (let i = 0; i <= 6; i++) {
       const zz = zBottom + ((zTop - zBottom) * i) / 6;
-      ctx.g(z, "charcoal").add(box(0.06, 1.0, 0.06), xf(sx, yAt(zz) + 0.5, zz));
+      ctx.g(z, "charcoal").add(box(0.06, 1.0, 0.06), xf(sx, yAt(zz) + 0.5, zz), "Canopy stair handrail");
     }
   }
 }

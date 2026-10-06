@@ -71,9 +71,10 @@ export function enclose(
         return { x: p.x + (tz / l) * 0.18, z: p.z - (tx / l) * 0.18 };
       });
       outer.add(ribbonWall(off, y0, y1, false));
+      // timber caps over the wall's two ends belong to the wall
       const cap = ctx.g(z, "timberDark");
-      cap.add(wallStrip([r.path[0], off[0]], y0, y1));
-      cap.add(wallStrip([off[off.length - 1], r.path[r.path.length - 1]], y0, y1));
+      cap.add(wallStrip([r.path[0], off[0]], y0, y1), undefined, `${o.label} wall`);
+      cap.add(wallStrip([off[off.length - 1], r.path[r.path.length - 1]], y0, y1), undefined, `${o.label} wall`);
     }
   }
   return rs;

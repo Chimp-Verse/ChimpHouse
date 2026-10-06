@@ -219,7 +219,7 @@ export function buildRoofs(ctx: WorldCtx): void {
     for (const h of holes) band.add(wallStrip([...h].reverse(), y0, y1, true));
     for (const { t, hole } of holed) trunkCollar(ctx, z, t, y1, hole, "up", "charcoal", 0.12);
     const cap = ctx.g(z, "charcoal");
-    cap.add(wallStrip(offsetPath(smooth, 0.02, true), y1 - 0.1, y1 + 0.04, true));
+    cap.add(wallStrip(offsetPath(smooth, 0.02, true), y1 - 0.1, y1 + 0.04, true), undefined, `${label} roof`);
     const p3 = at(offsetPath(smooth, 0.03, true), y0 + 0.03);
     p3.push(p3[0].clone());
     ledStrip(ctx, z, p3, "amberStrip", 0.03);
@@ -243,7 +243,7 @@ export function buildRoofs(ctx: WorldCtx): void {
   ct.setLabel("Core roof");
   ct.add(polygonFace(coreLoop, LEVEL.roof + 0.3, true));
   const cb = ctx.g(z, "slats");
-  cb.add(polygonFace(coreLoop, LEVEL.upperCeil, false));
+  cb.add(polygonFace(coreLoop, LEVEL.upperCeil, false), undefined, "Core ceiling");
   const cf = ctx.g(z, "panelHoney");
   cf.setLabel("Core fascia");
   cf.add(wallStrip(coreLoop, LEVEL.upperCeil, LEVEL.roof + 0.3, true));
@@ -264,12 +264,12 @@ function buildDome(ctx: WorldCtx) {
   ring.setLabel("Gallery ceiling");
   ring.add(polygonFace(ringOuter, y0, false, [ringInner]));
   const top = ctx.g(z, "charcoal");
-  top.add(polygonFace(ringOuter, LEVEL.roof + 0.2, true, [ringInner]));
+  top.add(polygonFace(ringOuter, LEVEL.roof + 0.2, true, [ringInner]), undefined, "Atrium crown roof");
   const band = ctx.g(z, "glulam");
   band.setLabel("Atrium crown fascia");
   band.add(wallStrip(ringOuter, y0, LEVEL.roof + 0.2, true));
   const inner = ctx.g(z, "glulam");
-  inner.add(wallStrip([...ringInner].reverse(), y0, y1, true));
+  inner.add(wallStrip([...ringInner].reverse(), y0, y1, true), undefined, "Atrium crown fascia");
   const mintPath = at(offsetPath(ringOuter, 0.03, true), LEVEL.roof + 0.05);
   mintPath.push(mintPath[0].clone());
   ledStrip(ctx, z, mintPath, "mint", 0.05);

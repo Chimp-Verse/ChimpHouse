@@ -425,7 +425,7 @@ function studioWall(ctx: WorldCtx, z: Zone, path: P2[], y0: number, y1: number, 
   ctx.g(z, "panelDark").add(ribbonWall([...path].reverse(), y0, y1, false), undefined, label);
   const out = offsetOut(path, 0.18);
   ctx.g(z, "panelHoney").add(ribbonWall(out, y0, y1, false), undefined, label);
-  ctx.g(z, "timberDark").add(new Geo().add(wallStrip([path[0], out[0]], y0, y1)).add(wallStrip([out[out.length - 1], path[path.length - 1]], y0, y1)));
+  ctx.g(z, "timberDark").add(new Geo().add(wallStrip([path[0], out[0]], y0, y1)).add(wallStrip([out[out.length - 1], path[path.length - 1]], y0, y1)), undefined, label);
 }
 
 /** Panel bent along a circle (centre k, radius R) from angle a0 to a1, facing outward. */

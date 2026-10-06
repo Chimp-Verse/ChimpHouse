@@ -127,7 +127,7 @@ export function downlights(ctx: WorldCtx, z: Zone, pts: P2[], y: number): void {
   for (const p of pts) {
     if (trunkNear(p, 0.35, y - 0.4, y)) continue;
     g.add(cylinder(0.055, 0.01, 12), xf(p.x, y - 0.012, p.z));
-    trim.add(cylinder(0.075, 0.008, 12), xf(p.x, y - 0.006, p.z));
+    trim.add(cylinder(0.075, 0.008, 12), xf(p.x, y - 0.006, p.z), "Recessed downlight");
   }
 }
 

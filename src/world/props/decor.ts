@@ -58,11 +58,11 @@ export function floorPlanter(ctx: WorldCtx, z: Zone, p: Vector3, kind: "monstera
   }
   ctx.g(z, mat).add(ribs, xf(p.x, p.y, p.z), "Floor planter");
   const soilY = p.y + H * 0.88;
-  ctx.g(z, "soil", { castShadow: false }).add(cylinder(R * 0.9, 0.01, 24), xf(p.x, soilY - 0.01, p.z));
-  plant(ctx, z, new Vector3(p.x, soilY, p.z), kind, kind === "banana" ? 1.1 : 1.35, r);
+  ctx.g(z, "soil", { castShadow: false }).add(cylinder(R * 0.9, 0.01, 24), xf(p.x, soilY - 0.01, p.z), "Floor planter");
+  plant(ctx, z, new Vector3(p.x, soilY, p.z), kind, kind === "banana" ? 1.1 : 1.35, r, "Floor planter");
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + r();
-    plant(ctx, z, new Vector3(p.x + Math.cos(a) * R * 0.55, soilY, p.z + Math.sin(a) * R * 0.55), i % 2 ? "fern" : "calathea", 0.4, r);
+    plant(ctx, z, new Vector3(p.x + Math.cos(a) * R * 0.55, soilY, p.z + Math.sin(a) * R * 0.55), i % 2 ? "fern" : "calathea", 0.4, r, "Floor planter");
   }
 }
 
@@ -77,10 +77,10 @@ export function hangingPlanter(ctx: WorldCtx, z: Zone, top: Vector3, drop: numbe
   }
   ctx.g(z, "rope", { castShadow: false }).add(cords, undefined, "Hanging planter");
   ctx.g(z, "jute").add(lathe([[0.001, 0], [R * 0.6, 0.01], [R, 0.1], [R * 1.02, 0.18], [R * 0.95, 0.18], [R * 0.9, 0.16]], 20, false, false, 3), xf(top.x, y, top.z), "Hanging planter");
-  ctx.g(z, "soil", { castShadow: false }).add(cylinder(R * 0.88, 0.01, 16), xf(top.x, y + 0.15, top.z));
-  plant(ctx, z, new Vector3(top.x, y + 0.16, top.z), "philodendron", 0.45, r);
+  ctx.g(z, "soil", { castShadow: false }).add(cylinder(R * 0.88, 0.01, 16), xf(top.x, y + 0.15, top.z), "Hanging planter");
+  plant(ctx, z, new Vector3(top.x, y + 0.16, top.z), "philodendron", 0.45, r, "Hanging planter");
   for (let i = 0; i < 7; i++) {
     const a = (i / 7) * Math.PI * 2 + r() * 0.4;
-    vine(ctx, z, new Vector3(top.x + Math.cos(a) * R * 0.95, y + 0.17, top.z + Math.sin(a) * R * 0.95), 0.5 + r() * 1.2, r, { leaf: 0.08, density: 14, drift: new Vector3(Math.cos(a) * 0.12, 0, Math.sin(a) * 0.12) });
+    vine(ctx, z, new Vector3(top.x + Math.cos(a) * R * 0.95, y + 0.17, top.z + Math.sin(a) * R * 0.95), 0.5 + r() * 1.2, r, { leaf: 0.08, density: 14, drift: new Vector3(Math.cos(a) * 0.12, 0, Math.sin(a) * 0.12), label: "Hanging planter" });
   }
 }

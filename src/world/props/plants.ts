@@ -34,7 +34,7 @@ export function clump(
   ctx: WorldCtx,
   z: Zone,
   pos: Vector3,
-  o: { type: Leaf; count: number; size: [number, number]; tilt: [number, number]; r: Rand; spread?: number; stems?: boolean; stemScale?: number; stemWidth?: number; stemColor?: string; widthScale?: number },
+  o: { type: Leaf; count: number; size: [number, number]; tilt: [number, number]; r: Rand; spread?: number; stems?: boolean; stemScale?: number; stemWidth?: number; stemColor?: string; widthScale?: number; label?: string },
 ): void {
   const { type, count, size, tilt, r, spread = 0.1 } = o;
   for (let i = 0; i < count; i++) {
@@ -47,7 +47,7 @@ export function clump(
     if (o.stems) {
       const stemLen = s * (0.5 + r() * 0.4) * (o.stemScale ?? 1);
       const end = base.add(dir.scale(stemLen * 0.6)).add(new Vector3(0, stemLen * 0.5, 0));
-      ctx.g(z, o.stemColor ?? "stem", { castShadow: false }).add(tube([base, base.add(new Vector3(0, stemLen * 0.35, 0)).add(dir.scale(stemLen * 0.25)), end], (0.012 + s * 0.008) * (o.stemWidth ?? 1), 5));
+      ctx.g(z, o.stemColor ?? "stem", { castShadow: false }).add(tube([base, base.add(new Vector3(0, stemLen * 0.35, 0)).add(dir.scale(stemLen * 0.25)), end], (0.012 + s * 0.008) * (o.stemWidth ?? 1), 5), undefined, o.label ?? "Plant");
       start = end;
     }
     ctx.leaf(z, type, leafMatrix(start, dir, s, (r() - 0.5) * 0.9, o.widthScale ?? 1));
@@ -56,47 +56,50 @@ export function clump(
 
 export type PlantKind = "monstera" | "palm" | "fern" | "bromeliad" | "cordyline" | "banana" | "philodendron" | "calathea" | "croton" | "elephant" | "grass" | "mixed";
 
-/** A recognisable tropical plant at pos, scaled by s (~1 = 1 m tall). */
-export function plant(ctx: WorldCtx, z: Zone, pos: Vector3, kind: PlantKind, s: number, r: Rand): void {
+/**
+ * A recognisable tropical plant at pos, scaled by s (~1 = 1 m tall). Its stems carry
+ * `label`: a potted plant passes its pot's, so pot and plant are one item.
+ */
+export function plant(ctx: WorldCtx, z: Zone, pos: Vector3, kind: PlantKind, s: number, r: Rand, label = "Plant"): void {
   switch (kind) {
     case "monstera":
-      clump(ctx, z, pos, { type: Leaf.Monstera, count: 7 + Math.floor(r() * 4), size: [0.45 * s, 0.7 * s], tilt: [0.35, 0.8], r, stems: true });
+      clump(ctx, z, pos, { type: Leaf.Monstera, count: 7 + Math.floor(r() * 4), size: [0.45 * s, 0.7 * s], tilt: [0.35, 0.8], r, stems: true, label });
       break;
     case "philodendron":
-      clump(ctx, z, pos, { type: Leaf.Philodendron, count: 9, size: [0.35 * s, 0.55 * s], tilt: [0.3, 0.85], r, stems: true });
+      clump(ctx, z, pos, { type: Leaf.Philodendron, count: 9, size: [0.35 * s, 0.55 * s], tilt: [0.3, 0.85], r, stems: true, label });
       break;
     case "elephant":
-      clump(ctx, z, pos, { type: Leaf.ElephantEar, count: 6, size: [0.6 * s, 0.9 * s], tilt: [0.25, 0.6], r, stems: true });
+      clump(ctx, z, pos, { type: Leaf.ElephantEar, count: 6, size: [0.6 * s, 0.9 * s], tilt: [0.25, 0.6], r, stems: true, label });
       break;
     case "palm":
-      clump(ctx, z, pos, { type: Leaf.Palm, count: 9, size: [0.9 * s, 1.4 * s], tilt: [0.25, 0.75], r, stems: true, stemScale: 0.4, stemWidth: 0.5 });
+      clump(ctx, z, pos, { type: Leaf.Palm, count: 9, size: [0.9 * s, 1.4 * s], tilt: [0.25, 0.75], r, stems: true, stemScale: 0.4, stemWidth: 0.5, label });
       break;
     case "fern":
-      clump(ctx, z, pos, { type: Leaf.Fern, count: 12, size: [0.5 * s, 0.8 * s], tilt: [0.45, 0.85], r, stems: true, stemScale: 0.22 });
+      clump(ctx, z, pos, { type: Leaf.Fern, count: 12, size: [0.5 * s, 0.8 * s], tilt: [0.45, 0.85], r, stems: true, stemScale: 0.22, label });
       break;
     case "bromeliad":
       clump(ctx, z, pos, { type: Leaf.Bromeliad, count: 14, size: [0.3 * s, 0.5 * s], tilt: [0.15, 0.7], r, widthScale: 1.6 });
       break;
     case "cordyline":
       clump(ctx, z, pos.add(new Vector3(0, 0.25 * s, 0)), { type: Leaf.Cordyline, count: 12, size: [0.35 * s, 0.55 * s], tilt: [0.1, 0.6], r, widthScale: 1.5 });
-      ctx.g(z, "stem", { castShadow: false }).add(cylinder(0.02 * s, 0.3 * s, 6), xf(pos.x, pos.y, pos.z));
+      ctx.g(z, "stem", { castShadow: false }).add(cylinder(0.02 * s, 0.3 * s, 6), xf(pos.x, pos.y, pos.z), label);
       break;
     case "banana":
       clump(ctx, z, pos.add(new Vector3(0, 0.6 * s, 0)), { type: Leaf.Banana, count: 7, size: [1.0 * s, 1.5 * s], tilt: [0.2, 0.55], r, widthScale: 1.2 });
-      ctx.g(z, "stem", { castShadow: false }).add(cylinder(0.06 * s, 0.7 * s, 8, true, 0.045 * s), xf(pos.x, pos.y, pos.z));
+      ctx.g(z, "stem", { castShadow: false }).add(cylinder(0.06 * s, 0.7 * s, 8, true, 0.045 * s), xf(pos.x, pos.y, pos.z), label);
       break;
     case "calathea":
-      clump(ctx, z, pos, { type: Leaf.Calathea, count: 10, size: [0.3 * s, 0.45 * s], tilt: [0.2, 0.65], r, stems: true });
+      clump(ctx, z, pos, { type: Leaf.Calathea, count: 10, size: [0.3 * s, 0.45 * s], tilt: [0.2, 0.65], r, stems: true, label });
       break;
     case "croton":
-      clump(ctx, z, pos, { type: Leaf.Croton, count: 14, size: [0.22 * s, 0.34 * s], tilt: [0.3, 0.9], r, widthScale: 1.3, stems: true, stemScale: 0.5 });
+      clump(ctx, z, pos, { type: Leaf.Croton, count: 14, size: [0.22 * s, 0.34 * s], tilt: [0.3, 0.9], r, widthScale: 1.3, stems: true, stemScale: 0.5, label });
       break;
     case "grass":
       clump(ctx, z, pos, { type: Leaf.Grass, count: 4, size: [0.35 * s, 0.5 * s], tilt: [0.0, 0.3], r });
       break;
     case "mixed": {
       const kinds: PlantKind[] = ["monstera", "fern", "philodendron", "bromeliad", "calathea", "elephant"];
-      plant(ctx, z, pos, kinds[Math.floor(r() * kinds.length)], s, r);
+      plant(ctx, z, pos, kinds[Math.floor(r() * kinds.length)], s, r, label);
       break;
     }
   }
@@ -132,8 +135,8 @@ export function pottedPlant(
     ),
     xf(pos.x, pos.y, pos.z),
   );
-  ctx.g(z, "soil", { castShadow: false }).add(disc(potR * 0.9, 16), xf(pos.x, pos.y + potH * 0.9, pos.z));
-  plant(ctx, z, pos.add(new Vector3(0, potH * 0.88, 0)), kind, o.scale ?? 1, o.r);
+  ctx.g(z, "soil", { castShadow: false }).add(disc(potR * 0.9, 16), xf(pos.x, pos.y + potH * 0.9, pos.z), o.label ?? "Potted plant");
+  plant(ctx, z, pos.add(new Vector3(0, potH * 0.88, 0)), kind, o.scale ?? 1, o.r, o.label ?? "Potted plant");
 }
 
 /**
@@ -142,7 +145,7 @@ export function pottedPlant(
  * as loose leaves. `lead` is an optional run of points before `top` (e.g. the
  * stem draping over a handrail) that the stem follows first.
  */
-export function vine(ctx: WorldCtx, z: Zone, top: Vector3, L: number, r: Rand, o: { type?: Leaf; density?: number; leaf?: number; drift?: Vector3; lead?: Vector3[] } = {}): void {
+export function vine(ctx: WorldCtx, z: Zone, top: Vector3, L: number, r: Rand, o: { type?: Leaf; density?: number; leaf?: number; drift?: Vector3; lead?: Vector3[]; label?: string } = {}): void {
   const type = o.type ?? Leaf.Pothos;
   const density = o.density ?? 9; // leaves per metre
   const leaf = o.leaf ?? 0.11;
@@ -154,7 +157,7 @@ export function vine(ctx: WorldCtx, z: Zone, top: Vector3, L: number, r: Rand, o
   const m = Math.max(3, Math.ceil(L / 0.12));
   const stem = [...(o.lead ?? []), ...Array.from({ length: m + 1 }, (_, i) => along(i / m))];
   const sr = Math.max(0.0028, leaf * 0.04);
-  ctx.g(z, "stem", { castShadow: false }).add(tube(stem, (t) => sr * (1 - 0.45 * t), 4), undefined, "Vine");
+  ctx.g(z, "stem", { castShadow: false }).add(tube(stem, (t) => sr * (1 - 0.45 * t), 4), undefined, o.label ?? "Vine");
   for (const p of o.lead ?? []) {
     const a = r() * Math.PI * 2;
     ctx.leaf(z, type, leafMatrix(p, new Vector3(Math.cos(a), 0.1, Math.sin(a)), leaf * 1.05, (r() - 0.5) * 1.2));
