@@ -111,7 +111,8 @@ export async function exportZone(scene: Scene, zoneId: string, level: string | u
     mesh.parent = zoneNode;
     mesh.metadata = { gltf: { extras: { zone: zoneId, level: room?.level ?? level ?? "", item: it.label, order: i, ...(it.role && { role: it.role }) } } };
   }
-  // the zone's slots, filled at run time (cabinet slots): empties carrying their role, number and stand point
+  // the zone's slots, filled at run time (cabinet slots): empties carrying their role, number and stand point;
+  // a node with a role but no stand point (the lift car, which moves) is an empty at its place, with its role
   for (const n of scene.transformNodes) {
     const sm = n.metadata as SlotMeta | undefined;
     if (!sm?.role || sm.room !== zoneId || (room && sm.level !== room.level)) continue;
@@ -120,7 +121,8 @@ export async function exportZone(scene: Scene, zoneId: string, level: string | u
     e.rotationQuaternion = n.rotationQuaternion?.clone() ?? null;
     e.parent = zoneNode;
     // the stand point in the slot's own space, converted to glTF's axes like the geometry
-    e.metadata = { gltf: { extras: { zone: zoneId, level: sm.level, role: sm.role, slot: sm.slot, stand: [-sm.stand[0], sm.stand[1], sm.stand[2]] } } };
+    const stand = sm.stand && [-sm.stand[0], sm.stand[1], sm.stand[2]];
+    e.metadata = { gltf: { extras: { zone: zoneId, level: sm.level, role: sm.role, slot: sm.slot, ...(stand && { stand }) } } };
   }
   // in the scene only for the export: never drawn
   for (const n of root.getDescendants(false)) if (n instanceof Mesh) n.layerMask = 0;

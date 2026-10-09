@@ -63,6 +63,19 @@ export class CollisionWorld {
   readonly nx: number;
   readonly nz: number;
   readonly triangles: number;
+  /**
+   * The moving solids (kind "lift": the car and its doors): not in the grid, since they
+   * move, but tested one by one in their places as of the last `syncMovers`. A mover's
+   * triangle id is `triangles` + its index among the moving triangles.
+   */
+  private movers: Mesh[] = [];
+  private moverStart = new Int32Array(1);
+  private moverOn = new Uint8Array(0);
+  private moverOwner = new Uint16Array(0);
+  private moverFace = new Uint32Array(0);
+  private moverLocal = new Float64Array(0);
+  private moverWorld = new Float64Array(0);
+  private moverTris = 0;
 
   /** Candidate triangles from the last `gather`: ids and vertex coordinates (9 per triangle). */
   count = 0;
@@ -75,8 +88,14 @@ export class CollisionWorld {
     let bx1 = -Infinity;
     let bz0 = Infinity;
     let bz1 = -Infinity;
+    const moverMeshes: Mesh[] = [];
     for (const m of scene.meshes) {
-      if (!(m instanceof Mesh) || !solid(m)) continue;
+      if (!(m instanceof Mesh)) continue;
+      if (mover(m)) {
+        moverMeshes.push(m);
+        continue;
+      }
+      if (!solid(m)) continue;
       const idx = m.getIndices();
       let pos = m.getVerticesData(VertexBuffer.PositionKind);
       if (!idx || !pos || idx.length < 3) continue;
@@ -137,6 +156,74 @@ export class CollisionWorld {
     this.forEachSpan(span, (tri) => {
       for (let j = span[2]; j <= span[3]; j++) for (let i = span[0]; i <= span[1]; i++) this.cellTris[fill[j * this.nx + i]++] = tri;
     });
+    this.setMovers(moverMeshes);
+  }
+
+  /** Keeps the moving solids' local vertices and sets their places from their meshes' transforms. */
+  private setMovers(meshes: Mesh[]): void {
+    this.movers = meshes;
+    this.moverStart = new Int32Array(meshes.length + 1);
+    const parts: Float64Array[] = [];
+    let n = 0;
+    meshes.forEach((m, i) => {
+      this.moverStart[i] = n;
+      const idx = m.getIndices();
+      const pos = m.getVerticesData(VertexBuffer.PositionKind);
+      const count = idx && pos ? idx.length / 3 : 0;
+      const local = new Float64Array(count * 9);
+      for (let k = 0; k < count; k++)
+        for (let v = 0; v < 3; v++) {
+          const p = idx![k * 3 + v] * 3;
+          local[k * 9 + v * 3] = pos![p];
+          local[k * 9 + v * 3 + 1] = pos![p + 1];
+          local[k * 9 + v * 3 + 2] = pos![p + 2];
+        }
+      parts.push(local);
+      n += count;
+    });
+    this.moverStart[meshes.length] = n;
+    this.moverTris = n;
+    this.moverLocal = new Float64Array(n * 9);
+    this.moverWorld = new Float64Array(n * 9);
+    this.moverOn = new Uint8Array(meshes.length);
+    this.moverOwner = new Uint16Array(n);
+    this.moverFace = new Uint32Array(n);
+    let t = 0;
+    meshes.forEach((_, i) => {
+      const local = parts[i];
+      this.moverLocal.set(local, t * 9);
+      for (let k = 0; k < local.length / 9; k++) {
+        this.moverOwner[t + k] = i;
+        this.moverFace[t + k] = k;
+      }
+      t += local.length / 9;
+    });
+    this.syncMovers();
+  }
+
+  /**
+   * Places the moving solids where their meshes are now: the lift car and its doors, moved
+   * by engine/lift.ts. A part that is hidden or disabled isn't solid. The walker calls this
+   * before each step, so it always collides with the car as it is that moment.
+   */
+  syncMovers(): void {
+    const w = this.moverWorld;
+    const l = this.moverLocal;
+    for (let i = 0; i < this.movers.length; i++) {
+      const m = this.movers[i];
+      const on = m.isEnabled() ? 1 : 0;
+      this.moverOn[i] = on;
+      if (!on) continue;
+      const a = m.computeWorldMatrix(true).m;
+      for (let o = this.moverStart[i] * 9; o < this.moverStart[i + 1] * 9; o += 3) {
+        const x = l[o];
+        const y = l[o + 1];
+        const z = l[o + 2];
+        w[o] = x * a[0] + y * a[4] + z * a[8] + a[12];
+        w[o + 1] = x * a[1] + y * a[5] + z * a[9] + a[13];
+        w[o + 2] = x * a[2] + y * a[6] + z * a[10] + a[14];
+      }
+    }
   }
 
   /** Calls `fn` for each triangle inside the grid, with its cell span [i0, i1, j0, j1] in `span`. */
@@ -198,7 +285,6 @@ export class CollisionWorld {
     const i1 = Math.min(this.nx - 1, Math.floor((x1 - this.x0) / CELL));
     const j0 = Math.max(0, Math.floor((z0 - this.z0) / CELL));
     const j1 = Math.min(this.nz - 1, Math.floor((z1 - this.z0) / CELL));
-    const v = this.verts;
     for (let j = j0; j <= j1; j++)
       for (let i = i0; i <= i1; i++) {
         const c = j * this.nx + i;
@@ -210,11 +296,25 @@ export class CollisionWorld {
           if (this.count === this.ids.length) this.grow();
           const o = this.count * 9;
           this.load(tri, this.verts, o);
-          if (Math.max(v[o], v[o + 3], v[o + 6]) < x0 || Math.min(v[o], v[o + 3], v[o + 6]) > x1) continue;
-          if (Math.max(v[o + 2], v[o + 5], v[o + 8]) < z0 || Math.min(v[o + 2], v[o + 5], v[o + 8]) > z1) continue;
+          // read from this.verts, not `v`: a grow above replaces the array
+          const w = this.verts;
+          if (Math.max(w[o], w[o + 3], w[o + 6]) < x0 || Math.min(w[o], w[o + 3], w[o + 6]) > x1) continue;
+          if (Math.max(w[o + 2], w[o + 5], w[o + 8]) < z0 || Math.min(w[o + 2], w[o + 5], w[o + 8]) > z1) continue;
           this.ids[this.count++] = tri;
         }
       }
+    // the moving solids: few, so each is checked in turn
+    const mw = this.moverWorld;
+    for (let t = 0; t < this.moverTris; t++) {
+      if (!this.moverOn[this.moverOwner[t]]) continue;
+      const m = t * 9;
+      if (Math.max(mw[m + 1], mw[m + 4], mw[m + 7]) < y0 || Math.min(mw[m + 1], mw[m + 4], mw[m + 7]) > y1) continue;
+      if (Math.max(mw[m], mw[m + 3], mw[m + 6]) < x0 || Math.min(mw[m], mw[m + 3], mw[m + 6]) > x1) continue;
+      if (Math.max(mw[m + 2], mw[m + 5], mw[m + 8]) < z0 || Math.min(mw[m + 2], mw[m + 5], mw[m + 8]) > z1) continue;
+      if (this.count === this.ids.length) this.grow();
+      this.verts.set(mw.subarray(m, m + 9), this.count * 9);
+      this.ids[this.count++] = this.triangles + t;
+    }
   }
 
   private grow() {
@@ -242,42 +342,57 @@ export class CollisionWorld {
       const tri = this.cellTris[e];
       if (this.triY1[tri] < yBottom || this.triY0[tri] > yTop || !this.enabled(this.triSrc[tri])) continue;
       this.load(tri, t, 0);
-      const ax = t[0], ay = t[1], az = t[2];
-      const bx = t[3], by = t[4], bz = t[5];
-      const cx = t[6], cy = t[7], cz = t[8];
-      const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
-      if (Math.abs(d) < 1e-10) continue;
-      const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
-      const l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
-      const l3 = 1 - l1 - l2;
-      if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) continue;
-      const y = l1 * ay + l2 * by + l3 * cy;
-      if (y < yBottom || y > yTop || (y <= out.walkY && y <= out.anyY)) continue;
-      // the face normal's angle from vertical, either winding
-      const ux = bx - ax, uy = by - ay, uz = bz - az;
-      const vx = cx - ax, vy = cy - ay, vz = cz - az;
-      let nx = uy * vz - uz * vy;
-      let ny = uz * vx - ux * vz;
-      let nz = ux * vy - uy * vx;
-      const len = Math.hypot(nx, ny, nz);
-      if (Math.abs(ny) < 0.2 * len) continue;
-      if (Math.abs(ny) >= 0.6 * len && y > out.walkY) out.walkY = y;
-      if (y > out.anyY) {
-        if (ny < 0) (nx = -nx), (nz = -nz);
-        const h = Math.hypot(nx, nz) || 1;
-        out.anyY = y;
-        out.anyTri = tri;
-        out.downX = nx / h;
-        out.downZ = nz / h;
-      }
+      this.probeTri(t, 0, tri, x, z, yTop, yBottom, out);
+    }
+    for (let k = 0; k < this.moverTris; k++) {
+      if (!this.moverOn[this.moverOwner[k]]) continue;
+      this.probeTri(this.moverWorld, k * 9, this.triangles + k, x, z, yTop, yBottom, out);
+    }
+  }
+
+  /** One triangle's surfaces under (x, z), from the vertices at `v[o..o+8]`, merged into `out` (see `probe`). */
+  private probeTri(v: ArrayLike<number>, o: number, tri: number, x: number, z: number, yTop: number, yBottom: number, out: Probe): void {
+    const ax = v[o], ay = v[o + 1], az = v[o + 2];
+    const bx = v[o + 3], by = v[o + 4], bz = v[o + 5];
+    const cx = v[o + 6], cy = v[o + 7], cz = v[o + 8];
+    const d = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
+    if (Math.abs(d) < 1e-10) return;
+    const l1 = ((bz - cz) * (x - cx) + (cx - bx) * (z - cz)) / d;
+    const l2 = ((cz - az) * (x - cx) + (ax - cx) * (z - cz)) / d;
+    const l3 = 1 - l1 - l2;
+    if (l1 < -1e-6 || l2 < -1e-6 || l3 < -1e-6) return;
+    const py = l1 * ay + l2 * by + l3 * cy;
+    if (py < yBottom || py > yTop || (py <= out.walkY && py <= out.anyY)) return;
+    // the face normal's angle from vertical, either winding
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    let nx = uy * vz - uz * vy;
+    let ny = uz * vx - ux * vz;
+    let nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz);
+    if (Math.abs(ny) < 0.2 * len) return;
+    if (Math.abs(ny) >= 0.6 * len && py > out.walkY) out.walkY = py;
+    if (py > out.anyY) {
+      if (ny < 0) (nx = -nx), (nz = -nz);
+      const h = Math.hypot(nx, nz) || 1;
+      out.anyY = py;
+      out.anyTri = tri;
+      out.downX = nx / h;
+      out.downZ = nz / h;
     }
   }
 
   /** The mesh and face index of a triangle id, for labelling. */
   face(tri: number): { mesh: Mesh; face: number } {
+    if (tri >= this.triangles) return { mesh: this.movers[this.moverOwner[tri - this.triangles]], face: this.moverFace[tri - this.triangles] };
     const src = this.triSrc[tri];
     return { mesh: this.sources[src].mesh, face: tri - this.srcStart[src] };
   }
+}
+
+/** A part of the lift that moves (see MeshMeta.kind): solid, but tested in its place, not in the grid. */
+function mover(m: Mesh): boolean {
+  return (m.metadata as MeshMeta | undefined)?.kind === "lift" && !m.hasThinInstances;
 }
 
 function solid(m: Mesh): boolean {

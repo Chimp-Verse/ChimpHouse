@@ -113,9 +113,10 @@ function buildEntryHall(ctx: WorldCtx) {
   sconce(ctx, z, new Vector3(core.x0 + 0.14, 2.3, core.stair.z0 + 0.6), faceYaw(1, 0));
 
   // big potted plants flanking the stair and doors
-  pottedPlant(ctx, z, new Vector3(core.stair.x1 + 0.45, 0, core.stair.z0 + 0.5), "monstera", { pot: "cream", potR: 0.32, potH: 0.55, scale: 1.4, r });
+  // the two either side of the lift are kept smaller and upright, so their leaves stay out of its way
+  pottedPlant(ctx, z, new Vector3(core.stair.x1 + 0.45, 0, core.stair.z0 + 0.5), "monstera", { pot: "cream", potR: 0.28, potH: 0.5, scale: 1.05, narrow: 0.6, r });
   // beside the lift, clear of the way to the MixChimp door
-  pottedPlant(ctx, z, new Vector3(core.lift.x1 + 0.5, 0, core.z0 + 0.55), "palm", { pot: "cream", potR: 0.3, potH: 0.5, scale: 1.1, r });
+  pottedPlant(ctx, z, new Vector3(core.lift.x1 + 0.5, 0, core.z0 + 0.55), "palm", { pot: "cream", potR: 0.26, potH: 0.45, scale: 0.85, narrow: 0.6, r });
   pottedPlant(ctx, z, new Vector3(-(HALL_HALF - 0.55), 0, 1.0), "philodendron", { pot: "charcoal", potR: 0.28, potH: 0.5, scale: 1.2, r });
   pottedPlant(ctx, z, new Vector3(HALL_HALF - 0.55, 0, 1.0), "bromeliad", { pot: "charcoal", potR: 0.28, potH: 0.45, scale: 1.3, r });
 

@@ -213,7 +213,8 @@ preview = {}
 for name in ("Lower", "Upper", "Building", "Site"):
     if any(o.type == "EMPTY" and o.name.split(".")[0] == name for o in bpy.data.objects):
         scene.collection.children.link(bpy.data.collections.new(name))
-for zone_empty in [o for o in bpy.data.objects if o.type == "EMPTY" and ("zone" in o.keys() or "room" in o.keys())]:
+# a role empty (a cabinet slot, a remote spot, the lift car) carries its zone too, but sits inside it: not a zone of its own
+for zone_empty in [o for o in bpy.data.objects if o.type == "EMPTY" and ("zone" in o.keys() or "room" in o.keys()) and "role" not in o.keys()]:
     group_name = zone_empty.parent.name.split(".")[0]
     group_col = bpy.data.collections.get(group_name) or bpy.data.collections.new(group_name)
     if group_col.name not in scene.collection.children:

@@ -136,6 +136,45 @@ export const core = {
   wc: { x0: M(-1.95, 0).x, x1: M(0.8, 0).x, z0: c0.z + 5.0, z1: c1.z - 0.3 },
 };
 
+/**
+ * The lift car, inside the shaft: x is its centre line, z0 the face of its front wall (where its
+ * own doors run, just in front of it) and z1 its back; halfW its half-width outside. Its floor
+ * sits floorLift above the storey floor it stops at, and it is `height` from floor to ceiling inside.
+ */
+export const LIFT_CAR = {
+  x: (core.lift.x0 + core.lift.x1) / 2,
+  halfW: 1.0,
+  wall: 0.04,
+  z0: core.lift.z0 + 0.2,
+  z1: core.lift.z0 + 1.94,
+  height: 2.4,
+  /** level with the floors' timber finish, which lies 12 mm on each storey's slab */
+  floorLift: 0.014,
+};
+
+/**
+ * The doorway on each landing, and the doors. The opening through the shaft's front wall is
+ * `w` wide and `h` high. Each landing has two leaves, `leafW` wide, which meet in the middle and
+ * slide `travel` apart behind the wall, in the band z0–z1 just behind its back face; the car's
+ * own pair runs in front of the car (carZ0–carZ1) and opens with them. `callX` is where the call
+ * panel sits, on the pier beside the doors.
+ */
+export const LIFT_DOOR = {
+  w: 1.0,
+  h: 2.2,
+  leafW: 0.52,
+  leafH: 2.25,
+  travel: 0.51,
+  z0: core.lift.z0 + 0.105,
+  z1: core.lift.z0 + 0.135,
+  carZ0: LIFT_CAR.z0 - 0.045,
+  carZ1: LIFT_CAR.z0 - 0.015,
+  callX: core.lift.x1 - 0.2,
+};
+
+/** The shaft's inner faces: where the floors and the upper slab open for it. */
+export const LIFT_SHAFT = { x0: core.lift.x0 + 0.03, x1: core.lift.x1 - 0.03, z0: core.lift.z0 + 0.1, z1: core.lift.z1 };
+
 /** Entry hall (open to the atrium above). */
 export const hall = { x0: -HALL_HALF, x1: HALL_HALF, z0: 0, z1: core.z0 };
 

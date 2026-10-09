@@ -7,6 +7,7 @@ import { buildFacades } from "./structure/facades";
 import { buildEntrance } from "./structure/entrance";
 import { buildTrees } from "./environment/trees";
 import { buildStairs } from "./structure/stairs";
+import { buildLift } from "./structure/lift";
 import { buildEdges } from "./structure/edges";
 import { buildApproach } from "./environment/approach";
 import { buildLowerRooms } from "./rooms/lower";
@@ -50,6 +51,7 @@ export async function buildWorld(scene: Scene, progress: Progress): Promise<Worl
   buildEntrance(ctx);
   await tick("Building stairs and railings…");
   buildStairs(ctx);
+  buildLift(ctx);
   buildEdges(ctx);
   await tick("Furnishing the lower rooms…");
   buildLowerRooms(ctx);

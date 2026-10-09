@@ -14,6 +14,7 @@ import { Walker } from "./walker";
 import { Arcade } from "./arcade";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
+import { ButtonId, Lift } from "./lift";
 import { Remotes } from "./remotes";
 import { Theatre } from "./theatre";
 import { parseYouTube } from "./youtube";
@@ -68,8 +69,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   });
   const theatre = new Theatre(scene, world.mats, fly, focus, canvas);
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
-  // a click on a screen or a remote in reach uses it, instead of capturing the mouse
-  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e);
+  // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
+  const lift = new Lift(scene, world.mats, fly, canvas);
+  // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
+  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
@@ -263,6 +266,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
+    else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -396,6 +400,16 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         box.position.set(...at);
       },
     },
+    lift: {
+      /** the shared state (store.lift), and the car as it is shown now */
+      state: () => store.get().lift,
+      describe: () => lift.describe(),
+      /** a landing's call button, or a car button, pressed */
+      call: (floor: 1 | 2) => lift.press(floor, "call"),
+      ride: (floor: 1 | 2) => lift.press(floor, "car"),
+      /** any of its buttons, as a press of it: call1, call2, car1, car2, open, close */
+      use: (id: ButtonId) => lift.use(id),
+    },
     info: () => ({
       fps: Math.round(engine.getFps()),
       drawCalls: engine._drawCalls?.lastSecAverage ? Math.round(engine._drawCalls.lastSecAverage) : engine._drawCalls?.current ?? 0,
@@ -417,6 +431,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (exporting) return;
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
     t += dt;
+    // the lift moves before the walker does, so the walker stands on the car where it is this frame
+    lift.update();
     fly.update(dt);
     focus.update();
     arcade.update();

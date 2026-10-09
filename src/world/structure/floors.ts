@@ -12,6 +12,7 @@ import {
   poolFootprint,
   poolLoop,
   LEVEL,
+  LIFT_SHAFT,
   atriumVoid,
   barLoop,
   core,
@@ -40,6 +41,9 @@ export function voidLoop(): P2[] {
 
 /** Opening in the upper floor over the double-height stair hall. */
 export const stairwell: P2[] = ensureCCW(roundedRect(STAIR.x0 - 0.05, STAIR.z0, STAIR.x1 + 0.05, STAIR.hallZ1, [0, 0, 0, 0]));
+
+/** Opening in the upper slab and floor for the lift shaft, which the lift car rises through. */
+export const liftHole: P2[] = ensureCCW(roundedRect(LIFT_SHAFT.x0, LIFT_SHAFT.z0, LIFT_SHAFT.x1, LIFT_SHAFT.z1, [0, 0, 0, 0]));
 
 /** Slab with separate top/bottom/edge materials. */
 function slabParts(
@@ -95,7 +99,8 @@ export function buildFloors(ctx: WorldCtx): void {
   for (const [room, loop] of floors) {
     const g = ctx.g(zone(room, "lower"), "floor");
     g.setLabel("Timber floor");
-    g.add(polygonFace(loop, fy, true));
+    // the lift's pit: the car's floor stands in it, level with this floor, when it is down
+    g.add(polygonFace(loop, fy, true, room === "core" ? [liftHole] : []));
   }
   const hallLoop = ensureCCW([
     ...resample([{ x: hall.x0, z: frontEndZ() }, { x: hall.x0, z: hall.z1 }], 1),
@@ -107,7 +112,7 @@ export function buildFloors(ctx: WorldCtx): void {
   hg.add(polygonFace(hallLoop, fy, true));
 
   // ------------------------------------------------ upper slab
-  const upperHoles = [...upperOpen.map((c) => circle(c.x, c.z, c.R)), voidLoop(), stairwell];
+  const upperHoles = [...upperOpen.map((c) => circle(c.x, c.z, c.R)), voidLoop(), stairwell, liftHole];
   const gallery = galleryFloorLoop();
   // the pool sits in an opening cut only in the deck surface; its own walls and floor line it.
   // The gallery's indoor floor is cut out of the decking too, so the two never overlap.
@@ -122,7 +127,7 @@ export function buildFloors(ctx: WorldCtx): void {
   for (const [room, loop] of upFloors) {
     const g = ctx.g(zone(room, "upper"), "floor");
     g.setLabel("Timber floor");
-    const holes = room === "core" ? [stairwell] : [];
+    const holes = room === "core" ? [stairwell, liftHole] : [];
     g.add(polygonFace(loop, uy, true, holes));
     // the floor's edge round the stair opening, down to the slab (closes the sliver under it)
     for (const h of holes) g.add(wallStrip([...h].reverse(), LEVEL.upper - 0.005, uy, true));

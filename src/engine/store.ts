@@ -1,5 +1,7 @@
 // Minimal observable store shared by the Babylon preview and the React HUD.
 
+import { LiftState, initialLift } from "./liftState";
+
 export type Quality = "low" | "medium" | "high";
 export type RefOverlay = "off" | "thumb" | "full";
 
@@ -92,6 +94,11 @@ export interface PreviewState {
   theatrePrompt: boolean;
   /** at the stand under the theatre screen: E picks up remote n, or puts the one held back */
   remotePrompt: { action: "take" | "put"; remote: number } | null;
+  /** the lift, as one object the room server can share: the car, its doors, the floors called, who is in a doorway (engine/liftState.ts) */
+  lift: LiftState;
+  /** a lift button within reach: E (or a click on it) presses it */
+  /** the lift button the walker points at, and what pressing it does */
+  liftPrompt: { id: string; label: string } | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -130,6 +137,8 @@ class Store {
     theatreError: null,
     theatrePrompt: false,
     remotePrompt: null,
+    lift: initialLift(Date.now()),
+    liftPrompt: null,
   };
   private listeners = new Set<Listener>();
 

@@ -23,6 +23,25 @@ export const ROLE = {
   theatreRemoteSpot: "theatre-remote-spot",
   /** a theatre remote: its holder controls the screen. Put on its spot at run time */
   theatreRemote: "theatre-remote",
+  /** the lift car: one node that moves between the floors, with its floor-buttons and indicator */
+  liftCar: "lift-car",
+  /** a landing's call button, numbered with its floor (1 lower, 2 upper) */
+  liftCallButton: "lift-call-button",
+  /** a button inside the car for a floor, numbered with the floor */
+  liftFloorButton: "lift-floor-button",
+  /** the car's door-open and door-close buttons */
+  liftOpenButton: "lift-open-button",
+  liftCloseButton: "lift-close-button",
+  /** the indicator above a landing's doors, numbered with its floor: which floor the car is at or going to */
+  liftIndicator: "lift-indicator",
+  /** the indicator inside the car */
+  liftCarIndicator: "lift-car-indicator",
+  /** the landing doors of a floor, numbered with it: the left and right leaves */
+  liftDoorLeft: "lift-door-left",
+  liftDoorRight: "lift-door-right",
+  /** the car's own doors, which open with the landing's: the left and right leaves */
+  liftCarDoorLeft: "lift-car-door-left",
+  liftCarDoorRight: "lift-car-door-right",
 } as const;
 
 type Meta = { role?: string; slot?: number };

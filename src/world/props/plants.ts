@@ -60,10 +60,11 @@ export type PlantKind = "monstera" | "palm" | "fern" | "bromeliad" | "cordyline"
  * A recognisable tropical plant at pos, scaled by s (~1 = 1 m tall). Its stems carry
  * `label`: a potted plant passes its pot's, so pot and plant are one item.
  */
-export function plant(ctx: WorldCtx, z: Zone, pos: Vector3, kind: PlantKind, s: number, r: Rand, label = "Plant"): void {
+/** `narrow` (0–1) stands the leaves up toward vertical, for a plant that has to keep out of the way. */
+export function plant(ctx: WorldCtx, z: Zone, pos: Vector3, kind: PlantKind, s: number, r: Rand, label = "Plant", narrow = 1): void {
   switch (kind) {
     case "monstera":
-      clump(ctx, z, pos, { type: Leaf.Monstera, count: 7 + Math.floor(r() * 4), size: [0.45 * s, 0.7 * s], tilt: [0.35, 0.8], r, stems: true, label });
+      clump(ctx, z, pos, { type: Leaf.Monstera, count: 7 + Math.floor(r() * 4), size: [0.45 * s, 0.7 * s], tilt: [0.35 * narrow, 0.8 * narrow], r, stems: true, label });
       break;
     case "philodendron":
       clump(ctx, z, pos, { type: Leaf.Philodendron, count: 9, size: [0.35 * s, 0.55 * s], tilt: [0.3, 0.85], r, stems: true, label });
@@ -72,7 +73,7 @@ export function plant(ctx: WorldCtx, z: Zone, pos: Vector3, kind: PlantKind, s: 
       clump(ctx, z, pos, { type: Leaf.ElephantEar, count: 6, size: [0.6 * s, 0.9 * s], tilt: [0.25, 0.6], r, stems: true, label });
       break;
     case "palm":
-      clump(ctx, z, pos, { type: Leaf.Palm, count: 9, size: [0.9 * s, 1.4 * s], tilt: [0.25, 0.75], r, stems: true, stemScale: 0.4, stemWidth: 0.5, label });
+      clump(ctx, z, pos, { type: Leaf.Palm, count: 9, size: [0.9 * s, 1.4 * s], tilt: [0.25 * narrow, 0.75 * narrow], r, stems: true, stemScale: 0.4, stemWidth: 0.5, label });
       break;
     case "fern":
       clump(ctx, z, pos, { type: Leaf.Fern, count: 12, size: [0.5 * s, 0.8 * s], tilt: [0.45, 0.85], r, stems: true, stemScale: 0.22, label });
@@ -111,7 +112,7 @@ export function pottedPlant(
   z: Zone,
   pos: Vector3,
   kind: PlantKind,
-  o: { pot?: "cream" | "charcoal" | "terracotta" | "woven"; potR?: number; potH?: number; scale?: number; r: Rand; label?: string },
+  o: { pot?: "cream" | "charcoal" | "terracotta" | "woven"; potR?: number; potH?: number; scale?: number; narrow?: number; r: Rand; label?: string },
 ): void {
   const potR = o.potR ?? 0.22;
   const potH = o.potH ?? 0.42;
@@ -136,7 +137,7 @@ export function pottedPlant(
     xf(pos.x, pos.y, pos.z),
   );
   ctx.g(z, "soil", { castShadow: false }).add(disc(potR * 0.9, 16), xf(pos.x, pos.y + potH * 0.9, pos.z), o.label ?? "Potted plant");
-  plant(ctx, z, pos.add(new Vector3(0, potH * 0.88, 0)), kind, o.scale ?? 1, o.r, o.label ?? "Potted plant");
+  plant(ctx, z, pos.add(new Vector3(0, potH * 0.88, 0)), kind, o.scale ?? 1, o.r, o.label ?? "Potted plant", o.narrow ?? 1);
 }
 
 /**

@@ -70,6 +70,7 @@ export class Walker {
    * walker where it was, when there is nothing below.
    */
   place(x: number, y: number, z: number, drop: number): boolean {
+    this.world.syncMovers();
     const p = emptyProbe(this.under);
     this.world.probe(x, z, y, y - drop, p);
     if (p.anyY === -Infinity) return false;
@@ -89,6 +90,8 @@ export class Walker {
 
   /** Advance by dt with the wanted horizontal velocity (world space, m/s). */
   update(dt: number, wantX: number, wantZ: number): void {
+    // the lift car and its doors are where they are this frame (engine/lift.ts moves them first)
+    this.world.syncMovers();
     const blend = 1 - Math.exp(-dt * 12);
     this.vel.x += (wantX - this.vel.x) * blend;
     this.vel.z += (wantZ - this.vel.z) * blend;

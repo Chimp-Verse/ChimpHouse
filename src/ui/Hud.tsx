@@ -103,7 +103,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen or take a remote · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -125,6 +125,13 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           <kbd>E</kbd>Watch {s.theatre.videoId ? s.theatreVideo?.title || "the video" : "the theatre screen"}
           {/* with a video, the player lies over the screen and a free mouse's click is the player's */}
           {!s.theatre.videoId && <span>or click the screen</span>}
+        </div>
+      )}
+      {s.walking && s.liftPrompt && (
+        <div className="play-prompt low">
+          <kbd>E</kbd>
+          {s.liftPrompt.label}
+          <span>or click the button</span>
         </div>
       )}
       {s.help && <Help onClose={() => store.set({ help: false })} />}

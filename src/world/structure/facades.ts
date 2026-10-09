@@ -4,7 +4,7 @@
 import { P2, resample } from "../geometry/curves";
 import { box, cylinder, ribbonWall, wallStrip, xf } from "../geometry/geo";
 import { WorldCtx, Zone, zone } from "../context";
-import { BAR, CANOPY_BAR, GAME, LEVEL, LOUNGE, MIX, MIX_CORNER, MIX_DOOR, MIX_WINDOWS, SHOWROOM, SHOWROOM_DOOR, THEATRE, THEATRE_DOOR, TRADING, TRADING_DOOR, core } from "../layout";
+import { BAR, CANOPY_BAR, GAME, LEVEL, LIFT_DOOR, LOUNGE, MIX, MIX_CORNER, MIX_DOOR, MIX_WINDOWS, SHOWROOM, SHOWROOM_DOOR, THEATRE, THEATRE_DOOR, TRADING, TRADING_DOOR, core } from "../layout";
 import { glazing } from "./elements";
 import { insideTrunk } from "./trunks";
 import { loungeBar } from "../rooms/lounge";
@@ -192,23 +192,15 @@ function buildCoreWalls(ctx: WorldCtx) {
     lf.add(box(lift.x1 - lift.x0 + 0.3, h, 0.18), xf((lift.x0 + lift.x1) / 2, y0 + h / 2, lift.z1 + 0.09));
     lf.add(box(0.18, h, lift.z1 - lift.z0), xf(lift.x0 - 0.06, y0 + h / 2, (lift.z0 + lift.z1) / 2));
     lf.add(box(0.18, h, lift.z1 - lift.z0), xf(lift.x1 + 0.06, y0 + h / 2, (lift.z0 + lift.z1) / 2));
-    // lift front: slatted wall with door opening
-    const doorW = 1.3;
+    // lift front: a wall with the door opening, lintel over it. The landing doors and
+    // the call panel are built by structure/lift.ts, since they move or light up.
+    const doorW = LIFT_DOOR.w;
+    const doorH = LIFT_DOOR.h;
     const lx = (lift.x0 + lift.x1) / 2;
     const fw = (lift.x1 - lift.x0 + 0.3 - doorW) / 2;
     lf.add(box(fw, h, 0.2), xf(lift.x0 - 0.15 + fw / 2, y0 + h / 2, lift.z0));
     lf.add(box(fw, h, 0.2), xf(lift.x1 + 0.15 - fw / 2, y0 + h / 2, lift.z0));
-    lf.add(box(doorW, h - 2.45, 0.2), xf(lx, y0 + 2.45 + (h - 2.45) / 2, lift.z0));
-    const steel = ctx.g(zz, "steel");
-    steel.setLabel("Lift doors");
-    steel.add(box(doorW / 2 - 0.01, 2.4, 0.05), xf(lx - doorW / 4, y0 + 1.2, lift.z0 - 0.06));
-    steel.add(box(doorW / 2 - 0.01, 2.4, 0.05), xf(lx + doorW / 4, y0 + 1.2, lift.z0 - 0.06));
-    const frame = ctx.g(zz, "charcoal");
-    frame.setLabel("Lift frame");
-    frame.add(box(doorW + 0.16, 0.08, 0.1), xf(lx, y0 + 2.45, lift.z0 - 0.1));
-    frame.add(box(0.08, 2.45, 0.1), xf(lx - doorW / 2 - 0.04, y0 + 1.22, lift.z0 - 0.1));
-    frame.add(box(0.08, 2.45, 0.1), xf(lx + doorW / 2 + 0.04, y0 + 1.22, lift.z0 - 0.1));
-    frame.add(box(0.08, 0.16, 0.03), xf(lx + doorW / 2 + 0.25, y0 + 1.2, lift.z0 - 0.11));
+    lf.add(box(doorW, h - doorH, 0.2), xf(lx, y0 + doorH + (h - doorH) / 2, lift.z0));
     // WC
     const w = ctx.g(zz, "panelHoney");
     w.setLabel("WC wall");
