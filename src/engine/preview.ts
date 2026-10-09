@@ -409,6 +409,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       ride: (floor: 1 | 2) => lift.press(floor, "car"),
       /** any of its buttons, as a press of it: call1, call2, car1, car2, open, close */
       use: (id: ButtonId) => lift.use(id),
+      /** the shared lift back as the house opens with it, for everyone in the room (tests start from it) */
+      reset: () => lift.reset(),
     },
     info: () => ({
       fps: Math.round(engine.getFps()),

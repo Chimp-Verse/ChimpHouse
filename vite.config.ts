@@ -1,8 +1,10 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { roomServer } from "./server/roomServer";
 
 export default defineConfig({
-  plugins: [react()],
+  // the room server: shared state (the lift's) between every page this dev server serves
+  plugins: [react(), roomServer()],
   server: {
     port: 5173,
     strictPort: true,

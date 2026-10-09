@@ -1,6 +1,7 @@
 // Minimal observable store shared by the Babylon preview and the React HUD.
 
 import { LiftState, initialLift } from "./liftState";
+import { ME } from "./room";
 
 export type Quality = "low" | "medium" | "high";
 export type RefOverlay = "off" | "thumb" | "full";
@@ -16,8 +17,8 @@ export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: s
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
 
-/** This visitor, as the theatre's state names a remote's holder (the room server will give each visitor an id). */
-export const VIEWER = "local";
+/** This visitor, as shared state names them: the lift's doorway and the theatre's remotes (engine/room.ts). */
+export const VIEWER = ME.id;
 
 /**
  * What the theatre is showing, as one object that the room server can later

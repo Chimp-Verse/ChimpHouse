@@ -79,6 +79,9 @@ const parts = await ev(() => {
 check(parts.car === 1 && parts.carIndicator === 1, "the car and its indicator carry their roles", JSON.stringify(parts));
 check(parts.carButtons.every((c) => c === 1) && parts.callButtons.every((c) => c === 1), "a button for each floor and two door buttons in the car, and a call button on each landing");
 check(parts.doors.every((c) => c === 1) && parts.indicators.every((c) => c === 1) && parts.carDoors.every((c) => c === 1), "two leaves of landing doors and an indicator for each floor, and the car's own doors");
+// the room keeps the lift as the last visitor left it (another test, or someone else on the server): start from the beginning
+await ev(() => window.__chimp.lift.reset());
+await sleep(200);
 const start = await lift();
 check(start.phase === "parked" && start.floor === 1 && start.height === 0, "the car starts parked on the lower floor, its doors shut", JSON.stringify(start));
 

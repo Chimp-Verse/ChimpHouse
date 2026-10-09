@@ -8,9 +8,10 @@
 // presses it.
 //
 // The car, doors, buttons and indicators are found by role and slot (world/roles.ts).
-// Until the room server exists, this visitor's own clock runs the state and this
-// visitor's walker is the only one in a doorway; the server will take over the commands
-// (press, setDoorway) and the clock, and nothing else here changes.
+// The state is shared through the room (engine/room.ts): each visitor's page moves it on by
+// the room's clock, which needs no messages, and passes on the changes its visitor makes (a
+// button pressed, stepping into a doorway, coming to the lift or walking away), so everyone
+// sees the same car and hears the same music. A visitor who leaves is let go of.
 
 import { Color3, DynamicTexture, Matrix, Mesh, PBRMaterial, PointLight, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { FLOORS, Floor, Shown, paintIndicator } from "../world/structure/lift";
@@ -21,7 +22,8 @@ import { ROLE, find } from "../world/roles";
 import { FlyCamera } from "./flyCamera";
 import { pickAt } from "./focus";
 import { LiftSound } from "./liftSound";
-import { LIFT_TIMING, LiftState, advanceLift, callLift, carHeight, carSpeed, doorPosAt, floorHeight, holdDoors, musicAt, playMusic, setDoorway, setNearby, shutDoorsNow } from "./liftState";
+import { LIFT_TIMING, LiftState, advanceLift, callLift, carHeight, carSpeed, doorPosAt, floorHeight, holdDoors, initialLift, musicAt, playMusic, setDoorway, setNearby, shutDoorsNow } from "./liftState";
+import { room } from "./room";
 import { VIEWER, store } from "./store";
 import { AVATAR } from "./walker";
 
@@ -70,6 +72,8 @@ export class Lift {
   /** what each indicator shows, so its canvas is only painted when that changes */
   private shown = new Map<Mesh, string>();
   private sound = new LiftSound();
+  /** this visitor's changes to the shared state, passed on to everyone */
+  private publish: (s: LiftState) => void;
   /** the state seen last frame, to tell the sounds of its changes */
   private last: { phase: LiftState["phase"]; doorTarget: 0 | 1; doorAt: number } | null = null;
   /** which way the car last travelled: one chime for up, two for down */
@@ -130,6 +134,15 @@ export class Lift {
 
     canvas.addEventListener("pointermove", (e) => (this.mouse = { x: e.clientX, y: e.clientY }));
     canvas.addEventListener("pointerleave", () => (this.mouse = null));
+    // the shared state: everyone's changes come in here, and a visitor who leaves lets go of the doorway and the lift
+    this.publish = room.share("lift", store.get().lift, (s) => store.set({ lift: s }));
+    room.onGone((id) => {
+      const now = room.now();
+      const s = advanceLift(store.get().lift, now);
+      const next = setNearby(setDoorway(s, id, false, now), id, false);
+      if (next !== s) this.publish(next);
+    });
+
     // sound may start at the visitor's first key press or click, so the lift is heard before it is used
     const wake = () => this.sound.unlock();
     window.addEventListener("pointerdown", wake);
@@ -138,13 +151,17 @@ export class Lift {
 
   /** Each frame, before the walker moves: the timeline on, the doorway sensed, the car and its parts shown. */
   update(): void {
-    const now = Date.now();
+    const now = room.now();
+    // the timed steps: the same for everyone from the same state, so kept here, not passed on
     let s = advanceLift(store.get().lift, now);
-    const inside = this.inDoorway(s);
-    if (inside !== s.inDoorway.includes(VIEWER)) s = setDoorway(s, VIEWER, inside, now);
-    const near = this.nearLift(s, now);
-    if (near !== s.nearby.includes(VIEWER)) s = setNearby(s, VIEWER, near);
     if (s !== store.get().lift) store.set({ lift: s });
+    // this visitor's own changes are passed on: in or out of the doorway, at the lift or away
+    let mine = s;
+    const inside = this.inDoorway(mine);
+    if (inside !== mine.inDoorway.includes(VIEWER)) mine = setDoorway(mine, VIEWER, inside, now);
+    const near = this.nearLift(mine, now);
+    if (near !== mine.nearby.includes(VIEWER)) mine = setNearby(mine, VIEWER, near);
+    if (mine !== s) this.publish((s = mine));
     this.show(s, now);
     this.prompt(s, now);
     this.listen(s, now);
@@ -153,6 +170,11 @@ export class Lift {
   /** A floor button pressed (E, or a click): `floor` called from the landing, or chosen inside the car. */
   press(floor: Floor, source: "call" | "car"): void {
     this.use(source === "call" ? `call${floor}` : `car${floor}`);
+  }
+
+  /** Puts the shared lift back as the house opens with it (parked downstairs, doors shut, quiet), for everyone: for tests. */
+  reset(): void {
+    this.publish(initialLift(room.now()));
   }
 
   /** E: presses the button the walker is pointing at, if any. */
@@ -175,14 +197,14 @@ export class Lift {
   use(id: ButtonId): void {
     this.sound.unlock();
     this.sound.press();
-    const now = Date.now();
+    const now = room.now();
     const s = advanceLift(store.get().lift, now);
     let next: LiftState;
     if (id === "open") next = holdDoors(s, now);
     else if (id === "close") next = shutDoorsNow(s, now);
     else next = callLift(s, Number(id.slice(-1)) as Floor, id.startsWith("call") ? "call" : "car", now);
     if (id === "open" || id === "close") this.flashed.set(id, now);
-    store.set({ lift: playMusic(next, VIEWER, now) });
+    this.publish(playMusic(next, VIEWER, now));
   }
 
   /**
@@ -373,7 +395,7 @@ export class Lift {
   }
 
   /** The state as the lift shows it, for the page's checks. */
-  describe(now = Date.now()): { phase: LiftState["phase"]; floor: Floor; dest: Floor | null; height: number; doorPos: number; pending: Floor[]; inDoorway: string[]; aimed: string | null; music: boolean } {
+  describe(now = room.now()): { phase: LiftState["phase"]; floor: Floor; dest: Floor | null; height: number; doorPos: number; pending: Floor[]; inDoorway: string[]; aimed: string | null; music: boolean } {
     const s = store.get().lift;
     return { phase: s.phase, floor: s.floor, dest: s.dest, height: carHeight(s, now), doorPos: doorPosAt(s, now), pending: s.pending, inDoorway: s.inDoorway, aimed: this.target?.id ?? null, music: musicAt(s, now) !== null };
   }
