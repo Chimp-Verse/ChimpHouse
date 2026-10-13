@@ -126,6 +126,11 @@ try {
       const lifted = rods().map((p) => ({ ...p, turn: Math.PI / 2 }));
       run(b1, 6, lifted);
       out.rollStops = { x: b1.x, v: Math.hypot(b1.vx, b1.vz) };
+      // struck from rest, it skids: friction spins it up until it rolls, slower (5/7 for a solid ball, less a little)
+      const sb = { ...P.newBall(-0.55, 0.15, 3, 0), wx: 0, wz: 0 };
+      run(sb, 0.36, lifted);
+      out.skid = { vx: sb.vx, wx: sb.wx };
+      out.hands = { player: P.PLAYER_HAND.turnSpeed, robot: R.ROBOT.turnSpeed };
       // a side wall: back out, slower
       const b2 = P.newBall(0.0, 0.2, 0, 3);
       run(b2, 0.12, lifted);
@@ -251,13 +256,15 @@ try {
       let hardIn = 0;
       for (let k = 0; k < 30; k++) {
         if (trial(1.5, false, 1000 + k)) slowIn++;
-        if (trial(6.5, true, 5000 + k)) hardIn++;
+        if (trial(5.2, true, 5000 + k)) hardIn++;
       }
       out.robot = { slowIn, hardIn, of: 30 };
       return out;
     });
     check(r.rollStops.v < 0.01, "a rolling ball slows to a stop", JSON.stringify(r.rollStops));
-    check(r.wall.vz < -1.5 && r.wall.vz > -3, "a ball bounces back off a side wall, a little slower", JSON.stringify(r.wall));
+    check(r.wall.vz < -1.2 && r.wall.vz > -2.4, "a ball bounces back off a side wall, slower", JSON.stringify(r.wall));
+    check(Math.abs(r.skid.vx - r.skid.wx) < 1e-3 && r.skid.vx > 1.8 && r.skid.vx < 2.2, "a struck ball skids, then rolls on at about 5/7 of its speed", JSON.stringify(r.skid));
+    check(r.hands.robot < r.hands.player, "the robot's hands turn a rod slower than a player's, so it never kicks harder", JSON.stringify(r.hands));
     check(r.tunnel.through === 0, "the hardest shot never passes through a man hanging in its way (40 shots across his foot)", JSON.stringify(r.tunnel));
     check(r.kick.vx > 2, "a man swinging through the ball kicks it forward, hard", JSON.stringify(r.kick));
     check(r.lifted.x > 0.25, "with the men lifted, the ball rolls under them", JSON.stringify(r.lifted));

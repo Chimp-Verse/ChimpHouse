@@ -646,7 +646,7 @@ export class Foosball {
       const x = h.x + h.vx * age;
       const z = h.z + h.vz * age;
       if (Math.hypot(x - this.ball.x, z - this.ball.z) > 0.1) continue;
-      this.ball = { x, z, vx: h.vx, vz: h.vz };
+      this.ball = { ...this.ball, x, z, vx: h.vx, vz: h.vz };
       this.touch = team;
     }
   }
@@ -853,13 +853,13 @@ export class Foosball {
       this.lag.z *= ease;
       const x = this.ball.x + this.lag.x;
       const z = this.ball.z + this.lag.z;
-      // rolling: about the horizontal line across its path, by the distance it went
-      const dx = x - b.position.x;
-      const dz = z - b.position.z;
-      const d = Math.hypot(dx, dz);
-      if (d > 1e-5 && d < 0.2 && g.phase === "play") {
-        this.axis.set(dz / d, 0, -dx / d);
-        Quaternion.RotationAxisToRef(this.axis, d / BALL_R, this.q1);
+      // turning by its spin, about the horizontal line across it: as far as it went when it rolls, less while it skids
+      const wx = this.ball.wx ?? this.ball.vx;
+      const wz = this.ball.wz ?? this.ball.vz;
+      const w = Math.hypot(wx, wz);
+      if (w * dt > 1e-5 && w * dt < 0.2 && g.phase === "play") {
+        this.axis.set(wz / w, 0, -wx / w);
+        Quaternion.RotationAxisToRef(this.axis, (w * dt) / BALL_R, this.q1);
         this.q1.multiplyToRef(this.rolling, this.rolling);
         this.rolling.normalize();
       }
