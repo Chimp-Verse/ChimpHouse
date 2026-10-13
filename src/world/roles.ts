@@ -42,6 +42,17 @@ export const ROLE = {
   /** the car's own doors, which open with the landing's: the left and right leaves */
   liftCarDoorLeft: "lift-car-door-left",
   liftCarDoorRight: "lift-car-door-right",
+  /** the air hockey table: a node at its base, its long axis along X, a player at each end */
+  airHockeyTable: "air-hockey-table",
+  /** the table's playfield inside the rails: a flat quad, facing up, whose bounds are where the puck can go */
+  airHockeySurface: "air-hockey-surface",
+  /** an end of the table, numbered (1 at -X plays red, 2 at +X blue): its front faces its player, who stands at its stand point */
+  airHockeyEnd: "air-hockey-end",
+  /** a face of the overhead scoreboard, numbered with the end it faces */
+  airHockeyScore: "air-hockey-score",
+  /** a mallet, numbered with its end, and the puck: put on the table at run time */
+  airHockeyMallet: "air-hockey-mallet",
+  airHockeyPuck: "air-hockey-puck",
 } as const;
 
 type Meta = { role?: string; slot?: number };
