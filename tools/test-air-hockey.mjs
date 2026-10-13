@@ -286,6 +286,7 @@ if (mode === "play" && !SHARED) {
   check(s1.focus?.kind === "airHockey" && s1.focus.end === 1, "E sits the visitor at the red end, the view behind it", JSON.stringify(s1.focus));
   check(s1.d.runs && s1.d.phase === "ready" && s1.d.score[0] + s1.d.score[1] === 0, "their page runs the game, and a match starts with a faceoff", JSON.stringify({ runs: s1.d.runs, phase: s1.d.phase, players: s1.d.players }));
   check(s1.hud?.opponent === "the robot", "the HUD shows the score and the robot as the opponent", JSON.stringify(s1.hud));
+  await page.screenshot({ path: "captures/air-hockey-faceoff.png" });
   // the faceoff: nothing moves the puck and the robot waits until a 3-2-1 countdown has run
   const face = await page.evaluate(async () => {
     const c = window.__chimp.airHockey;

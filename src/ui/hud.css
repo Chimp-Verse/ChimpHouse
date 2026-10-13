@@ -1294,7 +1294,10 @@ kbd {
 .ah-ready b {
   font: 800 88px "Nunito", sans-serif;
   color: var(--amber);
-  text-shadow: 0 0 22px rgba(255, 178, 94, 0.8), 0 2px 8px rgba(0, 0, 0, 0.7);
+  /* a dark edge so it reads over the white playfield */
+  -webkit-text-stroke: 3px rgba(20, 12, 4, 0.85);
+  paint-order: stroke fill;
+  text-shadow: 0 0 22px rgba(255, 178, 94, 0.7), 0 3px 12px rgba(0, 0, 0, 0.8);
   animation: ah-count 0.35s ease-out;
 }
 
