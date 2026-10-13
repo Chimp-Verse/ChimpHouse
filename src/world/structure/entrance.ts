@@ -195,16 +195,19 @@ export function buildEntrance(ctx: WorldCtx): void {
   ctx.g(zH, "signGlyphs", { castShadow: false }).add(plane(sw, sh), xf(0, sy + sh / 2, sz - 0.015), "CHIMPHOUSE sign");
   ctx.g(zH, "timberDark").add(box(sw * 0.98, sh * 0.6, 0.12), xf(0, sy + sh * 0.3, sz + 0.08), "CHIMPHOUSE sign");
 
-  // warm wash lights under the eaves (strongest at night)
-  for (const [tx, tz, y] of [
-    [-13.4, -1.25, LEVEL.lowerCeil - 0.4],
-    [-7.2, -1.6, LEVEL.lowerCeil - 0.4],
-    [7.2, -1.9, LEVEL.lowerCeil - 0.4],
-    [13.4, -2.0, LEVEL.lowerCeil - 0.4],
-    [0, -2.0, LEVEL.lowerCeil + 0.4],
-  ]) {
+  // warm wash lights under the eaves (strongest at night). Only the two in front of the arcade light
+  // the Game Room (its outdoor front arch): they give 99% of the arch's wash, as the lounge's two give
+  // its matching arch, and the room's own lights fill the rest of the 8 a material takes
+  for (const [tx, tz, y, arcade] of [
+    [-13.4, -1.25, LEVEL.lowerCeil - 0.4, false],
+    [-7.2, -1.6, LEVEL.lowerCeil - 0.4, false],
+    [7.2, -1.9, LEVEL.lowerCeil - 0.4, true],
+    [13.4, -2.0, LEVEL.lowerCeil - 0.4, true],
+    [0, -2.0, LEVEL.lowerCeil + 0.4, false],
+  ] as [number, number, number, boolean][]) {
     const { x, z: zz } = M(tx, tz);
-    ctx.lights.push({ pos: new Vector3(x, y, zz), color: "#ffb260", day: 0.6, night: 7, range: 9, rooms: ["structure", "approach", "entryHall", "arrivalLounge", "gameRoom"], level: "lower" });
+    const rooms = ["structure", "approach", "entryHall", "arrivalLounge", ...(arcade ? ["gameRoom"] : [])];
+    ctx.lights.push({ pos: new Vector3(x, y, zz), color: "#ffb260", day: 0.6, night: 7, range: 9, rooms, level: "lower" });
   }
   for (const [tx, tz] of [
     [-12.8, -0.75],

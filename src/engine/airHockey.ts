@@ -30,7 +30,7 @@ import { ROLE, find, findAll } from "../world/roles";
 import { AirHockeySound } from "./airHockeySound";
 import { RobotMind, Sim, TableSpec, WIN_SCORE, coast, makeRobot, makeSim, placePuck, robotMove, step, winner } from "./airHockeyPhysics";
 import { FlyCamera, Pose } from "./flyCamera";
-import { ScreenFocus } from "./focus";
+import { ScreenFocus, pickPoint } from "./focus";
 import { Lighting } from "./lighting";
 import { ME, room } from "./room";
 import { AirHockeyHud, VIEWER, store } from "./store";
@@ -570,8 +570,8 @@ export class AirHockey {
     const f = this.field!;
     if (!this.cursor) return;
     // the ray takes the cursor in CSS pixels over the canvas (Babylon scales them to the render size itself)
-    const box = this.canvas.getBoundingClientRect();
-    this.scene.createPickingRayToRef(this.cursor.x - box.left, this.cursor.y - box.top, this.identity, this.ray, this.fly.camera);
+    const at = pickPoint(this.canvas, this.cursor);
+    this.scene.createPickingRayToRef(at.x, at.y, this.identity, this.ray, this.fly.camera);
     // the plane a hand holds the mallet at, a little above the playfield
     const planeY = Vector3.TransformCoordinatesFromFloatsToRef(0, f.y + 0.05, 0, this.world, this.v).y;
     const o = this.ray.origin;

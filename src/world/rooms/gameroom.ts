@@ -172,6 +172,8 @@ export function buildGameRoom(ctx: WorldCtx): void {
     pottedPlant(ctx, z, new Vector3(p.x, F, p.z), kind, { pot: "cream", potR: 0.3, potH: 0.55, scale: s, r });
   }
   pottedPlant(ctx, z, new Vector3(c.x + 0.4 * K, F, 0.75), "bromeliad", { pot: "cream", potR: 0.25, potH: 0.4, scale: 1.2, r });
+  // the room's lights: with the sun, the sky, two eave lights (structure/entrance.ts) and the claw
+  // machine's cabinet light they fill the 8 a material takes; tools/test-air-hockey.mjs lights counts them
   roomLight(ctx, "gameRoom", "lower", new Vector3(c.x, 3.5, c.z), 4, 15, 11);
   roomLight(ctx, "gameRoom", "lower", new Vector3(ah.x, 3.0, ah.z), 1.5, 6, 6, "#ffd0a0");
   roomLight(ctx, "gameRoom", "lower", new Vector3(rowX0 + 1.4, 3.0, rowZ - 1.5), 3, 10, 7, "#ffb070");
