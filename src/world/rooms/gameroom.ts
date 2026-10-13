@@ -11,7 +11,8 @@ import { rng } from "../geometry/curves";
 import { Geo, box, cylinder, lathe, softBox, sphere, torus, tube, xf } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
 import { GAME, LEVEL, TREES } from "../layout";
-import { airHockey, beanBag, clawMachine, foosball, pinball, plushChimp, vendingMachine } from "../props/arcade";
+import { airHockey, beanBag, foosball, pinball, vendingMachine } from "../props/arcade";
+import { clawMachine, plushChimp } from "../props/clawMachine";
 import { sodaCan } from "../props/barware";
 import { drumTable, lowStool, roundRug, sofa } from "../props/furniture";
 import { chimpVibeSign, neonWord, neonWordWidth } from "../props/lettering3d";
@@ -134,7 +135,7 @@ export function buildGameRoom(ctx: WorldCtx): void {
   // claw machine and snack machine in the south-east curve
   {
     const p = arcDeg(c.x, c.z, GAME.r - 0.78, -73, -73, 1)[0];
-    clawMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), r);
+    clawMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)));
     const q = arcDeg(c.x, c.z, GAME.r - 0.72, -59, -59, 1)[0];
     vendingMachine(ctx, z, xf(q.x, F, q.z, faceToward(q.x, q.z, c.x, c.z)));
     // a plush chimp won from the claw, left on the bromeliad's pot rim

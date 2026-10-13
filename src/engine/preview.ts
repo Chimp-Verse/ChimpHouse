@@ -15,6 +15,7 @@ import { Arcade } from "./arcade";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
 import { ButtonId, Lift } from "./lift";
+import { ClawMachine } from "./clawMachine";
 import { Remotes } from "./remotes";
 import { Theatre } from "./theatre";
 import { parseYouTube } from "./youtube";
@@ -34,6 +35,8 @@ export interface PreviewController {
   readonly theatre: Theatre;
   /** The theatre's remotes: whoever holds one controls the theatre. */
   readonly remotes: Remotes;
+  /** The claw machine: playing it (walk mode), its drop button, leaving. */
+  readonly claw: ClawMachine;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -71,6 +74,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
+  // the claw machine: its prizes settle into a pile as the house opens
+  const claw = new ClawMachine(scene, world.mats, lighting, fly, focus);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -153,6 +158,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     leaveCabinet: () => arcade.leave(),
     theatre,
     remotes,
+    claw,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -267,6 +273,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.clawPrompt) void claw.use();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -412,6 +419,46 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** the shared lift back as the house opens with it, for everyone in the room (tests start from it) */
       reset: () => lift.reset(),
     },
+    claw: {
+      /** the claw's pose (trolley place, cable, swing, prongs, controls), and setting parts of it */
+      pose: () => ({ ...claw.pose }),
+      setPose: (p: Partial<typeof claw.pose>) => {
+        Object.assign(claw.pose, p);
+        claw.touch();
+      },
+      /** each prize: its kind, where its centre is (machine frame), whether it is asleep or out of play */
+      prizes: () =>
+        claw.world.kinds.map((kind, b) => ({ kind, at: Array.from(claw.world.pose.subarray(b * 7, b * 7 + 3)), asleep: claw.world.isAsleep(b), gone: claw.world.isGone(b) })),
+      /** the machine's root in the world: its position and the turn it faces */
+      root: () => ({ at: claw.root.getAbsolutePosition().asArray(), yaw: claw.root.rotationQuaternion?.toEulerAngles().y ?? 0 }),
+      /** the inside's measurements (ClawSpec), from the root */
+      spec: () => claw.spec,
+      /** where a player stands at the deck (on the floor) and the point of the machine they face, in the world */
+      standPoint: () => {
+        const wm = claw.root.computeWorldMatrix(true);
+        const stand = Vector3.TransformCoordinates(Vector3.FromArray((claw.root.metadata as { stand: number[] }).stand), wm);
+        return { stand: stand.asArray(), look: Vector3.TransformCoordinates(new Vector3(0, 1.2, 0), wm).asArray() };
+      },
+      /** the pickup door's middle, in the world */
+      doorAt: () => {
+        const S = claw.spec;
+        return Vector3.TransformCoordinates(new Vector3((S.chute[0] + S.chute[1]) / 2, S.binY + 0.13, S.doorZ), claw.root.computeWorldMatrix(true)).asArray();
+      },
+      /** the play: its phase, timer, grip, the prizes behind the door, the last message, and whether the test's aim is set */
+      state: () => ({ phase: claw.game.phase, timer: claw.game.timer, strength: claw.game.strength, inBin: claw.game.inBin(), message: store.get().claw?.message ?? "", aimed: claw.aimed }),
+      display: () => (claw.game.phase === "aim" ? "timer" : claw.game.inBin().length ? "WIN!" : claw.game.busy ? "----" : "PLAY"),
+      use: () => claw.use(),
+      leave: () => claw.leave(),
+      play: () => claw.play(),
+      /** force every play's grip strength (0..1), or null for the machine's own payout */
+      force: (s: number | null) => (claw.game.forceStrength = s),
+      aimAtBest: () => claw.aimAtBest(),
+      /** cut the credit timer to t seconds */
+      fastTimer: (t: number) => (claw.game.timer = Math.min(claw.game.timer, t)),
+      /** hold the joystick and button as given (null gives the keys back) */
+      drive: (i: { x: number; z: number; drop: boolean } | null) => (claw.override = i),
+      simulate: (n: number, strategy: "aim" | "random", strength: number | null) => claw.simulate(n, strategy, strength),
+    },
     info: () => ({
       fps: Math.round(engine.getFps()),
       drawCalls: engine._drawCalls?.lastSecAverage ? Math.round(engine._drawCalls.lastSecAverage) : engine._drawCalls?.current ?? 0,
@@ -440,6 +487,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade.update();
     remotes.update();
     theatre.update();
+    claw.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();

@@ -42,6 +42,21 @@ export const ROLE = {
   /** the car's own doors, which open with the landing's: the left and right leaves */
   liftCarDoorLeft: "lift-car-door-left",
   liftCarDoorRight: "lift-car-door-right",
+  /** the claw machine: its root node, which carries the inside's measurements (props/clawMachine.ts ClawSpec) */
+  clawMachine: "claw-machine",
+  /** the claw machine's moving parts: the gantry bridge, the trolley on it, the cable and its coiled cord, the claw head and its prongs */
+  clawGantry: "claw-gantry",
+  clawTrolley: "claw-trolley",
+  clawCable: "claw-cable",
+  clawCord: "claw-cord",
+  clawHead: "claw-head",
+  clawProng: "claw-prong",
+  /** the claw machine's controls: the joystick, the drop button, the credit and timer display */
+  clawJoystick: "claw-joystick",
+  clawButton: "claw-button",
+  clawDisplay: "claw-display",
+  /** the flap of the claw machine's pickup door, hinged along its top */
+  clawDoor: "claw-door",
 } as const;
 
 type Meta = { role?: string; slot?: number };

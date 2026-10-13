@@ -9,7 +9,6 @@ import { WorldCtx, Zone } from "../context";
 import { makeCanvas } from "../materials/canvas";
 import { drawLeafEmblem } from "../materials/textures";
 import { canvasMat } from "./tech";
-import type { Rand } from "./plants";
 
 function mats(ctx: WorldCtx) {
   const add = (key: string, o: Parameters<typeof ctx.mats.pbr>[1]) => {
@@ -171,101 +170,6 @@ export function foosball(ctx: WorldCtx, z: Zone, m: Matrix): void {
   });
   ctx.g(z, "chrome").add(rods, m, label);
   ctx.g(z, "white").add(sphere(0.018, 10, 8), xf(0.05, 0.665, 0.08).multiply(m), "Foosball");
-}
-
-// ------------------------------------------------------------------ claw machine
-
-/** Claw machine full of plush chimps and bananas, 0.9 m square, 2.0 m tall. Base at m, front -Z. */
-export function clawMachine(ctx: WorldCtx, z: Zone, m: Matrix, r: Rand): void {
-  mats(ctx);
-  const label = "Claw machine";
-  const S = 0.9;
-  const base = 0.85;
-  const glassH = 0.9;
-  ctx.g(z, "arcadePink").add(box(S, base, S), xf(0, base / 2, 0).multiply(m), label);
-  ctx.g(z, "neonCyan").add(box(S + 0.01, 0.025, S + 0.01), xf(0, base - 0.02, 0).multiply(m), label);
-  // prize chute and control deck on the front
-  ctx.g(z, "black").add(box(0.3, 0.26, 0.02), xf(0.22, 0.4, -S / 2 - 0.005).multiply(m), "Prize chute");
-  ctx.g(z, "arcadeWhite").add(box(S, 0.06, 0.22), xf(0, base - 0.05, -S / 2 - 0.1).multiply(m), label);
-  ctx.g(z, "black").add(new Geo().add(cylinder(0.035, 0.02, 12)).add(cylinder(0.008, 0.1, 6), xf(0, 0.02, 0)).add(sphere(0.022, 10, 8), xf(0, 0.12, 0)), xf(-0.18, base - 0.02, -S / 2 - 0.1).multiply(m), "Joystick");
-  ctx.g(z, "arcadeRed").add(cylinder(0.035, 0.02, 14), xf(0.12, base - 0.02, -S / 2 - 0.1).multiply(m), "Button");
-  // glass box: corner posts, glass, roof and lit header
-  const posts = new Geo();
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) posts.add(box(0.04, glassH, 0.04), xf(sx * (S / 2 - 0.02), base + glassH / 2, sz * (S / 2 - 0.02)));
-  ctx.g(z, "chrome").add(posts, m, label);
-  const glass = new Geo();
-  for (const s of [-1, 1]) {
-    glass.add(box(S - 0.06, glassH, 0.008), xf(0, base + glassH / 2, s * (S / 2 - 0.02)));
-    glass.add(box(0.008, glassH, S - 0.06), xf(s * (S / 2 - 0.02), base + glassH / 2, 0));
-  }
-  ctx.g(z, "glass", { castShadow: false, pickable: false }).add(glass, m, label);
-  ctx.g(z, "arcadePink").add(box(S + 0.02, 0.28, S + 0.02), xf(0, base + glassH + 0.14, 0).multiply(m), label);
-  const header = canvasMat(
-    ctx,
-    "clawHeader",
-    (() => {
-      const { canvas, ctx: c } = makeCanvas(512, 140);
-      c.fillStyle = "#1b1030";
-      c.fillRect(0, 0, 512, 140);
-      for (let i = 0; i < 18; i++) {
-        c.fillStyle = i % 2 ? "#ffd54a" : "#ff4fa3";
-        c.beginPath();
-        c.arc(14 + i * 28.5, 12, 6, 0, Math.PI * 2);
-        c.arc(14 + i * 28.5, 128, 6, 0, Math.PI * 2);
-        c.fill();
-      }
-      c.fillStyle = "#40e6ff";
-      c.font = "800 66px Nunito";
-      c.textAlign = "center";
-      c.textBaseline = "middle";
-      c.fillText("CHIMP CLAW", 256, 72);
-      return canvas;
-    })(),
-    1.3,
-  );
-  ctx.mats.glowing.add(header);
-  face(ctx, z, header, xf(0, base + glassH + 0.14, -S / 2 - 0.012).multiply(m), S - 0.04, 0.25, label);
-  // gantry and claw
-  ctx.g(z, "chrome").add(box(S - 0.06, 0.03, 0.04), xf(0, base + glassH - 0.04, 0.05).multiply(m), "Claw gantry");
-  const clawTop = new Vector3(0.12, base + glassH - 0.06, 0.05);
-  const cm = xf(clawTop.x, 0, clawTop.z).multiply(m);
-  ctx.g(z, "chrome").add(new Geo().add(cylinder(0.004, 0.32, 4), xf(0, clawTop.y - 0.32, 0)).add(cylinder(0.04, 0.05, 12), xf(0, clawTop.y - 0.37, 0)), cm, "Claw");
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2;
-    const p0 = new Vector3(Math.cos(a) * 0.03, clawTop.y - 0.37, Math.sin(a) * 0.03);
-    const p1 = new Vector3(Math.cos(a) * 0.08, clawTop.y - 0.45, Math.sin(a) * 0.08);
-    const p2 = new Vector3(Math.cos(a) * 0.05, clawTop.y - 0.52, Math.sin(a) * 0.05);
-    ctx.g(z, "chrome").add(tube([p0, p1, p2], 0.008, 6), cm, "Claw");
-  }
-  // the prizes
-  ctx.g(z, "arcadeWhite").add(box(S - 0.06, 0.02, S - 0.06), xf(0, base + 0.01, 0).multiply(m));
-  for (let i = 0; i < 16; i++) {
-    const x = (r() - 0.5) * (S - 0.25);
-    const zz = (r() - 0.5) * (S - 0.25);
-    const y = base + 0.08 + (i > 9 ? 0.12 : 0) + r() * 0.04;
-    if (i % 3 === 2) {
-      const pts: Vector3[] = [];
-      for (let k = 0; k <= 8; k++) {
-        const t = -0.8 + (k / 8) * 1.6;
-        pts.push(new Vector3(Math.sin(t) * 0.1, -Math.cos(t) * 0.1 + 0.1, 0));
-      }
-      ctx.g(z, "bananaYellow").add(tube(pts, (t) => 0.035 * Math.sin(Math.PI * (0.1 + t * 0.8)) + 0.006, 8), xf(x, y, zz, r() * 6, 1, 1, 1, 0, 0.6).multiply(m), "Plush banana");
-    } else plushChimp(ctx, z, xf(x, y - 0.06, zz, r() * 6).multiply(m), 0.85 + r() * 0.3);
-  }
-  ctx.lights.push({ pos: Vector3.TransformCoordinates(new Vector3(0, base + glassH - 0.1, 0), m), color: "#ffd9f0", day: 0.6, night: 2, range: 2.5, rooms: [z.room], level: z.level });
-}
-
-/** Little plush chimp, sitting. Base at m. */
-export function plushChimp(ctx: WorldCtx, z: Zone, m: Matrix, s = 1): void {
-  const fur = new Geo();
-  fur.add(sphere(0.07 * s, 12, 10), xf(0, 0.07 * s, 0, 0, 1, 1.05, 0.9));
-  fur.add(sphere(0.06 * s, 12, 10), xf(0, 0.17 * s, 0));
-  for (const sx of [-1, 1]) {
-    fur.add(sphere(0.022 * s, 8, 6), xf(sx * 0.06 * s, 0.19 * s, 0));
-    fur.add(sphere(0.026 * s, 8, 6), xf(sx * 0.05 * s, 0.03 * s, -0.05 * s));
-  }
-  ctx.g(z, "plushBrown").add(fur, m, "Plush chimp");
-  ctx.g(z, "plushTan").add(new Geo().add(sphere(0.035 * s, 10, 8, 0.8), xf(0, 0.16 * s, -0.04 * s)).add(sphere(0.03 * s, 8, 6, 0.6), xf(0, 0.07 * s, -0.055 * s)), m, "Plush chimp");
 }
 
 // ------------------------------------------------------------------ vending machine
