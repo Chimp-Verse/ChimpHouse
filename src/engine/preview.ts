@@ -35,6 +35,8 @@ export interface PreviewController {
   readonly theatre: Theatre;
   /** The theatre's remotes: whoever holds one controls the theatre. */
   readonly remotes: Remotes;
+  /** The air hockey table: playing at it, and leaving. */
+  readonly airHockey: AirHockey;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -73,7 +75,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
   // the air hockey table: its mallets and puck
-  const airHockey = new AirHockey(scene, world.mats, lighting);
+  const airHockey = new AirHockey(scene, world.mats, lighting, fly, focus, canvas, (msg) => flash(msg));
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -156,6 +158,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     leaveCabinet: () => arcade.leave(),
     theatre,
     remotes,
+    airHockey,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -270,6 +273,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.airHockeyPrompt?.end) airHockey.act();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -419,6 +423,21 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** the table's base in the world and the turn of its long axis, and its playfield in its own space */
       where: () => airHockey.where(),
       field: () => airHockey.field,
+      /** the game as this page has it: the score, the puck and mallets (playfield coordinates), who plays and who runs it */
+      describe: () => airHockey.describe(),
+      /** play at an end (walk mode), and leave */
+      sit: (end: 1 | 2) => airHockey.sit(end),
+      leave: () => airHockey.leave(),
+      rematch: () => airHockey.askRematch(),
+      /** point the cursor at a spot on the playfield, as the mouse would */
+      aim: (x: number, z: number) => airHockey.aim(x, z),
+      /** on the page running the game: put the puck somewhere moving, or set the score */
+      setPuck: (x: number, z: number, vx: number, vz: number) => airHockey.setPuck(x, z, vx, vz),
+      setScore: (red: number, blue: number) => airHockey.setScore(red, blue),
+      /** both ends free and the game stopped, for everyone in the room */
+      reset: () => airHockey.reset(),
+      /** the pure physics and robot, to test on their own */
+      physics: () => import("./airHockeyPhysics"),
     },
     info: () => ({
       fps: Math.round(engine.getFps()),
@@ -448,6 +467,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade.update();
     remotes.update();
     theatre.update();
+    airHockey.update();
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();

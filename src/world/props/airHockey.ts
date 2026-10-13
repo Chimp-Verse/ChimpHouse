@@ -417,6 +417,8 @@ export function airHockey(ctx: WorldCtx, z: Zone, m: Matrix): void {
     // the tray: a shelf the returned puck slides out onto, with a raised lip
     retFrame.add(box(0.06, 0.008, 0.2), xf(face(0.03), retY - 0.035, 0));
     retFrame.add(box(0.008, 0.022, 0.2), xf(face(0.058), retY - 0.027, 0));
+    // where a puck put into this end's goal comes out, lying on the tray
+    ctx.slot(z, ROLE.airHockeyReturn, s < 0 ? 1 : 2, at(face(0.028), retY - 0.031, 0), new Vector3(0, 0, 0), `${label}: puck return`);
   }
   ctx.g(z, "black", { castShadow: false }).add(retIn, m, `${label}: puck return`);
   ctx.g(z, "chrome").add(retFrame, m, `${label}: puck return`);
