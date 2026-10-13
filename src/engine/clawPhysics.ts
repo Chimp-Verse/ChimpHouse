@@ -93,6 +93,8 @@ const MU_PLUSH = 0.6;
 /** how still (m/s) and for how long (s) a body must be to sleep */
 const SLEEP_V = 0.035;
 const SLEEP_T = 0.35;
+const CREEP_V = 0.12;
+const CREEP_T = 2;
 
 /** Rotate (x, y, z) by quaternion q (x, y, z, w) into out[o..o+2]. */
 function rot(q: Float64Array, qo: number, x: number, y: number, z: number, out: Float64Array, o: number) {
@@ -264,6 +266,23 @@ export class PrizeWorld {
     return [this.restCom[b * 3], this.restCom[b * 3 + 1], this.restCom[b * 3 + 2]];
   }
 
+  /** Set body b where another visitor's page has it (com xyz, quaternion xyzw at `o` in `src`), asleep or not. */
+  setPose(b: number, src: ArrayLike<number>, o: number, asleep: boolean): void {
+    const q = this.pose;
+    for (let i = 0; i < 7; i++) q[b * 7 + i] = src[o + i];
+    for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+      rot(q, b * 7 + 3, this.rest[k * 3], this.rest[k * 3 + 1], this.rest[k * 3 + 2], this.p, k * 3);
+      for (let j = 0; j < 3; j++) {
+        this.p[k * 3 + j] += q[b * 7 + j];
+        this.prev[k * 3 + j] = this.p[k * 3 + j];
+        this.v[k * 3 + j] = 0;
+      }
+    }
+    this.gone[b] = 0;
+    this.sleeping[b] = asleep ? 1 : 0;
+    this.still[b] = 0;
+  }
+
   /** Take body b out of play (won and taken), or put it back with place(). */
   remove(b: number): void {
     this.gone[b] = 1;
@@ -409,7 +428,9 @@ export class PrizeWorld {
         vmax = Math.max(vmax, Math.hypot(v[o], v[o + 1], v[o + 2]));
       }
       if (b === this.held) continue;
+      // still, or barely creeping for a while (held in a jam that jitters): to sleep either way
       if (vmax < SLEEP_V) this.still[b] += H;
+      else if (vmax < CREEP_V) this.still[b] += H * (SLEEP_T / CREEP_T);
       else this.still[b] = 0;
       if (this.still[b] > SLEEP_T) {
         this.sleeping[b] = 1;

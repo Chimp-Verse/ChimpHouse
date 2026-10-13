@@ -302,7 +302,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
-    else if (e.code === "KeyE" && s.walking && s.clawPrompt) void claw.use();
+    else if (e.code === "KeyE" && s.walking && s.clawPrompt && !s.clawBusy) void claw.use();
     else if (e.code === "KeyE" && s.walking && s.pinballPrompt) {
       if (s.pinballPrompt.busy) flash(`${s.pinballPrompt.busy} is playing ${s.pinballPrompt.name}`);
       else void pinball.use(s.pinballPrompt.slot);
@@ -560,6 +560,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** hold the joystick and button as given (null gives the keys back) */
       drive: (i: { x: number; z: number; drop: boolean } | null) => (claw.override = i),
       simulate: (n: number, strategy: "aim" | "random", strength: number | null) => claw.simulate(n, strategy, strength),
+      /** the machine as it opens, for everyone in the room: a fresh pile, nobody playing (tests start from it) */
+      reset: () => claw.reset(),
+      /** who is playing, if another visitor is (shared through the room) */
+      playerName: () => claw.playerName,
     },
     pinball: {
       /** the machines, by slot */

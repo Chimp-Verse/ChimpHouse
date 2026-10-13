@@ -25,8 +25,10 @@ import { PrizeWorld, STOCK, dropIn, restock, seeded } from "./clawPhysics";
 import { ClawGame, ClawInput, ClawPose, PRONG_OPEN, PRONG_SHUT, bestChimp, simulatePlays, steerTo } from "./clawRules";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus } from "./focus";
+import { ClawSound } from "./clawSound";
 import { Lighting } from "./lighting";
-import { ClawHud, store } from "./store";
+import { ME, room } from "./room";
+import { ClawHud, VIEWER, store } from "./store";
 
 /** How near (m) the walker must stand to the deck's stand point, looking at the machine, to be offered it. */
 const REACH = 1.3;
@@ -34,6 +36,33 @@ const GLIDE_IN = 0.9;
 const GLIDE_OUT = 0.7;
 /** seconds until a taken prize is put back in the machine */
 const RESTOCK_AFTER = 4;
+/** how often (s) a player's page tells the others where the claw is, and how far behind (s) a watcher shows it, to have a sample either side */
+const MOTION_EVERY = 1 / 16;
+const WATCH_BEHIND = 0.12;
+
+/** Who is playing the machine: one visitor at a time. */
+interface ClawUse {
+  by: string | null;
+  name: string;
+}
+
+/** The claw while someone plays, from their page: the pose and the prizes that are moving, at the room's time t. */
+interface ClawMotion {
+  by: string;
+  t: number;
+  pose: ClawPose;
+  /** each moving prize: its index, then com xyz and quaternion xyzw */
+  bodies: number[];
+  /** the HUD's state machine phase, for the display */
+  phase: string;
+  timer: number;
+}
+
+/** The pile as it lies between plays: every prize's pose (7 numbers each) and those out of play, from the page that last played. */
+interface ClawPile {
+  poses: number[];
+  gone: number[];
+}
 
 export class ClawMachine {
   readonly root: TransformNode;
@@ -67,10 +96,20 @@ export class ClawMachine {
   /** the keys held while playing */
   private keys = new Set<string>();
   private dropHeld = false;
+  private dropTapped = false;
   /** prizes taken, and when each goes back in */
   private restocks: { b: number; at: number }[] = [];
   private clock = 0;
   private fovBefore = 1;
+  /** shared: who plays, the claw's motion while they do, the pile between plays */
+  private holder: ClawUse = { by: null, name: "" };
+  private publishUse: (u: ClawUse) => void;
+  private publishMotion: (m: ClawMotion) => void;
+  private publishPile: (p: ClawPile) => void;
+  private motions: ClawMotion[] = [];
+  private sentAt = 0;
+  /** this page owes the room the pile once it settles (after a play or a restock) */
+  private pileOwed = false;
 
   constructor(
     scene: Scene,
@@ -138,6 +177,23 @@ export class ClawMachine {
     this.paintDisplay("PLAY");
     this.game = new ClawGame(this.world, S, this.pose);
 
+    // shared with the other visitors: one player at a time, whose page runs the play and tells the rest
+    this.publishUse = room.share<ClawUse>("claw/use", this.holder, (u) => {
+      this.holder = u;
+      if (u.by !== VIEWER) this.motions.length = 0;
+    });
+    this.publishMotion = room.share<ClawMotion | null>("claw/motion", null, (m) => {
+      if (!m || m.by === VIEWER) return;
+      this.motions.push(m);
+      if (this.motions.length > 6) this.motions.shift();
+    }) as (m: ClawMotion) => void;
+    this.publishPile = room.share<ClawPile | null>("claw/pile", null, (p) => {
+      if (p && this.holder.by !== VIEWER) this.applyPile(p);
+    }) as (p: ClawPile) => void;
+    room.onGone((id) => {
+      if (this.holder.by === id) this.publishUse({ by: null, name: "" });
+    });
+
     // the controls, only while this machine is being played
     const playing = () => store.get().focus?.kind === "claw" && store.get().focus?.phase === "on";
     window.addEventListener("keydown", (e) => {
@@ -147,6 +203,7 @@ export class ClawMachine {
         void this.leave();
         return;
       }
+      this.sound.unlock();
       if (!playing()) return;
       if (CONTROL_KEYS.has(e.code)) e.preventDefault();
       this.keys.add(e.code);
@@ -165,6 +222,8 @@ export class ClawMachine {
   /** The drop button: drops the claw while steering, or starts the next play once one is over. */
   pressDrop(): void {
     this.dropHeld = true;
+    // a tap shorter than a frame still counts
+    this.dropTapped = true;
     const g = this.game;
     if (g.phase === "idle" || g.phase === "over") this.play();
   }
@@ -182,6 +241,7 @@ export class ClawMachine {
     const ok = this.game.start();
     // the press that started it isn't also the drop
     this.dropHeld = false;
+    this.dropTapped = false;
     this.publishHud();
     return ok;
   }
@@ -191,11 +251,12 @@ export class ClawMachine {
     const k = this.keys;
     out.x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
     out.z = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
-    out.drop = this.dropHeld;
+    out.drop = this.dropHeld || this.dropTapped;
+    this.dropTapped = false;
     if (this.aim && this.game.phase === "aim") {
+      const drop = out.drop;
       steerTo(this.pose, this.aim[0], this.aim[1], out);
-      this.aimStill = out.x || out.z ? 0 : this.aimStill + 1;
-      out.drop = this.dropHeld;
+      out.drop = drop;
       return out;
     }
     if (this.override) {
@@ -211,16 +272,48 @@ export class ClawMachine {
   /** for tests: steer by itself onto this spot (machine frame) while aiming; `aimed` once it is still over it */
   aim: [number, number] | null = null;
   private aimStill = 0;
+  private sound = new ClawSound();
+  private lastCable = 0;
+  /** how long a prize has waited behind the pickup door with nobody playing */
+  private binWait = 0;
   get aimed(): boolean {
-    return !!this.aim && this.game.phase === "aim" && this.aimStill > 30 && Math.hypot(this.pose.swingX, this.pose.swingZ) < 0.003;
+    return !!this.aim && this.game.phase === "aim" && this.aimStill > 0.5;
   }
 
   /** for tests: aim at the highest chimp in the pile */
   aimAtBest(): number {
-    const b = bestChimp(this.world);
+    const b = bestChimp(this.world, this.spec.travel);
     this.aim = [this.world.pose[b * 7], this.world.pose[b * 7 + 2]];
     this.aimStill = 0;
     return b;
+  }
+
+  /** The machine as it opens: every prize back in a freshly stocked pile, the claw home, nobody playing, for everyone (tests start from it). */
+  reset(): void {
+    if (store.get().focus?.kind === "claw") return;
+    const w = this.world;
+    const S = this.spec;
+    const rnd = seeded(7);
+    w.hold(-1);
+    for (let b = 0; b < w.count; b++) restock(w, b, rnd, S.bedY + 0.12 + Math.floor(b / 6) * 0.16);
+    w.settle(10);
+    for (let pass = 0; pass < 4; pass++) {
+      let moved = false;
+      for (let b = 0; b < w.count; b++)
+        if (w.pose[b * 7 + 1] < S.bedY) {
+          restock(w, b, rnd, S.bedY + 0.45);
+          moved = true;
+        }
+      if (!moved) break;
+      w.settle(6);
+    }
+    this.restocks.length = 0;
+    this.game.reset();
+    Object.assign(this.pose, { x: S.home[0], z: S.home[1], cable: S.cableUp, swingX: 0, swingZ: 0, open: [0.45, 0.45, 0.45], joyX: 0, joyZ: 0, button: 0, door: 0 });
+    this.syncPrizes();
+    this.dirty = true;
+    this.publishPile(this.pileNow());
+    this.publishUse({ by: null, name: "" });
   }
 
   /** Plays simulated on fresh copies of this machine's stock (clawRules.ts simulatePlays). */
@@ -231,12 +324,45 @@ export class ClawMachine {
   /** Walk mode, at the deck: play. Resolves once the camera is at the player's view. */
   async use(): Promise<boolean> {
     const s = store.get();
-    if (s.focus || !this.fly.walker || !s.walking) return false;
+    if (s.focus || !this.fly.walker || !s.walking || this.inUseByOther) return false;
+    this.publishUse({ by: VIEWER, name: ME.name });
     this.fovBefore = this.fly.camera.fov;
     store.set({ clawPrompt: false });
+    this.sound.unlock();
     const ok = await this.focus.enter({ kind: "claw" }, this.parts.display, () => this.playPose(), GLIDE_IN);
     if (ok && !this.game.busy) this.play();
     return ok;
+  }
+
+  /** Someone else is playing the machine. */
+  get inUseByOther(): boolean {
+    return this.holder.by !== null && this.holder.by !== VIEWER;
+  }
+
+  /** Who is playing, if someone else is. */
+  get playerName(): string | null {
+    return this.inUseByOther ? this.holder.name : null;
+  }
+
+  /** The pile, as everyone else is to see it. */
+  private pileNow(): ClawPile {
+    const w = this.world;
+    const gone: number[] = [];
+    for (let b = 0; b < w.count; b++) if (w.isGone(b)) gone.push(b);
+    return { poses: Array.from(w.pose, (v) => Math.round(v * 1e5) / 1e5), gone };
+  }
+
+  /** Another visitor's pile: every prize where they left it, at rest. */
+  private applyPile(p: ClawPile) {
+    const w = this.world;
+    if (p.poses.length !== w.count * 7) return;
+    for (let b = 0; b < w.count; b++) {
+      if (p.gone.includes(b)) w.remove(b);
+      else w.setPose(b, p.poses, b * 7, true);
+    }
+    this.restocks.length = 0;
+    this.syncPrizes();
+    this.dirty = true;
   }
 
   /** Stop playing: back to the stand point, walking. A play under way finishes by itself. */
@@ -324,15 +450,33 @@ export class ClawMachine {
     if (!s.focus) {
       const at = s.walking && this.fly.enabled && this.atDeck();
       if (at !== s.clawPrompt) store.set({ clawPrompt: at });
+      const busy = at ? this.playerName : null;
+      if (busy !== s.clawBusy) store.set({ clawBusy: busy });
     }
     // the attendant puts taken prizes back
     for (let i = this.restocks.length - 1; i >= 0; i--)
-      if (this.clock >= this.restocks[i].at) {
+      if (this.clock >= this.restocks[i].at && !this.inUseByOther) {
         restock(this.world, this.restocks[i].b, this.rnd, this.spec.bedY + 0.42);
         this.restocks.splice(i, 1);
       }
     const g = this.game;
     const mine = s.focus?.kind === "claw";
+    if (this.aim) {
+      const near = Math.hypot(this.pose.x - this.aim[0], this.pose.z - this.aim[1]) < 0.008 && g.trolleySpeed < 0.004 && Math.hypot(this.pose.swingX, this.pose.swingZ) < 0.003;
+      this.aimStill = near ? this.aimStill + dt : 0;
+    }
+    // a prize that reached the pickup door after its winner walked away is taken a little later
+    if (!mine && !g.busy && !this.inUseByOther && g.inBin().some((b) => this.world.isAsleep(b))) {
+      this.binWait += dt;
+      if (this.binWait > 3) {
+        this.binWait = 0;
+        this.takePrizes();
+      }
+    } else this.binWait = 0;
+    if (this.inUseByOther) {
+      this.watch();
+      return;
+    }
     const doorTo = g.inBin().some((b) => this.world.isAsleep(b)) ? 1 : 0;
     if (g.busy || mine || !this.world.settled || this.pose.door !== doorTo || this.pose.button > 0 || Math.abs(this.pose.joyX) + Math.abs(this.pose.joyZ) > 0) {
       g.step(dt, mine ? this.input(this.inp) : IDLE);
@@ -340,13 +484,76 @@ export class ClawMachine {
       this.events();
       this.syncPrizes();
       this.dirty = true;
-    }
+      // the motors, heard by the player
+      this.sound.drive(g.trolleySpeed, (this.pose.cable - this.lastCable) / Math.max(dt, 1e-3), mine);
+      this.lastCable = this.pose.cable;
+    } else this.sound.drive(0, 0, false);
     if (this.dirty) {
       this.dirty = false;
       this.syncClaw();
       this.paintDisplay(this.displayFor());
     }
     if (mine || s.claw) this.publishHud();
+    // while this page plays, it tells the others where the claw and the moving prizes are; after, the pile, and frees the machine
+    if (this.holder.by === VIEWER) {
+      if (g.busy && this.clock - this.sentAt >= MOTION_EVERY) {
+        this.sentAt = this.clock;
+        this.publishMotion(this.motionNow());
+      }
+      if (g.busy || this.restocks.length) this.pileOwed = true;
+      if (!g.busy && this.pileOwed && this.world.settled && !this.restocks.length) {
+        this.pileOwed = false;
+        this.publishMotion(this.motionNow());
+        this.publishPile(this.pileNow());
+      }
+      if (!mine && !g.busy && !this.pileOwed) this.publishUse({ by: null, name: "" });
+    }
+  }
+
+  private motionNow(): ClawMotion {
+    const w = this.world;
+    const bodies: number[] = [];
+    for (let b = 0; b < w.count; b++)
+      if (!w.isGone(b) && (!w.isAsleep(b) || b === w.held)) {
+        bodies.push(b);
+        for (let i = 0; i < 7; i++) bodies.push(Math.round(w.pose[b * 7 + i] * 1e5) / 1e5);
+      }
+    const p = this.pose;
+    return { by: VIEWER, t: room.now(), pose: { ...p, open: [...p.open] as [number, number, number] }, bodies, phase: this.game.phase, timer: this.game.timer };
+  }
+
+  /** Someone else plays: show the claw where their page says it is (a little behind, between two samples), and the prizes it moves. */
+  private watch() {
+    const ms = this.motions;
+    if (!ms.length) return;
+    const t = room.now() - WATCH_BEHIND * 1000;
+    let a = ms[0];
+    let b = ms[ms.length - 1];
+    for (let i = 0; i < ms.length - 1; i++)
+      if (ms[i].t <= t && ms[i + 1].t >= t) {
+        a = ms[i];
+        b = ms[i + 1];
+        break;
+      }
+    const k = b.t > a.t ? Math.max(0, Math.min(1, (t - a.t) / (b.t - a.t))) : 1;
+    const p = this.pose;
+    const lerp = (x: number, y: number) => x + (y - x) * k;
+    p.x = lerp(a.pose.x, b.pose.x);
+    p.z = lerp(a.pose.z, b.pose.z);
+    p.cable = lerp(a.pose.cable, b.pose.cable);
+    p.swingX = lerp(a.pose.swingX, b.pose.swingX);
+    p.swingZ = lerp(a.pose.swingZ, b.pose.swingZ);
+    for (let i = 0; i < 3; i++) p.open[i] = lerp(a.pose.open[i], b.pose.open[i]);
+    p.joyX = lerp(a.pose.joyX, b.pose.joyX);
+    p.joyZ = lerp(a.pose.joyZ, b.pose.joyZ);
+    p.button = lerp(a.pose.button, b.pose.button);
+    p.door = lerp(a.pose.door, b.pose.door);
+    // the prizes it moves: the nearer sample's poses (they move little between two)
+    const src = k < 0.5 ? a : b;
+    for (let i = 0; i < src.bodies.length; i += 8) this.world.setPose(src.bodies[i], src.bodies, i + 1, false);
+    this.syncPrizes();
+    this.syncClaw();
+    this.paintDisplay(src.phase === "aim" ? String(Math.ceil(src.timer)).padStart(2, "0") : src.phase === "over" || src.phase === "idle" ? "PLAY" : "----");
   }
 
   /** What the credit display shows. */
@@ -361,8 +568,16 @@ export class ClawMachine {
   /** What the play's events say to the player. */
   private events() {
     const g = this.game;
+    const heard = store.get().focus?.kind === "claw";
     for (const e of g.events.splice(0)) {
       const name = (b: number) => PRIZE_NAMES[this.world.kinds[b]];
+      if (heard) {
+        if (e.kind === "start") this.sound.start();
+        else if (e.kind === "close") this.sound.close();
+        else if (e.kind === "top") this.sound.top();
+        else if (e.kind === "slip") this.sound.slip();
+        else if (e.kind === "won") this.sound.won();
+      }
       if (e.kind === "start") this.message = "Steer the claw · drop it before the time runs out";
       else if (e.kind === "drop") this.message = "Dropping…";
       else if (e.kind === "grab") this.message = `Got hold of ${name(e.prize)}…`;

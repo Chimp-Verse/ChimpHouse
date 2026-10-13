@@ -146,6 +146,8 @@ export interface PreviewState {
   liftPrompt: { id: string; label: string } | null;
   /** at the claw machine's deck: E plays it */
   clawPrompt: boolean;
+  /** at the claw machine's deck while another visitor plays it: their name */
+  clawBusy: string | null;
   /** the claw machine's play, while this visitor plays it */
   claw: ClawHud | null;
   /** walking up to a pinball machine: E plays it (or who is playing it) */
@@ -205,6 +207,7 @@ class Store {
     lift: initialLift(Date.now()),
     liftPrompt: null,
     clawPrompt: false,
+    clawBusy: null,
     claw: null,
     pinballPrompt: null,
     pinball: null,
