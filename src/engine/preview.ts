@@ -14,6 +14,7 @@ import { Walker } from "./walker";
 import { Arcade } from "./arcade";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
+import { Foosball } from "./foosball";
 import { ButtonId, Lift } from "./lift";
 import { Remotes } from "./remotes";
 import { Theatre } from "./theatre";
@@ -71,6 +72,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
+  // the foosball table's rods, ball and score counters
+  const foosball = new Foosball(scene, world.mats, lighting);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -411,6 +414,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       use: (id: ButtonId) => lift.use(id),
       /** the shared lift back as the house opens with it, for everyone in the room (tests start from it) */
       reset: () => lift.reset(),
+    },
+    foosball: {
+      /** where the table, its rods and ball are */
+      describe: () => foosball.describe(),
     },
     info: () => ({
       fps: Math.round(engine.getFps()),
