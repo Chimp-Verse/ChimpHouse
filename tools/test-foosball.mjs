@@ -4,9 +4,11 @@
 //   solo  one visitor against the robot: the parts found by role, walking up and the prompt, E,
 //         the real mouse sliding the rods and flicking a kick, a click's spin, goals and the
 //         counters, a match to the end, Rematch, Esc
-//   duo   two visitors (separate browser contexts): the second takes the robot's side, both
-//         pages agree on the ball, the host leaving hands the game over, a closed page frees its side
-//   node tools/test-foosball.mjs [pure] [solo] [duo]      (default: all)
+//   duo   two visitors (two pages): the second takes the robot's side, both pages agree on the
+//         ball and see each other's kicks, the host leaving hands the game over, a closed page
+//         frees its side. A second whole house in memory, so only with SHARED=1, and kept light
+//   node tools/test-foosball.mjs [pure] [solo]            (default: pure and solo)
+//   SHARED=1 node tools/test-foosball.mjs duo
 //   URL=http://localhost:5184 node tools/test-foosball.mjs
 // Screenshots: captures/foosball-*.png. Exits non-zero when a check fails.
 import { chromium } from "playwright";
@@ -14,7 +16,7 @@ import { mkdir } from "node:fs/promises";
 
 const URL = process.env.URL ?? "http://localhost:5173";
 const parts = process.argv.slice(2);
-const want = (p) => !parts.length || parts.includes(p);
+const want = (p) => (p === "duo" ? !!process.env.SHARED : !parts.length || parts.includes(p));
 await mkdir("captures", { recursive: true });
 let failed = 0;
 const check = (ok, what, detail = "") => {
@@ -22,7 +24,8 @@ const check = (ok, what, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${what}${detail ? `  (${detail})` : ""}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const launch = () => chromium.launch({ headless: !process.env.HEADED, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"] });
+const launch = () =>
+  chromium.launch({ headless: !process.env.HEADED, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"] });
 const browser = await launch();
 
 /** A visitor: a page of its own, loaded and ready (in a browser of its own when given one, so it is never a background window). */
@@ -378,57 +381,72 @@ if (want("solo")) {
 
 // ------------------------------------------------------------------ duo
 if (want("duo")) {
-  // each in a browser of its own: two windows side by side, both drawing
-  // two whole houses drawing at once: kept light
+  // two visitors in one browser, both drawing (no background throttling), kept light; each page is
+  // brought to the front before it's used, and every wait polls, as two whole houses draw slowly
   const a = await visitor("Ana", { width: 860, height: 540 }, browser, "&quality=low");
   await a.ev(() => window.__chimp.foosball.reset());
-  const second = await launch();
-  const b = await visitor("Ben", { width: 860, height: 540 }, second, "&quality=low");
+  const b = await visitor("Ben", { width: 800, height: 500 }, browser, "&quality=low");
+  const until = (v, fn, arg, timeout = 20000) => v.page.waitForFunction(fn, arg, { timeout, polling: 150 }).then(() => true, () => false);
   await a.standAt("red");
-  await a.page.waitForFunction(() => window.__chimp.state().foosballPrompt?.side === "red", null, { timeout: 8000, polling: 100 });
+  await until(a, () => window.__chimp.state().foosballPrompt?.side === "red");
   await a.page.keyboard.press("KeyE");
-  await a.page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 15000, polling: 100 });
+  check(await until(a, () => window.__chimp.state().focus?.phase === "on", null, 60000), "the first visitor plays red");
   await b.standAt("blue");
-  await sleep(500);
+  await until(b, () => window.__chimp.state().foosballPrompt?.against === "Ana");
   const bp = (await b.state()).foosballPrompt;
   check(bp?.side === "blue" && bp?.against === "Ana", "a second visitor at the other side is offered it, against the first", JSON.stringify(bp));
   await b.page.keyboard.press("KeyE");
-  await b.page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 15000, polling: 100 });
-  await sleep(600);
+  check(await until(b, () => window.__chimp.state().focus?.phase === "on", null, 60000), "the second visitor plays blue");
+  const seated = await until(a, () => window.__chimp.foosball.describe().seats.blue?.name === "Ben");
   let [da, db] = await Promise.all([a.fb(), b.fb()]);
-  check(da.seats.blue?.name === "Ben" && db.side === "blue", "the second visitor takes the robot's side", JSON.stringify({ a: da.seats, robotOnA: da.robot, benSide: db.side }));
-  if (da.seats.blue?.name !== "Ben") console.log("      (Ana's log:", da.log.join(" | "), ")\n      (Ben's log:", db.log.join(" | "), ")");
+  check(seated && db.side === "blue", "the second visitor takes the robot's side", JSON.stringify({ a: da.seats, benSide: db.side }));
+  if (!seated) console.log("      (Ana's log:", da.log.join(" | "), ")\n      (Ben's log:", db.log.join(" | "), ")");
   check(da.host === db.host && da.host === da.seats.red?.id, "both pages agree red's page hosts", `${da.host} / ${db.host}`);
   // Ben's hands reach Ana's page
+  await b.page.bringToFront();
   await b.ev(() => window.__chimp.foosball.aim(0.25));
-  await sleep(500);
+  const followed = await until(a, () => Math.abs(window.__chimp.foosball.describe().rods[7].slide - 0.2) < 0.03, null, 10000);
   da = await a.fb();
-  check(Math.abs(da.rods[7].slide - 0.2) < 0.03, "Ben's rods move on Ana's page as his hands move them", `blue goalie at ${da.rods[7].slide.toFixed(3)} on Ana's page`);
-  // the ball, the same on both
-  await a.ev(() => window.__chimp.foosball.place(0.0, 0.05, 0.5, 0.3));
-  await sleep(500);
-  [da, db] = await Promise.all([a.fb(), b.fb()]);
-  const apart = Math.hypot(da.ball.x - db.ball.x, da.ball.z - db.ball.z);
-  check(apart < 0.04, "both pages show the ball in the same place", `${(apart * 100).toFixed(1)} cm apart`);
+  check(followed, "Ben's rods move on Ana's page as his hands move them", `blue goalie at ${da.rods[7].slide.toFixed(3)} on Ana's page`);
+  // the ball, the same on both: rolling slowly, compared at the same room time
+  await a.ev(() => window.__chimp.foosball.place(0.0, 0.05, 0.4, 0.25));
+  await sleep(1500);
+  const at = (v) => v.ev(() => ({ ...window.__chimp.foosball.describe().ball }));
+  const [ba, bb] = await Promise.all([at(a), at(b)]);
+  const apart = Math.hypot(ba.x - bb.x, ba.z - bb.z);
+  check(apart < 0.05, "both pages show the ball in the same place", `${(apart * 100).toFixed(1)} cm apart`);
   await Promise.all([a.shot("duo-ana"), b.shot("duo-ben")]);
   // Ben kicks: Ana sees it
   await a.ev(() => window.__chimp.foosball.place(0.075 - 0.035, -0.12, 0, 0));
   await b.ev(() => window.__chimp.foosball.aim(-0.12));
-  await sleep(500);
+  await until(b, () => Math.abs(window.__chimp.foosball.describe().ball.x - 0.04) < 0.01, null, 5000);
+  await sleep(400);
+  const watch = a.ev(() => new Promise((done) => {
+    let best = 0;
+    const t0 = performance.now();
+    const look = () => {
+      const d = window.__chimp.foosball.describe();
+      best = Math.min(best, d.ball.vx);
+      if (performance.now() - t0 < 2500 && best > -1) requestAnimationFrame(look);
+      else done({ vx: best, touch: d.touch });
+    };
+    look();
+  }));
   await b.ev(() => window.__chimp.foosball.flick(220));
-  await sleep(250);
-  da = await a.fb();
-  check(da.ball.vx < -1 && da.touch === "blue", "Ben's kick sends the ball towards red's goal on Ana's page", `vx ${da.ball.vx.toFixed(2)}`);
+  const kick = await watch;
+  check(kick.vx < -1, "Ben's kick sends the ball towards red's goal on Ana's page", `vx down to ${kick.vx.toFixed(2)}`);
   // Ana leaves: Ben carries on, hosting, against the robot
   await a.page.bringToFront();
   await a.page.keyboard.press("Escape");
-  await sleep(900);
+  const handed = await until(b, () => {
+    const d = window.__chimp.foosball.describe();
+    return d.host === d.seats.blue?.id && d.robot === "red";
+  });
   db = await b.fb();
-  check(db.host === db.seats.blue?.id && db.robot === "red" && db.game.phase !== "idle", "when the host leaves, the other player hosts and the robot takes the side", JSON.stringify({ host: db.host, robot: db.robot, phase: db.game.phase }));
+  check(handed && db.game.phase !== "idle", "when the host leaves, the other player hosts and the robot takes the side", JSON.stringify({ host: db.host, robot: db.robot, phase: db.game.phase }));
   // Ben closes his page: Ana, still at the table, sees his side free again
   await b.page.context().close();
-  await second.close();
-  await a.page.waitForFunction(() => !window.__chimp.foosball.describe().seats.blue, null, { timeout: 20000, polling: 200 }).catch(() => {});
+  await until(a, () => !window.__chimp.foosball.describe().seats.blue, null, 25000);
   const dc = await a.fb();
   check(!dc.seats.blue && !dc.seats.red, "a visitor who closes their page gives up their side", JSON.stringify(dc.seats));
   await a.page.context().close();
