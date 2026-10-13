@@ -666,7 +666,7 @@ export class ClawMachine {
     P.prongs.thinInstanceBufferUpdated("matrix");
     P.joystick.rotationQuaternion = Quaternion.RotationYawPitchRoll(0, p.joyZ * 0.32, -p.joyX * 0.32).multiply(baseTurn(P.joystick));
     P.button.position.y = buttonY(P.button) - p.button * 0.006;
-    P.door.rotationQuaternion = Quaternion.RotationYawPitchRoll(0, p.door * 1.1, 0).multiply(baseTurn(P.door));
+    P.door.rotationQuaternion = Quaternion.RotationYawPitchRoll(0, p.door * 1.4, 0).multiply(baseTurn(P.door));
   }
 
   /** Paint the credit display (the timer, a message). */
