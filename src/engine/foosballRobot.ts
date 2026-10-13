@@ -20,7 +20,7 @@ import { ATTACK, BALL_R, FIELD, GOAL, MAN, RODS, Team, manZ } from "../world/pro
  * how far off its blocks are (m), how long it takes over a ball at its feet before striking (s,
  * least and most), and how often it angles a shot from its attack rod.
  */
-export const ROBOT = { reaction: 0.12, slideSpeed: 1.25, turnSpeed: 42, error: 0.014, settle: [0.12, 0.45], angled: 0.35 };
+export const ROBOT = { reaction: 0.12, slideSpeed: 1.25, turnSpeed: 42, error: 0.018, settle: [0.15, 0.55], angled: 0.3 };
 
 /** The robot's targets for one rod: a slide, and a turn as the team sees it (+ swings the toes towards the goal it attacks). */
 export interface RodTarget {

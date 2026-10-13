@@ -208,13 +208,19 @@ export class Foosball {
       });
       this.sendRods[team] = room.share<RodsMsg>(`foosball/rods/${team}`, null, (r) => (this.remote[team] = r));
     }
-    // a player who leaves gives up their side
+    // a player who leaves gives up their side. The room server can say a visitor has gone while
+    // they're still here, so their side only goes if they don't say they're still sitting there
+    // (they do every SEAT_BEAT) soon after.
     room.onGone((id) => {
+      const at = room.now();
       for (const team of TEAMS)
-        if (this.seats[team]?.id === id) {
-          this.note(`${team} player gone`);
-          this.sendSeat[team](null);
-        }
+        if (this.seats[team]?.id === id)
+          setTimeout(() => {
+            const s = this.seats[team];
+            if (s?.id !== id || s.at > at) return;
+            this.note(`${team} player gone`);
+            this.sendSeat[team](null);
+          }, SEAT_BEAT * 1.5);
     });
 
     // the player's hands, while they play
