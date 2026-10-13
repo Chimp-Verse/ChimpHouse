@@ -6,7 +6,7 @@
 // its radius even at the fastest a flipper can send it, so it can't pass
 // through a wall, post or flipper between steps (the walls are capsules round
 // their lines, the flippers the hull of two circles). A flipper is driven by
-// its button: it swings up in about 25 ms and its surface's speed where the
+// its button: it swings up in about 30 ms and its surface's speed where the
 // ball touches it goes into the bounce, so a ball hit near the tip flies
 // faster than one hit near the base, and a held flipper cradles a ball. Pop
 // bumpers and slingshots kick; the plunger is a spring, launching the ball as
@@ -18,25 +18,30 @@ import { Flipper, PF, TableDef, V2, rampCurve } from "../world/props/pinballTabl
 
 /** Seconds per physics step. */
 export const STEP = 1 / 2000;
-/** The slope's share of gravity, m/s², and the part pressing the ball into the playfield. */
-const G = 9.81 * Math.sin(PF.slope);
-const GN = 9.81 * Math.cos(PF.slope);
+/**
+ * The slope's share of gravity, m/s², and the part pressing the ball into the
+ * playfield. A rolling ball (a solid sphere) speeds up at 5/7 of what a sliding
+ * one would: the rest of gravity's work goes into spinning it.
+ */
+const ROLLING = 5 / 7;
+const G = ROLLING * 9.81 * Math.sin(PF.slope);
+const GN = ROLLING * 9.81 * Math.cos(PF.slope);
 const R = PF.ball;
 /** Rolling losses: a constant drag (m/s²) and a share of speed per second. */
-const ROLL = 0.012;
-const DRAG = 0.02;
+const ROLL = 0.02;
+const DRAG = 0.035;
 /** The fastest a ball goes, m/s (a hard shot off a flipper's tip). */
-const VMAX = 6.5;
-/** Flippers: angular speed up and back (rad/s), and how fast they get there (rad/s²). */
-const FLIP_UP = 52;
-const FLIP_DOWN = 30;
-const FLIP_ACC = 5200;
+const VMAX = 4;
+/** Flippers: angular speed up and back (rad/s), and how fast they get there (rad/s²): about 35 ms up. */
+const FLIP_UP = 44;
+const FLIP_DOWN = 24;
+const FLIP_ACC = 4400;
 /** The plunger's spring: launch speed per metre pulled back (m/s per m), and how long a full pull takes (s). */
-const SPRING = 3.3 / PF.plungerPull;
+const SPRING = 2.5 / PF.plungerPull;
 const PULL_TIME = 0.9;
 /** Pop bumpers and slingshots: the speed they send a ball off at, m/s. */
-const BUMPER_KICK = 1.65;
-const SLING_KICK = 1.45;
+const BUMPER_KICK = 1.25;
+const SLING_KICK = 1.15;
 
 export type BallMode = "off" | "free" | "ramp" | "held" | "drained";
 
@@ -168,17 +173,17 @@ export class Table {
     };
     for (const w of def.walls) {
       const pts = w.closed ? [...w.pts, w.pts[0]] : w.pts;
-      const o: Partial<Seg> = w.mat === "rubber" ? { e: 0.78, mu: 0.3, kind: "rubber", t: w.t ?? 0.004 } : { e: w.mat === "metal" ? 0.42 : 0.38, mu: 0.12, t: w.t ?? 0 };
+      const o: Partial<Seg> = w.mat === "rubber" ? { e: 0.62, mu: 0.3, kind: "rubber", t: w.t ?? 0.004 } : { e: w.mat === "metal" ? 0.42 : 0.38, mu: 0.12, t: w.t ?? 0 };
       for (let i = 1; i < pts.length; i++) seg(pts[i - 1], pts[i], o);
     }
-    for (const p of def.posts) this.circs.push({ x: p.at[0], y: p.at[1], r: p.r, e: 0.7, kind: "post", id: "post", ready: 0 });
+    for (const p of def.posts) this.circs.push({ x: p.at[0], y: p.at[1], r: p.r, e: 0.6, kind: "post", id: "post", ready: 0 });
     for (const b of def.bumpers) this.circs.push({ x: b.at[0], y: b.at[1], r: b.r, e: 0.6, kind: "bumper", id: b.id, ready: 0 });
     for (const s of def.slings) {
       // the kicking face, the passive faces, and a post at each corner
       seg(s.t, s.c, { kind: "sling", id: s.id, e: 0.7, mu: 0.25, t: 0.003 });
       seg(s.c, s.b, { kind: "rubber", e: 0.7, mu: 0.3, t: 0.003 });
       seg(s.b, s.t, { kind: "rubber", e: 0.7, mu: 0.3, t: 0.003 });
-      for (const c of [s.t, s.b, s.c]) this.circs.push({ x: c[0], y: c[1], r: 0.0058, e: 0.65, kind: "post", id: "post", ready: 0 });
+      for (const c of [s.t, s.b, s.c]) this.circs.push({ x: c[0], y: c[1], r: 0.0058, e: 0.55, kind: "post", id: "post", ready: 0 });
     }
     for (const t of def.targets) {
       const s = seg(t.a, t.b, { kind: t.drop ? "drop" : "target", id: t.id, e: 0.3, mu: 0.2, t: 0.003 });

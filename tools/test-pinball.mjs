@@ -362,13 +362,13 @@ function physicsChecks(r) {
   for (const [id, o] of Object.entries(r)) {
     console.log(`${id}: ${JSON.stringify(o)}`);
     check(o.tunnel.shots > 100 && o.tunnel.escapes === 0 && o.tunnel.worstPenetration < 0.0135 * 0.6, `${id}: ${o.tunnel.shots} hard shots at 3–6.5 m/s with the flippers flailing: never through a wall or into a block`, `deepest ${(o.tunnel.worstPenetration * 1000).toFixed(2)} mm into a wall`);
-    check(o["plunger1"].speed > 3.0 && o["plunger0.6"].speed < o["plunger1"].speed * 0.75 && o["plunger0.3"].speed < o["plunger0.6"].speed, `${id}: the plunger launches as hard as it was pulled`, `${o["plunger0.3"].speed} / ${o["plunger0.6"].speed} / ${o["plunger1"].speed} m/s`);
+    check(o["plunger1"].speed > 2.2 && o["plunger0.6"].speed < o["plunger1"].speed * 0.75 && o["plunger0.3"].speed < o["plunger0.6"].speed, `${id}: the plunger launches as hard as it was pulled`, `${o["plunger0.3"].speed} / ${o["plunger0.6"].speed} / ${o["plunger1"].speed} m/s`);
     check(o["plunger1"].launched && o["plunger1"].top > 0.95 && !o["plunger0.3"].launched, `${id}: a full plunge goes up round the arch; a weak one falls back`, `tops ${o["plunger0.3"].top} / ${o["plunger1"].top} m`);
     check(o.flipMs < 50, `${id}: a flipper swings up in under 50 ms`, `${o.flipMs} ms`);
-    check(o.flipTip.vy > 2.5 && o.flipTip.speed > o.flipBase.speed, `${id}: a flipper fires the ball up the playfield, harder near its tip`, `tip ${o.flipTip.speed} m/s, base ${o.flipBase.speed} m/s`);
+    check(o.flipTip.vy > 2.0 && o.flipTip.speed > o.flipBase.speed, `${id}: a flipper fires the ball up the playfield, harder near its tip`, `tip ${o.flipTip.speed} m/s, base ${o.flipBase.speed} m/s`);
     check(o.cradle.mode === "free" && o.cradle.speed < 0.05, `${id}: a held flipper cradles a ball`, JSON.stringify(o.cradle));
-    check(o.bumper.kicked && o.bumper.speed > 1.4, `${id}: a pop bumper kicks the ball away`, `${o.bumper.speed} m/s`);
-    check(o.sling.kicked && o.sling.speed > 1.2, `${id}: a slingshot kicks the ball away`, `${o.sling.speed} m/s`);
+    check(o.bumper.kicked && o.bumper.speed > 1.1, `${id}: a pop bumper kicks the ball away`, `${o.bumper.speed} m/s`);
+    check(o.sling.kicked && o.sling.speed > 1.0, `${id}: a slingshot kicks the ball away`, `${o.sling.speed} m/s`);
     check(o.drain, `${id}: a ball between the flippers drains`);
     if (o.rampFast) check(o.rampFast.res === "rampDone" && o.rampSlow.res === "rampFail", `${id}: a fast shot makes the ramp and comes out at its end; a slow one rolls back`, JSON.stringify([o.rampFast, o.rampSlow]));
     if (o.spins !== undefined) check(o.spins >= 6, `${id}: a ball through the spinner spins it`, `${o.spins} spins`);

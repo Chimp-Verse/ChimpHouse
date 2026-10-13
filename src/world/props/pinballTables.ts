@@ -394,7 +394,7 @@ export function jungleQuest(): TableDef {
         ],
       },
     ],
-    kickbacks: [{ id: "kickback", at: [-0.2405, 0.205], v: [0.0, 2.9], lamp: "kickback" }],
+    kickbacks: [{ id: "kickback", at: [-0.2405, 0.205], v: [0.0, 2.3], lamp: "kickback" }],
     inserts: [
       ...lowerInserts(theme),
       { lamp: "kickback", at: [-0.2405, 0.17], shape: "tri", size: 0.022, color: "#ffcf3a", label: "KICK", labelAt: [0, -0.025] },
