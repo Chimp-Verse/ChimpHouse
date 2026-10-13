@@ -11,6 +11,11 @@
 // coming down on top of the ball presses it into the field and squeezes it out
 // forward, or traps it.
 //
+// The ball is solid and fairly heavy (35 mm, about 20 g). It carries its spin as well as its
+// travel: rolling, the two match; struck, or off a wall, its travel changes at once while its
+// spin doesn't, so it skids, and the playfield's friction slows it and spins it up until it rolls
+// again, at 5/7 of the speed it skidded off at. Then rolling resistance slows it to a stop.
+//
 // Steps are fixed (STEP) and short enough that nothing moves more than a few
 // millimetres in one, well under the ball's radius, so the ball can't pass
 // through a man or a wall however hard it is kicked: `advance` takes as many
@@ -31,6 +36,9 @@ export interface BallState {
   z: number;
   vx: number;
   vz: number;
+  /** the speed its spin would roll it at (m/s; its spin times its radius, along the field), when it isn't the ball's own: skidding */
+  wx?: number;
+  wz?: number;
 }
 
 /**
@@ -48,18 +56,22 @@ export const PHYS = {
   /** the most a ball or a man's surface may travel relative to the other in one step (m) */
   maxTravel: 0.008,
   /** rolling resistance (m/s²) and air and felt drag (1/s) */
-  roll: 0.16,
-  drag: 0.07,
+  roll: 0.3,
+  drag: 0.15,
+  /** a skidding ball's friction on the playfield (m/s²: μ g, μ about 0.25) */
+  skid: 2.5,
   /** bounce off the walls and off the men, and the scuff along a wall */
-  wallBounce: 0.7,
+  wallBounce: 0.6,
   wallScuff: 0.96,
+  /** how much of the spin a ball carries into a wall or a man it takes back away from it (the grip of what it hits, high on the ball) */
+  spinBack: 0.3,
   manBounce: 0.5,
   /** grip between a man's foot and the ball he presses down on */
   manGrip: 0.35,
   /** how much of a rod's slide a struck ball takes with it: sliding as you kick angles the shot */
   manScuff: 0.3,
   /** the fastest a ball can go (m/s): a hard shot */
-  maxSpeed: 8.5,
+  maxSpeed: 6,
   /** the corner ramps: the size of their legs (m), and the pull down them (m/s²) */
   rampLeg: 0.05,
   rampPull: 2.6,
@@ -80,6 +92,16 @@ export function newBall(x = 0, z = 0, vx = 0, vz = 0): BallState {
 
 export function restPose(): RodPose {
   return { slide: 0, turn: 0, slideV: 0, turnV: 0 };
+}
+
+/** Off a wall or a man facing (nx, nz): the spin the ball carried into it turns back, by spinBack. */
+function spinOff(ball: BallState, nx: number, nz: number): void {
+  const wx = ball.wx ?? ball.vx;
+  const wz = ball.wz ?? ball.vz;
+  const wn = wx * nx + wz * nz;
+  if (wn >= 0) return;
+  ball.wx = wx - (1 + PHYS.spinBack) * wn * nx;
+  ball.wz = wz - (1 + PHYS.spinBack) * wn * nz;
 }
 
 /**
@@ -104,13 +126,34 @@ export function advance(ball: BallState, dt: number, rodsAt: (t: number, out: Ro
 
 /** One step of the ball: roll, the men, the walls, the corners, the goals. False once it has gone in. */
 export function stepBall(ball: BallState, h: number, rods: RodPose[], events: PhysicsEvent[]): boolean {
-  // rolling: resistance and drag
+  // skidding: friction slows its travel and spins it up (a solid ball: its spin gains 5/2 of
+  // what its travel loses) until the two match and it rolls
+  let wx = ball.wx ?? ball.vx;
+  let wz = ball.wz ?? ball.vz;
+  const slx = ball.vx - wx;
+  const slz = ball.vz - wz;
+  const slip = Math.hypot(slx, slz);
+  if (slip > 1e-4) {
+    const k = Math.min(1, (3.5 * PHYS.skid * h) / slip);
+    ball.vx -= (slx * k) / 3.5;
+    ball.vz -= (slz * k) / 3.5;
+    wx += (slx * k * 2.5) / 3.5;
+    wz += (slz * k * 2.5) / 3.5;
+  } else {
+    wx = ball.vx;
+    wz = ball.vz;
+  }
+  // rolling: resistance and drag slow its travel and its spin together
   const v = Math.hypot(ball.vx, ball.vz);
   if (v > 0) {
     const nv = Math.max(0, v - PHYS.roll * h) * (1 - PHYS.drag * h);
     ball.vx *= nv / v;
     ball.vz *= nv / v;
+    wx *= nv / v;
+    wz *= nv / v;
   }
+  ball.wx = wx;
+  ball.wz = wz;
   // the raised corners: a ball on a ramp rolls down it, back towards the field
   const cx = HL - Math.abs(ball.x);
   const cz = HW - Math.abs(ball.z);
@@ -181,6 +224,7 @@ function hitMen(ball: BallState, i: number, pose: RodPose, events: PhysicsEvent[
       const j = -(1 + PHYS.manBounce) * vn * nh;
       ball.vx += j * hx;
       ball.vz += j * hz;
+      spinOff(ball, hx, hz);
       // the foot's slide across the table scuffs the ball sideways
       ball.vz += (uz - ball.vz) * PHYS.manScuff * Math.abs(hx);
       // and grip: pressed down, the ball is dragged along with the foot
@@ -211,6 +255,7 @@ function walls(ball: BallState, events: PhysicsEvent[]): boolean {
       if (Math.abs(ball.vz) > 0.2) events.push({ kind: "wall", speed: Math.abs(ball.vz) });
       ball.vz = -ball.vz * PHYS.wallBounce;
       ball.vx *= PHYS.wallScuff;
+      spinOff(ball, 0, -s);
     }
   }
   const sx = Math.sign(ball.x) || 1;
@@ -233,6 +278,7 @@ function walls(ball: BallState, events: PhysicsEvent[]): boolean {
         if (-vn > 0.2) events.push({ kind: "wall", speed: -vn });
         ball.vx -= (1 + PHYS.wallBounce) * vn * nx;
         ball.vz -= (1 + PHYS.wallBounce) * vn * nz;
+        spinOff(ball, nx, nz);
       }
     }
   }
@@ -245,6 +291,7 @@ function walls(ball: BallState, events: PhysicsEvent[]): boolean {
           if (Math.abs(ball.vx) > 0.2) events.push({ kind: "wall", speed: Math.abs(ball.vx) });
           ball.vx = -ball.vx * PHYS.wallBounce;
           ball.vz *= PHYS.wallScuff;
+          spinOff(ball, -sx, 0);
         }
       }
     }
@@ -254,7 +301,10 @@ function walls(ball: BallState, events: PhysicsEvent[]): boolean {
   if (Math.abs(ball.z) > GOAL.half - r) {
     const s = Math.sign(ball.z);
     ball.z = s * (GOAL.half - r);
-    if (ball.vz * s > 0) ball.vz = -ball.vz * PHYS.wallBounce;
+    if (ball.vz * s > 0) {
+      ball.vz = -ball.vz * PHYS.wallBounce;
+      spinOff(ball, 0, -s);
+    }
   }
   if (Math.abs(ball.x) > HL + r) {
     events.push({ kind: "goal", into: sx < 0 ? "red" : "blue" });
@@ -297,7 +347,7 @@ export interface Hand {
 }
 
 /** A visitor's hand: quick. */
-export const PLAYER_HAND: Hand = { slideSpeed: 3, turnSpeed: 75 };
+export const PLAYER_HAND: Hand = { slideSpeed: 3, turnSpeed: 55 };
 
 /**
  * Move rod i towards a target slide and turn over dt, as a hand does: it closes
