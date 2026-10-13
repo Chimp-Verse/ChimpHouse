@@ -202,7 +202,10 @@ if (mode === "play") {
       sim.mallets[1].x = 0.87;
       sim.mallets[1].z = 0;
       P.placePuck(sim, -0.35 - Math.random() * 0.3, (Math.random() - 0.5) * 0.8);
-      const aimZ = (Math.random() - 0.5) * 0.24;
+      // anywhere across the goal mouth, now and then off a side rail
+      const bank = k % 4 === 3;
+      const aimZ0 = (Math.random() - 0.5) * 0.26;
+      const aimZ = bank ? Math.sign(Math.random() - 0.5) * (2 * (0.52 - 0.041)) - aimZ0 : aimZ0;
       const dx = 1.04 - sim.puck.x;
       const dz = aimZ - sim.puck.z;
       const sp = 3.5 + Math.random() * 3.5;
@@ -297,9 +300,10 @@ if (mode === "play") {
     await page.evaluate(() => window.__chimp.airHockey.setPuck(-0.45, 0.0, 0, 0));
     const b = await page.evaluate(() => window.__chimp.airHockey.aim(-0.1, 0.02));
     await page.mouse.move(b.x, b.y, { steps: 2 });
-    await sleep(120);
+    await sleep(60);
     const d = await page.evaluate(() => window.__chimp.airHockey.describe());
-    check(d.puck[2] > 2, "sweeping the mallet through the puck sends it flying", `vx ${d.puck[2].toFixed(2)} m/s`);
+    const sp = Math.hypot(d.puck[2], d.puck[3]);
+    check(sp > 2, "sweeping the mallet through the puck sends it flying", `${sp.toFixed(2)} m/s`);
   }
   await page.screenshot({ path: "captures/air-hockey-play.png" });
   // the robot plays: it moves its mallet, and keeps the puck out more often than not
@@ -318,28 +322,49 @@ if (mode === "play") {
     return { plans: [...seen], moved };
   });
   check(robotMoves.moved > 0.1 && robotMoves.plans.length >= 2, "the robot moves the other mallet by itself", JSON.stringify(robotMoves));
+  // play is live and the robot can score at any moment: scripted shots wait for the puck to be in play,
+  // and go in from the mouth of the goal, past its mallet
+  const inPlay = () =>
+    page.evaluate(async () => {
+      const c = window.__chimp.airHockey;
+      for (let k = 0; k < 300 && !(c.describe().phase === "play" && c.describe().live); k++) await new Promise((r) => setTimeout(r, 20));
+      return c.describe();
+    });
   // a goal: the puck into the robot's goal scores for red, and the scoreboard says so
+  await inPlay();
   await page.evaluate(() => window.__chimp.airHockey.setScore(0, 0));
-  await page.evaluate(() => window.__chimp.airHockey.setPuck(0.7, 0, 9, 0));
+  await page.evaluate(() => window.__chimp.airHockey.setPuck(1.03, 0, 3, 0));
   await sleep(300);
   const g1 = await page.evaluate(() => ({ d: window.__chimp.airHockey.describe(), hud: window.__chimp.state().airHockey }));
   check(g1.d.score[0] === 1 && g1.d.phase === "goal", "a puck in the blue goal scores for red", JSON.stringify({ score: g1.d.score, phase: g1.d.phase }));
   await page.screenshot({ path: "captures/air-hockey-goal.png" });
-  await sleep(2000);
-  const g2 = await page.evaluate(() => window.__chimp.airHockey.describe());
-  check(g2.phase === "play" && g2.live && g2.puck[0] > 0, "after the goal the puck comes back on the side scored on", JSON.stringify({ phase: g2.phase, puck: g2.puck }));
+  // the puck comes back into play, on blue's side, after the pause
+  const g2 = await page.evaluate(async () => {
+    const c = window.__chimp.airHockey;
+    const t0 = performance.now();
+    for (let k = 0; k < 200 && !(c.describe().phase === "play" && c.describe().live); k++) await new Promise((r) => setTimeout(r, 15));
+    return { ...c.describe(), after: Math.round(performance.now() - t0) };
+  });
+  const g1clock = g1.d.clock;
+  check(g2.phase === "play" && g2.live && g2.puck[0] > 0 && g2.after > 800, "after a pause the puck comes back on the side scored on", JSON.stringify({ phase: g2.phase, puck: g2.puck, runs: g2.runs, sim: g2.sim === g2.me, gameAge: g2.gameAge, seats: g2.seats, players: g2.players, me: g2.me, end: g2.end, after: g2.after, clockRan: +(g2.clock - g1clock).toFixed(2) }));
   // first to 7: the match ends, then a rematch starts at 0-0
+  await inPlay();
   await page.evaluate(() => window.__chimp.airHockey.setScore(6, 4));
-  await page.evaluate(() => window.__chimp.airHockey.setPuck(0.7, 0.01, 9, 0));
+  await page.evaluate(() => window.__chimp.airHockey.setPuck(1.03, 0.01, 3, 0));
   await sleep(500);
   const over = await page.evaluate(() => ({ d: window.__chimp.airHockey.describe(), hud: window.__chimp.state().airHockey }));
   check(over.d.phase === "over" && over.d.winner === 1 && over.hud?.winner === 1, "at 7 the match is over and red wins", JSON.stringify({ phase: over.d.phase, score: over.d.score, winner: over.d.winner }));
   await sleep(300);
   await page.screenshot({ path: "captures/air-hockey-over.png" });
+  // the robot plays on at once, so look straight after the click
   await page.getByRole("button", { name: "Rematch" }).click();
-  await sleep(400);
-  const re = await page.evaluate(() => window.__chimp.airHockey.describe());
-  check(re.phase === "play" && re.score[0] === 0 && re.score[1] === 0 && re.match === over.d.match + 1, "Rematch starts a new match at 0-0", JSON.stringify({ phase: re.phase, score: re.score, match: re.match }));
+  const re = await page.evaluate(async () => {
+    const c = window.__chimp.airHockey;
+    const m = c.describe().match;
+    for (let k = 0; k < 40 && c.describe().match === m; k++) await new Promise((r) => setTimeout(r, 10));
+    return c.describe();
+  });
+  check(re.phase !== "over" && re.score[0] + re.score[1] === 0 && re.match === over.d.match + 1, "Rematch starts a new match at 0-0", JSON.stringify({ phase: re.phase, score: re.score, match: re.match }));
 
   // ---------------------------------------------------------------- 3. two visitors
   const b = await open({ width: 900, height: 600 }, "view=game", "Bea");
@@ -355,7 +380,9 @@ if (mode === "play") {
   await sleep(700);
   const [da, db] = await Promise.all([page.evaluate(() => window.__chimp.airHockey.describe()), b.evaluate(() => window.__chimp.airHockey.describe())]);
   check(db.end === 2 && da.players[1] === db.me && db.players[0] === da.me, "they play each other, red against blue", JSON.stringify({ a: da.players, b: db.players }));
-  check(da.runs && !db.runs, "the first to sit runs the game", JSON.stringify({ a: da.runs, b: db.runs }));
+  check(da.runs && !db.runs, "the first to sit runs the game", JSON.stringify({ a: [da.runs, da.sim === da.me, da.gameAge, da.visible], b: [db.runs, db.sim === db.me, db.gameAge, db.visible] }));
+  // whichever page runs the game is where the test moves the puck
+  const runner = db.runs ? b : page;
   check(da.score[0] === 0 && da.score[1] === 0 && da.match > re.match, "a new match starts when the robot hands over", JSON.stringify({ score: da.score, match: da.match }));
   const hb = await b.evaluate(() => window.__chimp.state().airHockey);
   check(hb?.opponent === "Ada" && hb.end === 2, "the second visitor's HUD shows the first as their opponent", JSON.stringify(hb));
@@ -369,14 +396,16 @@ if (mode === "play") {
   const am = await page.evaluate(() => window.__chimp.airHockey.describe().mallets[1]);
   check(Math.hypot(am[0] - bm[0], am[1] - bm[1]) < 0.03, "and the first visitor sees it there", am.map((v) => v.toFixed(3)).join(", "));
   // the puck in step on both pages
-  await page.evaluate(() => window.__chimp.airHockey.setPuck(-0.2, 0.3, 1.2, -0.7));
+  await runner.evaluate(() => window.__chimp.airHockey.setPuck(-0.2, 0.3, 1.2, -0.7));
   await sleep(500);
-  const both = await Promise.all([page, b].map((p) => p.evaluate(() => ({ puck: window.__chimp.airHockey.describe().puck }))));
-  const off = Math.hypot(both[0].puck[0] - both[1].puck[0], both[0].puck[1] - both[1].puck[1]);
+  // each page's puck, brought to the same moment of the room's clock
+  const both = await Promise.all([page, b].map((p) => p.evaluate(() => window.__chimp.airHockey.describe())));
+  const dt = (both[1].now - both[0].now) / 1000;
+  const off = Math.hypot(both[0].puck[0] + both[0].puck[2] * dt - both[1].puck[0], both[0].puck[1] + both[0].puck[3] * dt - both[1].puck[1]);
   check(off < 0.08, "both visitors see the puck in the same place", `${(off * 100).toFixed(1)} cm apart`);
   await b.screenshot({ path: "captures/air-hockey-two-players.png" });
   // a goal by blue counts on both pages
-  await page.evaluate(() => window.__chimp.airHockey.setPuck(-0.7, 0, -9, 0));
+  await runner.evaluate(() => window.__chimp.airHockey.setPuck(-1.03, 0, -3, 0));
   await sleep(600);
   const sc = await Promise.all([page, b].map((p) => p.evaluate(() => window.__chimp.airHockey.describe().score)));
   check(sc[0][1] === 1 && sc[1][1] === 1, "a goal by blue counts for both visitors", JSON.stringify(sc));

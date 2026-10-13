@@ -28,10 +28,10 @@ export function AirHockeyOverlay({ s, onLeave, onRematch }: { s: PreviewState; o
         <div className="ah-sub">
           You're <span className={me === 1 ? "red" : "blue"}>{TEAM[me]}</span> · against {vsRobot ? "the robot" : theirName} · first to 7
         </div>
-        <button className="ah-leave" onClick={onLeave}>
-          Leave <kbd>Esc</kbd>
-        </button>
       </div>
+      <button className="ah-leave" onClick={onLeave}>
+        Leave <kbd>Esc</kbd>
+      </button>
       {h?.phase === "goal" && h.scored > 0 && (
         <div className={`ah-goal ${h.scored === them ? "mine" : ""}`}>
           GOAL!

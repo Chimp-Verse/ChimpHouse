@@ -392,22 +392,28 @@ export interface RobotMind {
   tz: number;
   /** "home", "defend", "line up", "strike", "around" */
   plan: string;
+  /** the puck's velocity when it last looked: a sudden change (a shot) takes it a moment to react to */
+  pvx: number;
+  pvz: number;
 }
 
 export const ROBOT = {
   /** how often it looks at the table (s): it reacts, it doesn't foresee */
-  look: 0.075,
+  look: 0.08,
+  /** how long it takes to react to a shot (s), at least, and how much longer at most */
+  reaction: 0.1,
+  reactionSpread: 0.08,
   /** its top speed (m/s): a little slower than a player's hand */
-  speed: 5.1,
+  speed: 4.6,
   /** how far off its aim and its guesses are (m) */
   aimError: 0.07,
-  guessError: 0.05,
+  guessError: 0.03,
   /** how far past the puck it drives through on a strike (m) */
   follow: 0.16,
 };
 
 export function makeRobot(): RobotMind {
-  return { next: 0, aimZ: 0, tx: 0, tz: 0, plan: "home" };
+  return { next: 0, aimZ: 0, tx: 0, tz: 0, plan: "home", pvx: 0, pvz: 0 };
 }
 
 /** Where the puck crosses x = atX, bouncing off the side rails, or NaN if it is moving away or too slowly. */
@@ -436,6 +442,12 @@ export function robotMove(sim: Sim, i: 0 | 1, mind: RobotMind, now: number, rand
   const s = i === 0 ? -1 : 1;
   const target = sim.targets[i];
   sim.malletMax[i] = ROBOT.speed;
+  // a shot: the puck's course changed suddenly; it takes a moment to see where it's going
+  if (Math.hypot(p.vx - mind.pvx, p.vz - mind.pvz) > 1.2) {
+    mind.pvx = p.vx;
+    mind.pvz = p.vz;
+    mind.next = Math.max(mind.next, now + ROBOT.reaction + rand() * ROBOT.reactionSpread);
+  }
   if (now < mind.next) {
     // between looks, keep driving at the spot chosen (a strike follows the puck it chose)
     target.x = mind.tx;
@@ -443,6 +455,8 @@ export function robotMove(sim: Sim, i: 0 | 1, mind: RobotMind, now: number, rand
     return;
   }
   mind.next = now + ROBOT.look * (0.8 + rand() * 0.5);
+  mind.pvx = p.vx;
+  mind.pvz = p.vz;
   const homeX = s * (hx - 0.17);
   const jitter = () => (rand() - 0.5) * 2;
   const inHalf = s * p.x > -0.02;

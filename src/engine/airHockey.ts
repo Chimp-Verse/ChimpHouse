@@ -709,6 +709,13 @@ export class AirHockey {
       mallets: sim.mallets.map((m) => [m.x, m.z, m.vx, m.vz]),
       robot: this.robot.plan,
       me: VIEWER,
+      /** the page running the game, and how long since it was last heard from (ms) */
+      sim: this.game.sim,
+      gameAge: Math.round(now - this.game.t),
+      visible: document.visibilityState,
+      /** the simulation's clock (s), which stands still while the page isn't drawing; and the room's time (ms) */
+      clock: this.clock,
+      now,
     };
   }
 
