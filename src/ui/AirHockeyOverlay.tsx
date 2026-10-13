@@ -32,6 +32,18 @@ export function AirHockeyOverlay({ s, onLeave, onRematch }: { s: PreviewState; o
       <button className="ah-leave" onClick={onLeave}>
         Leave <kbd>Esc</kbd>
       </button>
+      {h?.phase === "ready" && (
+        <div className="ah-ready">
+          {h.countdown > 0 ? (
+            <>
+              <span className="ah-get">Get ready</span>
+              <b key={h.countdown}>{h.countdown}</b>
+            </>
+          ) : (
+            <span className="ah-get">{h.waitingFor ? `Waiting for ${h.waitingFor}…` : "Get ready"}</span>
+          )}
+        </div>
+      )}
       {h?.phase === "goal" && h.scored > 0 && (
         <div className={`ah-goal ${h.scored === them ? "mine" : ""}`}>
           GOAL!

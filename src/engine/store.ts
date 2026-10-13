@@ -86,7 +86,12 @@ export interface AirHockeyHud {
   end: 1 | 2;
   /** red's goals, blue's */
   score: [number, number];
-  phase: "idle" | "play" | "goal" | "over";
+  /** "ready": a faceoff, the puck held until both players are in place and a countdown has run */
+  phase: "idle" | "ready" | "play" | "goal" | "over";
+  /** the faceoff's countdown, the seconds left (3, 2, 1), or 0 while it isn't counting */
+  countdown: number;
+  /** in a faceoff, the player whose view hasn't arrived at the table yet, or null */
+  waitingFor: string | null;
   /** the end that won the match, once it is over */
   winner: 0 | 1 | 2;
   /** who plays the other end: a visitor's name, or "the robot" */
