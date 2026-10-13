@@ -44,8 +44,14 @@ import { ME } from "./room";
 
 /** A seat as shared: the player, and when they last said they're still there (the room's time, ms). */
 type SeatMsg = (NonNullable<Seat> & { at: number }) | null;
-/** A side's rods as shared: when (room ms), and per rod of the side (in RODS order) slide, turn and their speeds; and a count of Rematch presses. */
-type RodsMsg = { t: number; p: number[]; rematch: number } | null;
+/**
+ * A side's rods as shared: when (room ms), and per rod of the side (in RODS order) slide, turn and
+ * their speeds; a count of Rematch presses; and, from a player whose page doesn't host, their last
+ * strike of the ball as their page saw it (numbered), so the host takes it even if it missed the
+ * swing between the messages.
+ */
+type Strike = { n: number; t: number; x: number; z: number; vx: number; vz: number };
+type RodsMsg = { t: number; p: number[]; rematch: number; hit?: Strike | null } | null;
 
 const TEAMS: Team[] = ["red", "blue"];
 const OTHER: Record<Team, Team> = { red: "blue", blue: "red" };
@@ -104,6 +110,9 @@ export class Foosball {
   private sentAt = 0;
   private seatAt = 0;
   private rematchSeen = { red: 0, blue: 0 };
+  /** this page's player's last strike (on a page that doesn't host), and the last of each side's the host took */
+  private strike: Strike | null = null;
+  private strikeSeen = { red: 0, blue: 0 };
   /** the last few seat changes and why this page stopped playing, for tests */
   private log: string[] = [];
 
@@ -203,6 +212,8 @@ export class Foosball {
     this.sendRods = { red: () => undefined, blue: () => undefined };
     for (const team of TEAMS) {
       this.sendSeat[team] = room.share<SeatMsg>(`foosball/seat/${team}`, null, (s) => {
+        // a new player counts their strikes and Rematch presses from nothing
+        if (this.seats[team]?.id !== s?.id) this.strikeSeen[team] = this.rematchSeen[team] = 0;
         this.seats[team] = s;
         this.note(`${team} seat: ${s ? s.name : "free"}`);
       });
@@ -523,7 +534,7 @@ export class Foosball {
     // send what this page owns
     if (now - this.sentAt >= SEND_MS) {
       this.sentAt = now;
-      if (this.side) this.sendRods[this.side]({ t: now, p: this.packRods(this.side), rematch: this.rematches });
+      if (this.side) this.sendRods[this.side]({ t: now, p: this.packRods(this.side), rematch: this.rematches, hit: amHost ? null : this.strike });
       if (amHost) {
         for (const team of TEAMS) if (!this.seat(team) && team !== this.side) this.sendRods[team]({ t: now, p: this.packRods(team), rematch: 0 });
         if (this.game.phase === "play") this.sendGame({ ...this.game, ball: { ...this.ball }, at: now, touch: this.touch });
@@ -600,7 +611,31 @@ export class Foosball {
     const inPlay = advance(this.ball, dt, (t, out) => this.rodsAt(t, dt, out), this.tmp, this.events);
     // a goal is the host's to call: hold the ball where it went in until it says so
     if (!inPlay) this.held = true;
-    for (const e of this.events) if (e.kind === "man") this.touch = RODS[e.rod].team;
+    for (const e of this.events)
+      if (e.kind === "man") {
+        this.touch = RODS[e.rod].team;
+        // the player's own strike: told to the host with their rods
+        if (this.side && RODS[e.rod].team === this.side && e.speed > 0.3) {
+          const b = this.ball;
+          this.strike = { n: (this.strike?.n ?? 0) + 1, t: room.now(), x: b.x, z: b.z, vx: b.vx, vz: b.vz };
+        }
+      }
+  }
+
+  /** On the host: another player's strike, as their page saw it, taken if it's where the ball is here. */
+  private takeStrikes(now: number): void {
+    if (this.game.phase !== "play") return;
+    for (const team of TEAMS) {
+      const h = this.seat(team) && team !== this.side ? this.remote[team]?.hit : null;
+      if (!h || h.n <= this.strikeSeen[team]) continue;
+      this.strikeSeen[team] = h.n;
+      const age = Math.max(0, Math.min(0.15, (now - h.t) / 1000));
+      const x = h.x + h.vx * age;
+      const z = h.z + h.vz * age;
+      if (Math.hypot(x - this.ball.x, z - this.ball.z) > 0.1) continue;
+      this.ball = { x, z, vx: h.vx, vz: h.vz };
+      this.touch = team;
+    }
   }
 
   /** The host's step: the phase by the clock, the ball through the physics, goals, dead balls, rematches. */
@@ -624,6 +659,7 @@ export class Foosball {
       this.sendGame(g);
     }
     if (g.phase !== "play") return;
+    this.takeStrikes(now);
     const inPlay = advance(this.ball, dt, (t, out) => this.rodsAt(t, dt, out), this.tmp, this.events);
     for (const e of this.events) if (e.kind === "man") this.touch = RODS[e.rod].team;
     if (!inPlay) {
