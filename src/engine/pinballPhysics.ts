@@ -6,7 +6,7 @@
 // its radius even at the fastest a flipper can send it, so it can't pass
 // through a wall, post or flipper between steps (the walls are capsules round
 // their lines, the flippers the hull of two circles). A flipper is driven by
-// its button: it swings up in about 35 ms and its surface's speed where the
+// its button: it swings up in about 25 ms and its surface's speed where the
 // ball touches it goes into the bounce, so a ball hit near the tip flies
 // faster than one hit near the base, and a held flipper cradles a ball. Pop
 // bumpers and slingshots kick; the plunger is a spring, launching the ball as
@@ -28,9 +28,9 @@ const DRAG = 0.02;
 /** The fastest a ball goes, m/s (a hard shot off a flipper's tip). */
 const VMAX = 6.5;
 /** Flippers: angular speed up and back (rad/s), and how fast they get there (rad/s²). */
-const FLIP_UP = 38;
-const FLIP_DOWN = 26;
-const FLIP_ACC = 3200;
+const FLIP_UP = 52;
+const FLIP_DOWN = 30;
+const FLIP_ACC = 5200;
 /** The plunger's spring: launch speed per metre pulled back (m/s per m), and how long a full pull takes (s). */
 const SPRING = 3.3 / PF.plungerPull;
 const PULL_TIME = 0.9;
@@ -677,8 +677,11 @@ export class Table {
       const r = this.ramps[k];
       // in across the mouth, moving up the ramp
       if (crossed(b.px, b.py, b.x, b.y, r.mouthA[0], r.mouthA[1], r.mouthB[0], r.mouthB[1])) {
-        const u = b.vx * r.inX + b.vy * r.inY;
-        if (u <= 0) continue;
+        // the ramp's side walls turn an angled ball up it, keeping most of its speed
+        const sp = Math.hypot(b.vx, b.vy);
+        const along = sp > 0 ? (b.vx * r.inX + b.vy * r.inY) / sp : 0;
+        if (along <= 0.2) continue;
+        const u = sp * (0.55 + 0.45 * along);
         b.mode = "ramp";
         b.ramp = k;
         b.s = 0;

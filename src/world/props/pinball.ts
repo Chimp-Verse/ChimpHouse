@@ -425,6 +425,8 @@ export interface PinballParts {
   root: TransformNode;
   meshes: Mesh[];
   balls: Mesh[];
+  /** a soft shadow on the playfield under each ball */
+  shadows: Mesh[];
   /** each flipper's node, turned about the playfield's normal */
   flippers: TransformNode[];
   plunger: TransformNode;
@@ -481,6 +483,27 @@ export function buildPinballParts(mats: Materials, slot: TransformNode, def: Tab
     b.setEnabled(false);
     balls.push(b);
   }
+
+  // under each ball, a soft contact shadow on the playfield
+  const shadowKey = "pin:ballShadow";
+  if (!mats.has(shadowKey)) {
+    const c = makeCanvas(64, 64);
+    const g = c.ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+    g.addColorStop(0, "rgba(0,0,0,0.7)");
+    g.addColorStop(0.45, "rgba(0,0,0,0.45)");
+    g.addColorStop(1, "rgba(0,0,0,0)");
+    c.ctx.fillStyle = g;
+    c.ctx.fillRect(0, 0, 64, 64);
+    mats.unlit(shadowKey, { color: "#000000", tex: toTexture(scene, shadowKey, c.canvas, { wrap: false, hasAlpha: true }), alpha: 1 });
+  }
+  const shadows = balls.map((b, i) => {
+    const m = own(floorQuad(PF.ball * 2.6, PF.ball * 2.6).build(`${label}: ball shadow ${i + 1}`, scene), shadowKey);
+    m.parent = root;
+    m.isPickable = false;
+    m.setEnabled(false);
+    void b;
+    return m;
+  });
 
   // the flippers: a white or yellow bat with its rubber ring, turned about its pivot
   const [batCol, rubCol] = FLIPPER_COLORS[def.id];
@@ -548,7 +571,7 @@ export function buildPinballParts(mats: Materials, slot: TransformNode, def: Tab
 
   const lamps = buildLamps(mats, def, own, label);
   lamps.mesh.parent = root;
-  return { root, meshes, balls, flippers, plunger, spinners, drops, lamps };
+  return { root, meshes, balls, shadows, flippers, plunger, spinners, drops, lamps };
 }
 
 /** A flipper in its own frame: pivot at the origin, pointing along +x. The bat is the hull of its base and tip circles. */

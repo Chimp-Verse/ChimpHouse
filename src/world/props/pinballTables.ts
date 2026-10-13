@@ -235,8 +235,10 @@ function outerWall(): Wall {
  * inlanes, and the shooter lane up the right with a one-way gate at its top.
  */
 function lower(theme: Theme): Pick<TableDef, "walls" | "posts" | "slings" | "flippers" | "rollovers" | "gates"> {
-  // the left inlane guide: a solid block between the outlane and the inlane, ending at the flipper's base
-  const guideL: V2[] = [[-0.221, PF.apron - 0.02], [-0.135, PF.apron - 0.02], [-0.135, 0.186], [-0.129, 0.199], [-0.21, 0.302], [-0.21, 0.397], [-0.221, 0.397]];
+  // the left inlane guide: a solid block between the outlane and the inlane, its nose over the
+  // flipper's base, as on a real machine, so a ball rolls onto the flipper (and cradles on it) rather
+  // than resting on its pivot
+  const guideL: V2[] = [[-0.221, PF.apron - 0.02], [-0.135, PF.apron - 0.02], [-0.135, 0.175], [-0.122, 0.186], [-0.111, 0.191], [-0.129, 0.2], [-0.21, 0.302], [-0.21, 0.397], [-0.221, 0.397]];
   const slingL: Sling = { id: "slingL", t: [-0.172, 0.385], b: [-0.172, 0.31], c: [-0.137, 0.266] };
   const slingR: Sling = { id: "slingR", t: mx(slingL.t), b: mx(slingL.b), c: mx(slingL.c) };
   const flipper = (side: "L" | "R"): Flipper => {
@@ -289,9 +291,9 @@ function lowerInserts(): Insert[] {
   ];
 }
 
-/** The right orbit: a lane up beside the shooter lane, round the arch and down the far side. */
+/** The right orbit: a lane up beside the shooter lane, round the arch and down the far side; its entrance funnels in from the left. */
 function rightOrbitWall(top: number): Wall {
-  return { pts: [[0.177, 0.44], [0.177, top]], mat: "wood", t: 0.003, look: "rail" };
+  return { pts: [[0.163, 0.44], [0.177, 0.495], [0.177, top]], mat: "wood", t: 0.003, look: "rail" };
 }
 
 // ---------------------------------------------------------------- JUNGLE QUEST
@@ -339,13 +341,13 @@ export function jungleQuest(): TableDef {
       // the ramp's flap: three sides solid, the mouth open
       { pts: flap, mat: "wood", t: 0.002, look: "none" },
       // the IDOL targets' housing, its top sloping so a ball can't rest on it
-      { pts: [dropA, dropB, [0.177, 0.462], [0.177, 0.565], [0.106, 0.527]], closed: true, mat: "wood", look: "block", color: "#5b4a33" },
+      { pts: [dropA, dropB, [0.172, 0.475], [0.177, 0.495], [0.177, 0.565], [0.106, 0.527]], closed: true, mat: "wood", look: "block", color: "#5b4a33" },
       // the top lanes' guides
       ...[-0.105, -0.05, 0.005, 0.06].map((x): Wall => ({ pts: [[x, 0.878], [x, 0.935]], mat: "metal", t: 0.0035, look: "rail" })),
       // a rubber at the left wall, turning a ball coming down it toward the inlane
       { pts: [[-0.26, 0.505], [-0.24, 0.46]], mat: "rubber", t: 0.004, look: "rubber" },
     ],
-    posts: [...base.posts, { at: [0.177, 0.44], r: 0.0055 }, { at: [0.177, 0.74], r: 0.0055 }, { at: [-0.24, 0.46], r: 0.005 }],
+    posts: [...base.posts, { at: [0.163, 0.44], r: 0.0055 }, { at: [0.177, 0.74], r: 0.0055 }, { at: [-0.24, 0.46], r: 0.005 }],
     bumpers: [
       { id: "bumper1", at: [-0.085, 0.79], r: 0.031, lamp: "bumper1" },
       { id: "bumper2", at: [0.035, 0.8], r: 0.031, lamp: "bumper2" },
@@ -485,7 +487,7 @@ export function bananaBlitz(): TableDef {
       // the MONKEY MOUTH's horseshoe: a back wall round the saucer, open toward the flippers
       { pts: arcPts(0.03, 0.745, 0.034, -0.25, Math.PI + 0.25, 14), mat: "metal", t: 0.003, look: "rail" },
     ],
-    posts: [...base.posts, { at: [0.177, 0.44], r: 0.0055 }, { at: [0.177, 0.76], r: 0.0055 }],
+    posts: [...base.posts, { at: [0.163, 0.44], r: 0.0055 }, { at: [0.177, 0.76], r: 0.0055 }],
     bumpers: [
       { id: "bumper1", at: [-0.135, 0.85], r: 0.031, lamp: "bumper1" },
       { id: "bumper2", at: [-0.055, 0.905], r: 0.031, lamp: "bumper2" },
@@ -501,7 +503,7 @@ export function bananaBlitz(): TableDef {
     kickbacks: [],
     inserts: [
       ...lowerInserts(),
-      { lamp: "spinArrow", at: [0.15, 0.45], shape: "arrow", size: 0.03, rot: -0.12, color: "#38e8ff", label: "SPIN", labelAt: [-0.002, -0.032] },
+      { lamp: "spinArrow", at: [0.142, 0.425], shape: "arrow", size: 0.03, rot: -0.12, color: "#38e8ff", label: "SPIN", labelAt: [-0.002, -0.032] },
       { lamp: "mouthArrow", at: [0.022, 0.6], shape: "arrow", size: 0.034, rot: -0.05, color: "#ff3b8f", label: "MONKEY MOUTH", labelAt: [0, -0.036] },
       { lamp: "lock", at: [0.022, 0.665], shape: "rect", size: 0.022, color: "#ffd23a", label: "LOCK", labelAt: [0.04, 0.0] },
       { lamp: "jackpot", at: [0.022, 0.535], shape: "star", size: 0.036, color: "#ffffff", label: "JACKPOT", labelAt: [0, -0.03] },

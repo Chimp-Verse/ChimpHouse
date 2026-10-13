@@ -339,6 +339,15 @@ export class Pinball {
       const on = b.mode === "free" || b.mode === "ramp" || b.mode === "held";
       if (mesh.isEnabled(false) !== on) mesh.setEnabled(on);
       if (on) mesh.position.set(b.x, b.h, b.y);
+      // its shadow on the playfield, fainter and wider the higher it is (on a ramp)
+      const sh = parts.shadows[i];
+      const shown = on && b.mode !== "held";
+      if (sh.isEnabled(false) !== shown) sh.setEnabled(shown);
+      if (shown) {
+        sh.position.set(b.x + 0.002, 0.0012, b.y - 0.003);
+        const k = 1 + (b.h - PF.ball) * 8;
+        sh.scaling.set(k, 1, k);
+      }
     });
     table.flippers.forEach((f, i) => (parts.flippers[i].rotation.y = -f.angle));
     parts.plunger.position.z = PF.plungerY - table.plunger.pull;
