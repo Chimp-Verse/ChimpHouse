@@ -884,6 +884,12 @@ export class Foosball {
     this.nightShown = night;
     const m = this.mats.get("foosField") as PBRMaterial;
     m.emissiveColor = Color3.FromHexString(night ? "#8a8a8a" : "#2a2a2a");
+    // and the men, ball and beads catch more of the room's glow, so the teams still read against it
+    for (const key of ["foosPlastic", "foosBall"]) {
+      const p = this.mats.get(key) as PBRMaterial;
+      p.environmentIntensity = night ? 3.2 : 1;
+      p.emissiveColor = Color3.FromHexString(night ? "#141414" : "#000000");
+    }
   }
 
   /** The HUD's view of the game, set in the store when it changes. */
