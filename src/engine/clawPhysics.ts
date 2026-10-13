@@ -93,6 +93,8 @@ const MU_PLUSH = 0.6;
 /** how still (m/s) and for how long (s) a body must be to sleep */
 const SLEEP_V = 0.035;
 const SLEEP_T = 0.35;
+const CREEP_V = 0.12;
+const CREEP_T = 2;
 
 /** Rotate (x, y, z) by quaternion q (x, y, z, w) into out[o..o+2]. */
 function rot(q: Float64Array, qo: number, x: number, y: number, z: number, out: Float64Array, o: number) {
@@ -426,7 +428,9 @@ export class PrizeWorld {
         vmax = Math.max(vmax, Math.hypot(v[o], v[o + 1], v[o + 2]));
       }
       if (b === this.held) continue;
+      // still, or barely creeping for a while (held in a jam that jitters): to sleep either way
       if (vmax < SLEEP_V) this.still[b] += H;
+      else if (vmax < CREEP_V) this.still[b] += H * (SLEEP_T / CREEP_T);
       else this.still[b] = 0;
       if (this.still[b] > SLEEP_T) {
         this.sleeping[b] = 1;
@@ -520,8 +524,10 @@ export class PrizeWorld {
     if (y < B.bedY + 0.005) {
       // inside the shaft and the bin: its walls are the chute's
       if (inHole(p[o] - r * 0.5, p[o + 2] - r * 0.5) || y < B.bedY - 0.01) {
-        if (p[o] > cx1 - r) this.push(k, -1, 0, 0, p[o] - (cx1 - r), MU_WALL);
-        if (p[o + 2] > cz1 - r) this.push(k, 0, 0, -1, p[o + 2] - (cz1 - r), MU_WALL);
+        // below the guard the shaft widens inside the cabinet, so no prize wedges on its way down
+        const wide = y < B.bedY - 0.06 ? 0.07 : 0;
+        if (p[o] > cx1 + wide - r) this.push(k, -1, 0, 0, p[o] - (cx1 + wide - r), MU_WALL);
+        if (p[o + 2] > cz1 + wide - r) this.push(k, 0, 0, -1, p[o + 2] - (cz1 + wide - r), MU_WALL);
       }
       const fy = B.binY + 0.2 * (p[o + 2] - B.doorZ);
       if (p[o + 1] < fy + r) this.push(k, 0, 1, 0, fy + r - p[o + 1], MU_WALL);

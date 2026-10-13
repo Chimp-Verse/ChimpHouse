@@ -19,6 +19,8 @@ page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 page.on("crash", () => console.log("[crash] the page crashed"));
 await page.goto(`${URL}/?capture=1`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
+// from the machine as it opens: the room keeps the last pile, so a fresh one for everyone
+await page.evaluate(() => window.__chimp.claw.reset());
 
 let failed = 0;
 const check = (ok, what, detail = "") => {

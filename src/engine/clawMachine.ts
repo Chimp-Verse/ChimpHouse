@@ -25,6 +25,7 @@ import { PrizeWorld, STOCK, dropIn, restock, seeded } from "./clawPhysics";
 import { ClawGame, ClawInput, ClawPose, PRONG_OPEN, PRONG_SHUT, bestChimp, simulatePlays, steerTo } from "./clawRules";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus } from "./focus";
+import { ClawSound } from "./clawSound";
 import { Lighting } from "./lighting";
 import { ME, room } from "./room";
 import { ClawHud, VIEWER, store } from "./store";
@@ -201,6 +202,7 @@ export class ClawMachine {
         void this.leave();
         return;
       }
+      this.sound.unlock();
       if (!playing()) return;
       if (CONTROL_KEYS.has(e.code)) e.preventDefault();
       this.keys.add(e.code);
@@ -264,6 +266,8 @@ export class ClawMachine {
   /** for tests: steer by itself onto this spot (machine frame) while aiming; `aimed` once it is still over it */
   aim: [number, number] | null = null;
   private aimStill = 0;
+  private sound = new ClawSound();
+  private lastCable = 0;
   /** how long a prize has waited behind the pickup door with nobody playing */
   private binWait = 0;
   get aimed(): boolean {
@@ -272,10 +276,38 @@ export class ClawMachine {
 
   /** for tests: aim at the highest chimp in the pile */
   aimAtBest(): number {
-    const b = bestChimp(this.world);
+    const b = bestChimp(this.world, this.spec.travel);
     this.aim = [this.world.pose[b * 7], this.world.pose[b * 7 + 2]];
     this.aimStill = 0;
     return b;
+  }
+
+  /** The machine as it opens: every prize back in a freshly stocked pile, the claw home, nobody playing, for everyone (tests start from it). */
+  reset(): void {
+    if (store.get().focus?.kind === "claw") return;
+    const w = this.world;
+    const S = this.spec;
+    const rnd = seeded(7);
+    w.hold(-1);
+    for (let b = 0; b < w.count; b++) restock(w, b, rnd, S.bedY + 0.12 + Math.floor(b / 6) * 0.16);
+    w.settle(10);
+    for (let pass = 0; pass < 4; pass++) {
+      let moved = false;
+      for (let b = 0; b < w.count; b++)
+        if (w.pose[b * 7 + 1] < S.bedY) {
+          restock(w, b, rnd, S.bedY + 0.45);
+          moved = true;
+        }
+      if (!moved) break;
+      w.settle(6);
+    }
+    this.restocks.length = 0;
+    this.game.reset();
+    Object.assign(this.pose, { x: S.home[0], z: S.home[1], cable: S.cableUp, swingX: 0, swingZ: 0, open: [0.45, 0.45, 0.45], joyX: 0, joyZ: 0, button: 0, door: 0 });
+    this.syncPrizes();
+    this.dirty = true;
+    this.publishPile(this.pileNow());
+    this.publishUse({ by: null, name: "" });
   }
 
   /** Plays simulated on fresh copies of this machine's stock (clawRules.ts simulatePlays). */
@@ -290,6 +322,7 @@ export class ClawMachine {
     this.publishUse({ by: VIEWER, name: ME.name });
     this.fovBefore = this.fly.camera.fov;
     store.set({ clawPrompt: false });
+    this.sound.unlock();
     const ok = await this.focus.enter({ kind: "claw" }, this.parts.display, () => this.playPose(), GLIDE_IN);
     if (ok && !this.game.busy) this.play();
     return ok;
@@ -445,7 +478,10 @@ export class ClawMachine {
       this.events();
       this.syncPrizes();
       this.dirty = true;
-    }
+      // the motors, heard by the player
+      this.sound.drive(g.trolleySpeed, (this.pose.cable - this.lastCable) / Math.max(dt, 1e-3), mine);
+      this.lastCable = this.pose.cable;
+    } else this.sound.drive(0, 0, false);
     if (this.dirty) {
       this.dirty = false;
       this.syncClaw();
@@ -526,8 +562,16 @@ export class ClawMachine {
   /** What the play's events say to the player. */
   private events() {
     const g = this.game;
+    const heard = store.get().focus?.kind === "claw";
     for (const e of g.events.splice(0)) {
       const name = (b: number) => PRIZE_NAMES[this.world.kinds[b]];
+      if (heard) {
+        if (e.kind === "start") this.sound.start();
+        else if (e.kind === "close") this.sound.close();
+        else if (e.kind === "top") this.sound.top();
+        else if (e.kind === "slip") this.sound.slip();
+        else if (e.kind === "won") this.sound.won();
+      }
       if (e.kind === "start") this.message = "Steer the claw · drop it before the time runs out";
       else if (e.kind === "drop") this.message = "Dropping…";
       else if (e.kind === "grab") this.message = `Got hold of ${name(e.prize)}…`;

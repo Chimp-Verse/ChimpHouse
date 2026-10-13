@@ -51,6 +51,7 @@ const stepUp = (page) =>
   });
 
 const A = await open("Alice", 1000, 640);
+await A.page.evaluate(() => window.__chimp.claw.reset());
 const B = await open("Bruno", 800, 500);
 check(await stepUp(A.page), "Alice steps up to play");
 check(await waitFor(B.page, () => window.__chimp.claw.playerName() === "Alice", null, 8000), "Bruno sees the machine in use by Alice");

@@ -177,6 +177,19 @@ export class ClawGame {
     this.placeCapsules();
   }
 
+  /** Back to between plays, nothing held, nothing counted (the machine reset). */
+  reset(): void {
+    this.phase = "idle";
+    this.t = 0;
+    this.timer = 0;
+    this.vx = this.vz = this.svx = this.svz = 0;
+    this.grip = null;
+    this.slack = false;
+    this.counted.clear();
+    this.won = [];
+    this.events.length = 0;
+  }
+
   /** A credit: the timer starts and the joystick works. Only between plays. */
   start(): boolean {
     if (this.phase !== "idle" && this.phase !== "over") return false;
@@ -387,7 +400,7 @@ export class ClawGame {
         return;
       case "reset":
         openTo(0.45, 0.5);
-        if (this.t > 1.0 && this.world.settled) {
+        if (this.t > 1.0 && (this.world.settled || this.t > 5)) {
           this.next("over");
           this.events.push({ kind: "over", won: [...this.won] });
         }
@@ -563,12 +576,16 @@ export const PRONG_SHUT = -0.32;
 export const PRONG_OPEN = 0.62;
 
 /** Where a player aims: the highest chimp (the easiest prize, lying on top), or anywhere. */
-export function bestChimp(world: PrizeWorld): number {
+export function bestChimp(world: PrizeWorld, travel?: [number, number, number, number]): number {
   let best = -1;
   let by = -Infinity;
   for (let b = 0; b < world.count; b++) {
     const k = world.kinds[b];
     if (world.isGone(b) || (k !== "chimp" && k !== "pinkChimp")) continue;
+    // one the claw can get over
+    const x = world.pose[b * 7];
+    const z = world.pose[b * 7 + 2];
+    if (travel && (x < travel[0] || x > travel[1] || z < travel[2] || z > travel[3])) continue;
     const y = world.pose[b * 7 + 1];
     if (y > by) [best, by] = [b, y];
   }
@@ -604,7 +621,7 @@ export function simulatePlays(rig: ClawRig, stock: (w: PrizeWorld, rnd: () => nu
     let tx = rig.travel[0] + rnd() * (rig.travel[1] - rig.travel[0]);
     let tz = rig.travel[2] + rnd() * (rig.travel[3] - rig.travel[2]);
     if (strategy === "aim") {
-      const b = bestChimp(w);
+      const b = bestChimp(w, rig.travel);
       tx = w.pose[b * 7];
       tz = w.pose[b * 7 + 2];
     }
