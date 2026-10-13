@@ -62,6 +62,8 @@ export interface ClawSpec {
   hingeR: number;
   /** the gantry bridge's height and the rails' x either side */
   bridgeY: number;
+  /** the whole cabinet's box (x0, x1, y0, y1, z0, z1), deck and marquee too: what a visitor looks at to be offered it */
+  outer: [number, number, number, number, number, number];
 }
 
 export const CLAW_SPEC: ClawSpec = {
@@ -78,6 +80,7 @@ export const CLAW_SPEC: ClawSpec = {
   hingeDrop: 0.078,
   hingeR: 0.027,
   bridgeY: 1.715,
+  outer: [-W / 2 - 0.02, W / 2 + 0.02, 0, 2.33, -D / 2 - 0.19, D / 2],
 };
 
 /** The prize kinds a machine is stocked with (engine/clawPhysics.ts has their bodies). */

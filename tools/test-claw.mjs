@@ -81,6 +81,32 @@ await ev(async () => {
   await c.settle(10);
 });
 check(await waitFor(() => window.__chimp.state().clawPrompt === true, null, 5000), "standing at the deck offers the machine");
+check((await ev(() => window.__chimp.state().snackPrompt?.action)) !== "use", "and not the snack machine beside it");
+
+// at the snack machine's stand point, looking at it, the claw isn't offered
+await ev(async () => {
+  const c = window.__chimp;
+  const m = c.snacks.machine();
+  c.setWalking(false);
+  const look = [m.base[0], m.base[1] + 1.1, m.base[2]];
+  const eye = [m.stand[0], m.stand[1] + 1.6, m.stand[2]];
+  c.setPose({ x: eye[0], y: eye[1], z: eye[2], yaw: Math.atan2(look[0] - eye[0], look[2] - eye[2]), pitch: -Math.atan2(look[1] - eye[1], Math.hypot(look[0] - eye[0], look[2] - eye[2])), fov: 1 });
+  c.setWalking(true);
+  await c.settle(10);
+});
+check((await ev(() => window.__chimp.state().snackPrompt?.action)) === "use", "at the snack machine, it is the snack machine that's offered");
+check((await ev(() => window.__chimp.state().clawPrompt)) === false, "and not the claw beside it");
+
+// back to the claw's deck
+await ev(async () => {
+  const c = window.__chimp;
+  c.setWalking(false);
+  const { stand, look } = c.claw.standPoint();
+  c.setPose({ x: stand[0], y: stand[1] + 1.6, z: stand[2], yaw: Math.atan2(look[0] - stand[0], look[2] - stand[2]), pitch: 0.25, fov: 1 });
+  c.setWalking(true);
+  await c.settle(10);
+});
+check(await waitFor(() => window.__chimp.state().clawPrompt === true, null, 5000), "back at the claw's deck, the claw is offered again");
 await page.screenshot({ path: "captures/claw-play-prompt.png" });
 await page.keyboard.press("KeyE");
 check(await waitFor(() => window.__chimp.state().focus?.kind === "claw" && window.__chimp.state().focus?.phase === "on", null, 6000), "E steps up to play");
