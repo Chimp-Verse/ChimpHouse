@@ -23,7 +23,7 @@ import { Materials } from "../world/materials/library";
 import { COIL_CAPACITY, PACK_SIZE, SNACK, SNACK_BRANDS, SnackStockMeshes, buildSnackStock, coilCode, packGeo, packMat, paintDisplay, snackBrand } from "../world/props/snackMachine";
 import { ROLE, find, findAll } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
-import { ScreenFocus } from "./focus";
+import { ScreenFocus, pickPoint } from "./focus";
 import { room } from "./room";
 import { SnackSound } from "./snackSound";
 import { BIN_LIMIT, COILS, FallPath, PLANOGRAM, SNACK_TIMING, Shaft, SnackState, Vend, coilTurn, fallAt, fallEnds, fallPath, initialSnacks, refusal, restock, take, vend } from "./snackState";
@@ -41,7 +41,7 @@ const GLIDE_OUT = 0.7;
 /** The snack in the hand, in the camera's frame: low and to the right, its front to the eye. */
 const HAND = { pos: new Vector3(0.17, -0.12, 0.5), rot: Quaternion.RotationYawPitchRoll(-0.3, 0.1, 0.1) };
 /** At the mouth: just under the eye, its top tipped toward it. */
-const MOUTH = { pos: new Vector3(0, -0.1, 0.24), rot: Quaternion.RotationYawPitchRoll(0, -0.7, 0) };
+const MOUTH = { pos: new Vector3(0, -0.075, 0.27), rot: Quaternion.RotationYawPitchRoll(0, -0.3, 0) };
 const TAKE_MS = 450;
 /** Eating: to the mouth, the pack torn open, then a bite at each of these times (ms), and gone after the last. */
 const RIP = 480;
@@ -395,17 +395,10 @@ export class SnackMachine {
 
   /** The key or flap pointed at, through the cursor (or the crosshair while the mouse is captured), within reach. */
   private aim(): void {
-    const engine = this.scene.getEngine();
-    let px = engine.getRenderWidth() / 2;
-    let py = engine.getRenderHeight() / 2;
+    // through the cursor, or the middle of the view while the mouse is captured or off the canvas
+    const { x, y } = pickPoint(this.canvas, this.mouse);
     const focused = store.get().focus?.kind === "snack";
-    // the cursor, or the middle of the view while the mouse is captured or off the canvas
-    if (document.pointerLockElement !== this.canvas && this.mouse) {
-      const box = this.canvas.getBoundingClientRect();
-      px = ((this.mouse.x - box.left) / box.width) * engine.getRenderWidth();
-      py = ((this.mouse.y - box.top) / box.height) * engine.getRenderHeight();
-    }
-    const ray = this.scene.createPickingRay(px, py, Matrix.Identity(), this.fly.camera);
+    const ray = this.scene.createPickingRay(x, y, Matrix.Identity(), this.fly.camera);
     const reach = focused ? 4 : REACH;
     let best = -1;
     let bestMiss = AIM_KEY;

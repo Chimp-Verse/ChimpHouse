@@ -354,7 +354,8 @@ await sleep(1500);
 await ev(() => window.__chimp.snacks.choose("D2"));
 await sleep(600);
 const other = await snacks(page2);
-check(other.vends[0]?.coil === "D2" && other.vends[0].turning && other.stock.D2 === 5, "another visitor sees the same vend and the same stock", JSON.stringify(other.vends[0] ?? null));
+const mine = await snacks();
+check(other.vends[0]?.coil === "D2" && other.vends[0].turning && JSON.stringify(other.stock) === JSON.stringify(mine.stock), "another visitor sees the same vend and the same stock", `D2 ${other.vends[0]?.turning ? "turning" : "?"}, stock D2 ${other.stock.D2} here and ${mine.stock.D2} there`);
 await page2.close();
 await ev(() => window.__chimp.snacks.setState("reset"));
 }
