@@ -273,7 +273,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
-    else if (e.code === "KeyE" && s.walking && s.clawPrompt) void claw.use();
+    else if (e.code === "KeyE" && s.walking && s.clawPrompt && !s.clawBusy) void claw.use();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -458,6 +458,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** hold the joystick and button as given (null gives the keys back) */
       drive: (i: { x: number; z: number; drop: boolean } | null) => (claw.override = i),
       simulate: (n: number, strategy: "aim" | "random", strength: number | null) => claw.simulate(n, strategy, strength),
+      /** who is playing, if another visitor is (shared through the room) */
+      playerName: () => claw.playerName,
     },
     info: () => ({
       fps: Math.round(engine.getFps()),

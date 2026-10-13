@@ -197,11 +197,21 @@ export class ClawGame {
     return this.phase !== "idle" && this.phase !== "over";
   }
 
-  /** Advance the play by dt seconds with these controls. */
+  /** The trolley's speed (m/s). */
+  get trolleySpeed(): number {
+    return Math.hypot(this.vx, this.vz);
+  }
+
+  /** Advance the play by dt seconds with these controls, in steps of at most 1/120 s, so it plays the same at any frame rate. */
   step(dt: number, input: ClawInput): void {
+    dt = Math.min(dt, 0.1);
+    const n = Math.max(1, Math.ceil(dt * 120 - 1e-6));
+    for (let i = 0; i < n; i++) this.tick(dt / n, input);
+  }
+
+  private tick(dt: number, input: ClawInput): void {
     const p = this.pose;
     const R = this.rig;
-    dt = Math.min(dt, 0.05);
     this.t += dt;
     const press = input.drop && !this.dropWas;
     this.dropWas = input.drop;

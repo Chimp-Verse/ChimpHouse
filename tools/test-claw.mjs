@@ -8,6 +8,12 @@ import { chromium } from "playwright";
 
 const URL = process.env.URL ?? "http://localhost:5173";
 const browser = await chromium.launch({ headless: true, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
+// never leave a browser behind: closed on a signal (the lock's timeout) or an error
+for (const sig of ["SIGTERM", "SIGINT"]) process.on(sig, () => void browser.close().finally(() => process.exit(1)));
+process.on("uncaughtException", (e) => {
+  console.log("[error]", e.message);
+  void browser.close().finally(() => process.exit(1));
+});
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 page.on("crash", () => console.log("[crash] the page crashed"));

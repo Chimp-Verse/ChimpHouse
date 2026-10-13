@@ -264,6 +264,23 @@ export class PrizeWorld {
     return [this.restCom[b * 3], this.restCom[b * 3 + 1], this.restCom[b * 3 + 2]];
   }
 
+  /** Set body b where another visitor's page has it (com xyz, quaternion xyzw at `o` in `src`), asleep or not. */
+  setPose(b: number, src: ArrayLike<number>, o: number, asleep: boolean): void {
+    const q = this.pose;
+    for (let i = 0; i < 7; i++) q[b * 7 + i] = src[o + i];
+    for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+      rot(q, b * 7 + 3, this.rest[k * 3], this.rest[k * 3 + 1], this.rest[k * 3 + 2], this.p, k * 3);
+      for (let j = 0; j < 3; j++) {
+        this.p[k * 3 + j] += q[b * 7 + j];
+        this.prev[k * 3 + j] = this.p[k * 3 + j];
+        this.v[k * 3 + j] = 0;
+      }
+    }
+    this.gone[b] = 0;
+    this.sleeping[b] = asleep ? 1 : 0;
+    this.still[b] = 0;
+  }
+
   /** Take body b out of play (won and taken), or put it back with place(). */
   remove(b: number): void {
     this.gone[b] = 1;

@@ -138,8 +138,16 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {s.walking && s.clawPrompt && (
         <div className="play-prompt low">
-          <kbd>E</kbd>Play the Chimp Claw
-          <span>steer the claw, drop it, win a plush</span>
+          {s.clawBusy ? (
+            <>
+              Chimp Claw in use<span>{s.clawBusy} is playing: watch their claw</span>
+            </>
+          ) : (
+            <>
+              <kbd>E</kbd>Play the Chimp Claw
+              <span>steer the claw, drop it, win a plush</span>
+            </>
+          )}
         </div>
       )}
       {s.help && <Help onClose={() => store.set({ help: false })} />}
