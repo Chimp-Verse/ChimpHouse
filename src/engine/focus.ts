@@ -118,16 +118,21 @@ export function squarePose(g: ScreenGeometry, fov: number, aspect: number, fill:
   return { x: p.x, y: p.y, z: p.z, yaw: Math.atan2(-g.normal.x, -g.normal.z), pitch: Math.asin(g.normal.y), fov };
 }
 
+/**
+ * The point Babylon's picking takes for a place on the canvas: CSS pixels from its top left, which
+ * Babylon scales by the hardware scaling level itself (render pixels only match them at a scaling of
+ * 1, so on a Retina screen or at another quality a pick would land beside the pointer). The centre
+ * of the view while the mouse is captured or there is no pointer, else the pointer at `client`.
+ */
+export function pickPoint(canvas: HTMLCanvasElement, client: { x: number; y: number } | null): { x: number; y: number } {
+  const box = canvas.getBoundingClientRect();
+  if (document.pointerLockElement === canvas || !client) return { x: box.width / 2, y: box.height / 2 };
+  return { x: client.x - box.left, y: client.y - box.top };
+}
+
 /** What a click on the canvas is on (the centre of the view while the mouse is captured), and how far away. */
 export function pickAt(scene: Scene, canvas: HTMLCanvasElement, e: MouseEvent): { mesh: AbstractMesh; distance: number } | null {
-  const engine = scene.getEngine();
-  let x = engine.getRenderWidth() / 2;
-  let y = engine.getRenderHeight() / 2;
-  if (document.pointerLockElement !== canvas) {
-    const box = canvas.getBoundingClientRect();
-    x = ((e.clientX - box.left) / box.width) * engine.getRenderWidth();
-    y = ((e.clientY - box.top) / box.height) * engine.getRenderHeight();
-  }
+  const { x, y } = pickPoint(canvas, { x: e.clientX, y: e.clientY });
   const pick = scene.pick(x, y, (m) => m.isPickable && m.isEnabled() && m.isVisible);
   return pick?.hit && pick.pickedMesh ? { mesh: pick.pickedMesh, distance: pick.distance } : null;
 }
