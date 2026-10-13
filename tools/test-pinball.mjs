@@ -41,7 +41,7 @@ const waitFor = (fn, arg, timeout = 30000) => page.waitForFunction(fn, arg, { ti
 const shot = (name) => page.screenshot({ path: `captures/pinball-${name}.png` });
 const frames = (n) => ev((n) => window.__chimp.settle(n), n);
 
-await page.goto(`${URL}/?capture=1&view=entry`);
+await page.goto(`${URL}/?capture=1&view=entry`, { timeout: 300000 });
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await sleep(500);
 
@@ -503,9 +503,13 @@ async function play() {
     await sleep(700);
     const pulled = (await ev((n) => window.__chimp.pinball.state(n), n)).plunger;
     await page.keyboard.up("Space");
-    await sleep(500);
-    const st1 = await ev((n) => window.__chimp.pinball.state(n), n);
-    const top = Math.max(...st1.balls.filter((b) => b.mode !== "off").map((b) => b.y));
+    // the highest the ball gets in the next second
+    let top = 0;
+    for (let i = 0; i < 20; i++) {
+      const st1 = await ev((n) => window.__chimp.pinball.state(n), n);
+      top = Math.max(top, ...st1.balls.filter((b) => b.mode !== "off").map((b) => b.y));
+      await sleep(50);
+    }
     check(pulled > 0.02 && top > 0.5, `${name}: holding Space pulls the plunger back; letting go launches the ball`, `pulled ${(pulled * 1000).toFixed(0)} mm, ball at y ${top.toFixed(2)}`);
     // the flippers answer their keys
     await page.keyboard.down("ShiftLeft");
@@ -545,7 +549,9 @@ async function play() {
     await ev(() => clearInterval(window.__pinBot));
     const hud = await ev(() => window.__chimp.state().pinball);
     check(best > 0 && hud?.score === (await ev((n) => window.__chimp.pinball.state(n).score, n)), `${name}: playing scores, and the panel shows the score`, `${best.toLocaleString()} points`);
-    // nudging
+    // nudging: a game on, a ball rolling on the playfield
+    if ((await ev((n) => window.__chimp.pinball.state(n).state, n)) === "over") await page.keyboard.press("Enter");
+    await ev((n) => window.__chimp.pinball.place(n, 0, [-0.05, 0.6], [0, 0]), n);
     const before = await ev((n) => window.__chimp.pinball.state(n).balls.map((b) => b.vx), n);
     await page.keyboard.press("KeyX");
     const after = await ev((n) => window.__chimp.pinball.state(n).balls.map((b) => b.vx), n);
@@ -564,7 +570,7 @@ async function shared() {
   const ctx2 = await browser.newContext({ viewport: { width: 900, height: 600 } });
   const other = await ctx2.newPage();
   other.on("pageerror", (e) => console.log("[pageerror 2]", e.message));
-  await other.goto(`${URL}/?capture=1&view=entry&name=Bonzo`);
+  await other.goto(`${URL}/?capture=1&view=entry&name=Bonzo`, { timeout: 300000 });
   await other.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   const M = await machine(1);
   // this visitor plays Jungle Quest

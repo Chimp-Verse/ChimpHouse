@@ -394,7 +394,10 @@ export class Pinball {
       d.text(`BALL ${g.ball}`, 2, 4, 5, { align: "left", shade: 0.6 });
       if (g.bonusX > 1) d.text(`${g.bonusX}X`, DMD_W - 2, 4, 5, { align: "right", shade: 0.6 });
       d.fit(g.score.toLocaleString("en-US"), DMD_W / 2, 15, 18, 120);
-      d.fit(g.status, DMD_W / 2, DMD_H - 4, 5, 124, { shade: 0.7 });
+      // the bottom line: the mode running, or the best score to beat
+      const mode = g.rules.status();
+      const best = m.high[0];
+      d.fit(mode || (best ? `HIGH SCORE ${best.score.toLocaleString("en-US")}` : g.saving ? "BALL SAVE" : ""), DMD_W / 2, DMD_H - 4, 5, 124, { shade: 0.7 });
     }
     d.present();
   }

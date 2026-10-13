@@ -338,8 +338,8 @@ export function jungleQuest(): TableDef {
       rightOrbitWall(0.74),
       // the ramp's flap: three sides solid, the mouth open
       { pts: flap, mat: "wood", t: 0.002, look: "none" },
-      // the IDOL targets' housing
-      { pts: [dropA, dropB, [0.177, 0.462], [0.177, 0.545], [0.114, 0.545]], closed: true, mat: "wood", look: "block", color: "#5b4a33" },
+      // the IDOL targets' housing, its top sloping so a ball can't rest on it
+      { pts: [dropA, dropB, [0.177, 0.462], [0.177, 0.565], [0.106, 0.527]], closed: true, mat: "wood", look: "block", color: "#5b4a33" },
       // the top lanes' guides
       ...[-0.105, -0.05, 0.005, 0.06].map((x): Wall => ({ pts: [[x, 0.878], [x, 0.935]], mat: "metal", t: 0.0035, look: "rail" })),
       // a rubber at the left wall, turning a ball coming down it toward the inlane

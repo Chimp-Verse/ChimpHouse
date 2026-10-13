@@ -17,7 +17,7 @@
 import { Matrix, Mesh, Quaternion, TransformNode, Vector3, VertexBuffer } from "@babylonjs/core";
 import { Geo, beam, box, cylinder, floorQuad, lathe, plane, slab, sphere, sweep, torus, tube, xf } from "../geometry/geo";
 import { ensureCCW } from "../geometry/curves";
-import { MeshMeta, SlotMeta, WorldCtx, Zone } from "../context";
+import { MeshMeta, PartOpts, SlotMeta, WorldCtx, Zone } from "../context";
 import { makeCanvas, toTexture } from "../materials/canvas";
 import { Materials } from "../materials/library";
 import { ROLE } from "../roles";
@@ -81,18 +81,18 @@ function tableMats(ctx: WorldCtx, def: TableDef) {
   return {
     k,
     field,
-    body: pbr(k("body"), { color: t.body, rough: 0.3, clearCoat: 0.6 }),
-    body2: pbr(k("body2"), { color: t.body2, rough: 0.35, clearCoat: 0.5 }),
+    body: paint(t.body),
+    body2: paint(t.body2),
     side: tex(k("side"), sideCanvas(def), { rough: 0.3, clearCoat: 0.7 }),
     apron: tex(k("apron"), apronCanvas(def, cards), { rough: 0.35, clearCoat: 0.4 }),
     backglass,
-    trim: jq ? "brass" : pbr(k("trim"), { color: t.trim, rough: 0.25, clearCoat: 0.7 }),
-    legs: t.legs === "chrome" ? "chrome" : "black",
+    trim: jq ? "brass" : paint(t.trim),
+    legs: t.legs === "chrome" ? "steel" : "black",
     lockdown: jq ? "black" : "chrome",
-    plastic: pbr(k("plastic"), { color: t.plastic, rough: 0.3, clearCoat: 0.6 }),
-    rubber: pbr(k("rubber"), { color: t.rubber, rough: 0.75 }),
-    sling: pbr(k("sling"), { color: t.accent, rough: 0.25, clearCoat: 0.8 }),
-    bumper: [pbr(k("bumperA"), { color: jq ? "#c81d1d" : "#ff3b9a", rough: 0.3, clearCoat: 0.7 }), pbr(k("bumperB"), { color: jq ? "#f2c230" : "#38e8ff", rough: 0.3, clearCoat: 0.7 })],
+    plastic: paint(t.plastic),
+    rubber: paint(t.rubber, true),
+    sling: paint(t.accent),
+    bumper: [paint(jq ? "#c81d1d" : "#ff3b9a"), paint(jq ? "#f2c230" : "#38e8ff")],
     cap: pbr(k("cap"), { color: "#fff8ec", rough: 0.15, clearCoat: 0.6, alpha: 0.85 }),
     ramp: (() => {
       const key = k("ramp");
@@ -103,9 +103,35 @@ function tableMats(ctx: WorldCtx, def: TableDef) {
       }
       return key;
     })(),
-    color: (hex: string) => pbr(`pin:col:${hex}`, { color: hex, rough: 0.3, clearCoat: 0.6 }),
-    wood: pbr("pin:wood", { color: "#2a1a10", rough: 0.6 }),
-    inner: pbr(k("inner"), { color: jq ? "#08130e" : "#1a0628", rough: 0.5 }),
+    color: (hex: string) => paint(hex),
+    inner: paint(jq ? "#08130e" : "#1a0628", true),
+  };
+}
+
+/**
+ * Painted parts (the cabinet's paint, blocks, plastics, bumper bodies, targets,
+ * rubbers) share two materials, glossy and matte, and carry their colours as
+ * vertex colours: both machines' painted parts are then two draw calls.
+ */
+const VCOL = "pin:paint";
+const VCOL_MATTE = "pin:paintMatte";
+const paint = (hex: string, matte = false) => `${matte ? VCOL_MATTE : VCOL}|${hex}`;
+
+/** A geometry bucket for a material, or for a paint colour (see `paint`). */
+function bucket(ctx: WorldCtx, z: Zone) {
+  if (!ctx.mats.has(VCOL)) ctx.mats.pbr(VCOL, { color: "#ffffff", rough: 0.3, clearCoat: 0.6, vertexColors: true });
+  if (!ctx.mats.has(VCOL_MATTE)) ctx.mats.pbr(VCOL_MATTE, { color: "#ffffff", rough: 0.75, vertexColors: true });
+  return (mat: string, opts?: PartOpts): { add(geo: Geo, m?: Matrix, label?: string): unknown } => {
+    const bar = mat.indexOf("|");
+    if (bar < 0) return ctx.g(z, mat, opts);
+    const g = ctx.g(z, mat.slice(0, bar), opts);
+    const v = parseInt(mat.slice(bar + 2), 16);
+    // the colour in linear light, as PBR takes vertex colours
+    const lin = (c: number) => Math.pow(c / 255, 2.2);
+    const r = lin((v >> 16) & 255);
+    const gg = lin((v >> 8) & 255);
+    const b = lin(v & 255);
+    return { add: (geo, m, label) => g.add(geo.paint(r, gg, b), m, label) };
   };
 }
 
@@ -116,6 +142,7 @@ function tableMats(ctx: WorldCtx, def: TableDef) {
  */
 export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef): void {
   const M = tableMats(ctx, def);
+  const G = bucket(ctx, z);
   const label = `Pinball machine: ${tableName(def)}`;
   const CB = cabinetFrame().multiply(m);
   const PFm = playfieldFrame().multiply(m);
@@ -134,9 +161,9 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
       feet.add(cylinder(0.026, 0.014, 18), xf(top.x, 0, top.z));
       feet.add(cylinder(0.006, 0.05, 8), xf(top.x, 0.01, top.z));
     }
-  ctx.g(z, M.legs).add(legs, m, label);
-  ctx.g(z, "charcoal").add(plates, m, label);
-  ctx.g(z, "chrome").add(feet, m, label);
+  G(M.legs).add(legs, m, label);
+  G("charcoal").add(plates, m, label);
+  G("chrome").add(feet, m, label);
 
   // ------------------------------------------------ the cabinet
   const body = new Geo();
@@ -144,23 +171,23 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
   for (const s of [-1, 1]) body.add(box(0.02, h, l), xf(s * (w / 2 - 0.01), h / 2, l / 2));
   body.add(box(w - 0.04, h, 0.02), xf(0, h / 2, 0.01));
   body.add(box(w - 0.04, h, 0.02), xf(0, h / 2, l - 0.01));
-  ctx.g(z, M.body).add(body, CB, label);
+  G(M.body).add(body, CB, label);
   // side art, outside each side
-  for (const s of [-1, 1]) ctx.g(z, M.side).add(plane(l - 0.02, h - 0.02), xf(s * (w / 2 + 0.0006), h / 2, l / 2, s > 0 ? -Math.PI / 2 : Math.PI / 2).multiply(CB), label);
+  for (const s of [-1, 1]) G(M.side).add(plane(l - 0.02, h - 0.02), xf(s * (w / 2 + 0.0006), h / 2, l / 2, s > 0 ? -Math.PI / 2 : Math.PI / 2).multiply(CB), label);
   // trim along the cabinet's edges, the side rails over them, and the lockdown bar
   const trim = new Geo();
   for (const s of [-1, 1]) {
     trim.add(box(0.008, 0.012, l), xf(s * (w / 2 + 0.002), 0.006, l / 2));
     trim.add(box(0.008, 0.012, l), xf(s * (w / 2 + 0.002), h - 0.006, l / 2));
   }
-  ctx.g(z, M.trim).add(trim, CB, label);
+  G(M.trim).add(trim, CB, label);
   const rails = new Geo();
   for (const s of [-1, 1]) rails.add(box(0.028, 0.014, l - 0.33), xf(s * (w / 2 - 0.012), h + 0.007, 0.08 + (l - 0.33) / 2));
-  ctx.g(z, "chrome").add(rails, CB, label);
-  ctx.g(z, M.lockdown).add(box(w + 0.012, 0.032, 0.088), xf(0, h + 0.016, 0.044).multiply(CB), "Lockdown bar");
+  G("chrome").add(rails, CB, label);
+  G(M.lockdown).add(box(w + 0.012, 0.032, 0.088), xf(0, h + 0.016, 0.044).multiply(CB), "Lockdown bar");
   // the front: coin door, start button, plunger housing; flipper buttons on the sides
   const front = xf(0, 0, -0.001).multiply(CB);
-  ctx.g(z, "charcoal").add(box(0.27, 0.24, 0.012), xf(0, 0.15, -0.006).multiply(front), "Coin door");
+  G("charcoal").add(box(0.27, 0.24, 0.012), xf(0, 0.15, -0.006).multiply(front), "Coin door");
   const coin = new Geo();
   for (const s of [-1, 1]) {
     coin.add(box(0.05, 0.075, 0.01), xf(s * 0.06, 0.2, -0.015));
@@ -168,28 +195,28 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
   }
   coin.add(cylinder(0.011, 0.012, 14), xf(0, 0.08, -0.012, 0, 1, 1, 1, Math.PI / 2));
   coin.add(box(0.29, 0.012, 0.01), xf(0, 0.276, -0.012));
-  ctx.g(z, "chrome").add(coin, front, "Coin door");
-  ctx.g(z, "red").add(new Geo().add(box(0.03, 0.022, 0.006), xf(-0.06, 0.15, -0.021)).add(box(0.03, 0.022, 0.006), xf(0.06, 0.15, -0.021)), front, "Coin door");
+  G("chrome").add(coin, front, "Coin door");
+  G("red").add(new Geo().add(box(0.03, 0.022, 0.006), xf(-0.06, 0.15, -0.021)).add(box(0.03, 0.022, 0.006), xf(0.06, 0.15, -0.021)), front, "Coin door");
   const startAt = xf(-0.22, 0.27, 0).multiply(front);
-  ctx.g(z, "chrome").add(cylinder(0.019, 0.01, 18), xf(0, 0, 0, 0, 1, 1, 1, -Math.PI / 2).multiply(startAt), "Start button");
-  ctx.g(z, M.sling).add(cylinder(0.014, 0.014, 18), xf(0, 0, -0.005, 0, 1, 1, 1, -Math.PI / 2).multiply(startAt), "Start button");
-  ctx.g(z, "chrome").add(cylinder(0.024, 0.008, 20), xf(PF.shooterX, CAB.pfY + PF.ball, 0, 0, 1, 1, 1, -Math.PI / 2).multiply(front), "Plunger");
+  G("chrome").add(cylinder(0.019, 0.01, 18), xf(0, 0, 0, 0, 1, 1, 1, -Math.PI / 2).multiply(startAt), "Start button");
+  G(M.sling).add(cylinder(0.014, 0.014, 18), xf(0, 0, -0.005, 0, 1, 1, 1, -Math.PI / 2).multiply(startAt), "Start button");
+  G("chrome").add(cylinder(0.024, 0.008, 20), xf(PF.shooterX, CAB.pfY + PF.ball, 0, 0, 1, 1, 1, -Math.PI / 2).multiply(front), "Plunger");
   for (const s of [-1, 1]) {
     const at = xf(s * (w / 2 + 0.0), CAB.pfY + 0.02, 0.14).multiply(CB);
-    ctx.g(z, "chrome").add(cylinder(0.019, 0.006, 18), xf(0, 0, 0, 0, 1, 1, 1, 0, -s * Math.PI / 2).multiply(at), "Flipper button");
-    ctx.g(z, M.sling).add(cylinder(0.0135, 0.017, 18), xf(0, 0, 0, 0, 1, 1, 1, 0, -s * Math.PI / 2).multiply(at), "Flipper button");
+    G("chrome").add(cylinder(0.019, 0.006, 18), xf(0, 0, 0, 0, 1, 1, 1, 0, -s * Math.PI / 2).multiply(at), "Flipper button");
+    G(M.sling).add(cylinder(0.0135, 0.017, 18), xf(0, 0, 0, 0, 1, 1, 1, 0, -s * Math.PI / 2).multiply(at), "Flipper button");
   }
 
   // ------------------------------------------------ the playfield and what is fixed on it
   const field = M.field;
-  ctx.g(z, field, { castShadow: false }).add(floorQuad(PF.w, PF.l), xf(0, 0, PF.l / 2).multiply(PFm), label);
+  G(field, { castShadow: false }).add(floorQuad(PF.w, PF.l), xf(0, 0, PF.l / 2).multiply(PFm), label);
   const inside = new Geo();
   for (const s of [-1, 1]) {
     inside.add(box(0.022, 0.01, PF.l + 0.08), xf(s * 0.271, -0.005, PF.l / 2 - 0.04));
     inside.add(box(0.004, CAB.glassY - CAB.pfY, PF.l + 0.08), xf(s * 0.279, (CAB.glassY - CAB.pfY) / 2, PF.l / 2 - 0.04));
   }
   inside.add(box(0.56, CAB.glassY - CAB.pfY, 0.004), xf(0, (CAB.glassY - CAB.pfY) / 2, -0.06));
-  ctx.g(z, M.inner, { castShadow: false }).add(inside, PFm, label);
+  G(M.inner, { castShadow: false }).add(inside, PFm, label);
   // the outer wall's face round the playfield: wood up the sides, a steel band round the arch
   const outer = def.walls[0].pts;
   const archStart = outer.findIndex(([x, y]) => y >= PF.archY - 1e-6 && x > 0);
@@ -198,13 +225,13 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
     const a = Math.atan2(y - PF.archY, x);
     return new Vector3(x - Math.cos(a) * 0.002, 0.02, y - Math.sin(a) * 0.002);
   });
-  ctx.g(z, "steel", { castShadow: false }).add(beam(archPath, 0.004, 0.04, { up: Vector3.Up() }), PFm, label);
+  G("steel", { castShadow: false }).add(beam(archPath, 0.004, 0.04, { up: Vector3.Up() }), PFm, label);
   const sides = new Geo();
   sides.add(box(0.006, 0.04, PF.archY), xf(-0.263, 0.02, PF.archY / 2));
   sides.add(box(0.006, 0.04, PF.archY), xf(0.263, 0.02, PF.archY / 2));
-  ctx.g(z, M.inner, { castShadow: false }).add(sides, PFm, label);
+  G(M.inner, { castShadow: false }).add(sides, PFm, label);
 
-  const fixed = (mat: string) => ctx.g(z, mat, { castShadow: false });
+  const fixed = (mat: string) => G(mat, { castShadow: false });
   // walls: painted blocks, guide rails and rubbers
   for (const wall of def.walls) {
     if (wall.look === "none") continue;
@@ -320,11 +347,11 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
   for (const kb of def.kickbacks) fixed("chrome").add(box(0.02, 0.012, 0.012), xf(kb.at[0], 0.006, kb.at[1] - 0.03).multiply(PFm), "Kickback");
   // the apron over the bottom, with its cards; the shooter lane's housing
   const apron = new Geo().add(floorQuad(PF.shooterWall + 0.28, 0.12 + 0.055), xf((PF.shooterWall - 0.28) / 2, 0.012, (0.12 - 0.055) / 2));
-  ctx.g(z, M.apron, { castShadow: false }).add(apron, PFm, "Apron");
-  ctx.g(z, M.trim, { castShadow: false }).add(box(PF.shooterWall + 0.28, 0.012, 0.004), xf((PF.shooterWall - 0.28) / 2, 0.006, 0.12).multiply(PFm), "Apron");
+  G(M.apron, { castShadow: false }).add(apron, PFm, "Apron");
+  G(M.trim, { castShadow: false }).add(box(PF.shooterWall + 0.28, 0.012, 0.004), xf((PF.shooterWall - 0.28) / 2, 0.006, 0.12).multiply(PFm), "Apron");
   fixed("chrome").add(box(0.04, 0.02, 0.03), xf(PF.shooterX, 0.01, 0.0).multiply(PFm), "Shooter lane");
   // the glass over it all
-  ctx.g(z, "glass", { castShadow: false, pickable: false }).add(box(0.565, 0.005, l - 0.33), xf(0, CAB.glassY, 0.08 + (l - 0.33) / 2).multiply(CB), label);
+  G("glass", { castShadow: false, pickable: false }).add(box(0.565, 0.005, l - 0.33), xf(0, CAB.glassY, 0.08 + (l - 0.33) / 2).multiply(CB), label);
 
   // ------------------------------------------------ the backbox
   const backTop = inCab(0, h, l);
@@ -333,25 +360,25 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
   const zb = backTop.z - BOX.d / 2;
   const bb = xf(0, yb, zb).multiply(m);
   // its neck: from the leaning cabinet up to the level backbox
-  ctx.g(z, M.body2).add(box(BOX.w - 0.04, yb - frontTop.y + 0.02, BOX.d - 0.02), xf(0, (frontTop.y + yb) / 2 - 0.01, zb).multiply(m), label);
-  ctx.g(z, M.body).add(box(BOX.w, BOX.h, BOX.d), xf(0, BOX.h / 2, 0).multiply(bb), label);
-  for (const s of [-1, 1]) ctx.g(z, M.side).add(plane(BOX.d - 0.01, BOX.h - 0.02), xf(s * (BOX.w / 2 + 0.0006), BOX.h / 2, 0, s > 0 ? -Math.PI / 2 : Math.PI / 2, 0.98, 1, 1).multiply(bb), label);
+  G(M.body2).add(box(BOX.w - 0.04, yb - frontTop.y + 0.02, BOX.d - 0.02), xf(0, (frontTop.y + yb) / 2 - 0.01, zb).multiply(m), label);
+  G(M.body).add(box(BOX.w, BOX.h, BOX.d), xf(0, BOX.h / 2, 0).multiply(bb), label);
+  for (const s of [-1, 1]) G(M.side).add(plane(BOX.d - 0.01, BOX.h - 0.02), xf(s * (BOX.w / 2 + 0.0006), BOX.h / 2, 0, s > 0 ? -Math.PI / 2 : Math.PI / 2, 0.98, 1, 1).multiply(bb), label);
   const face = (y: number, zz = 0) => xf(0, y, -BOX.d / 2 - 0.002 - zz).multiply(bb);
   const glassH = 0.46;
   const glassY = BOX.h - 0.04 - glassH / 2;
-  ctx.g(z, M.backglass, { castShadow: false }).add(plane(BOX.w - 0.05, glassH), face(glassY), "Backglass");
-  ctx.g(z, "glass", { castShadow: false, pickable: false }).add(box(BOX.w - 0.04, glassH + 0.01, 0.004), face(glassY, 0.004), label);
+  G(M.backglass, { castShadow: false }).add(plane(BOX.w - 0.05, glassH), face(glassY), "Backglass");
+  G("glass", { castShadow: false, pickable: false }).add(box(BOX.w - 0.04, glassH + 0.01, 0.004), face(glassY, 0.004), label);
   // the speaker panel: grilles either side of the display
   const panelY = 0.15;
-  ctx.g(z, "black").add(box(BOX.w - 0.04, 0.24, 0.006), face(panelY, -0.001), "Speaker panel");
+  G("black").add(box(BOX.w - 0.04, 0.24, 0.006), face(panelY, -0.001), "Speaker panel");
   const grille = new Geo();
   for (const s of [-1, 1]) for (let i = 0; i < 7; i++) grille.add(box(0.1, 0.006, 0.004), xf(s * 0.215, panelY - 0.045 + i * 0.015, -0.006));
-  ctx.g(z, "charcoal", { castShadow: false }).add(grille, face(0), "Speaker panel");
+  G("charcoal", { castShadow: false }).add(grille, face(0), "Speaker panel");
   const rims = new Geo();
   for (const s of [-1, 1]) rims.add(torus(0.058, 0.003, 28, 6), xf(s * 0.215, panelY, -0.006, 0, 1, 1, 1, Math.PI / 2));
   rims.add(box(DMD_SIZE.w + 0.03, 0.006, 0.006), xf(0, panelY + DMD_SIZE.h / 2 + 0.012, -0.006));
   rims.add(box(DMD_SIZE.w + 0.03, 0.006, 0.006), xf(0, panelY - DMD_SIZE.h / 2 - 0.012, -0.006));
-  ctx.g(z, M.trim, { castShadow: false }).add(rims, face(0), "Speaker panel");
+  G(M.trim, { castShadow: false }).add(rims, face(0), "Speaker panel");
   const dmd0 = makeCanvas(256, 64);
   dmd0.ctx.fillStyle = "#120600";
   dmd0.ctx.fillRect(0, 0, 256, 64);
@@ -363,15 +390,15 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
   bt.add(box(BOX.w, 0.012, 0.012), xf(0, BOX.h - 0.004, -BOX.d / 2 - 0.004));
   bt.add(box(BOX.w, 0.012, 0.012), xf(0, 0.29, -BOX.d / 2 - 0.004));
   bt.add(box(BOX.w, 0.012, 0.012), xf(0, 0.006, -BOX.d / 2 - 0.004));
-  ctx.g(z, M.trim).add(bt, bb, label);
+  G(M.trim).add(bt, bb, label);
   // a topper: a stepped temple crest for the jungle, a bunch of bananas for the party
   const top = xf(0, BOX.h, 0).multiply(bb);
   if (def.id === "jungleQuest") {
     const steps = new Geo();
     for (let i = 0; i < 3; i++) steps.add(box(0.44 - i * 0.12, 0.05, 0.16 - i * 0.03), xf(0, 0.025 + i * 0.05, 0));
-    ctx.g(z, "stoneWhite").add(steps, top, label);
-    ctx.g(z, "brass").add(new Geo().add(cylinder(0.035, 0.012, 5), xf(0, 0.075, -0.075, 0, 1, 1, 1, Math.PI / 2)), top, label);
-    ctx.g(z, M.body).add(box(0.2, 0.012, 0.13), xf(0, 0.156, 0).multiply(top), label);
+    G("stoneWhite").add(steps, top, label);
+    G("brass").add(new Geo().add(cylinder(0.035, 0.012, 5), xf(0, 0.075, -0.075, 0, 1, 1, 1, Math.PI / 2)), top, label);
+    G(M.body).add(box(0.2, 0.012, 0.13), xf(0, 0.156, 0).multiply(top), label);
   } else {
     const g = new Geo();
     for (let i = 0; i < 5; i++) {
@@ -383,8 +410,8 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
       }
       g.add(tube(pts, (t) => 0.028 * Math.sin(Math.PI * (0.08 + t * 0.84)) + 0.005, 10, true));
     }
-    ctx.g(z, "bananaYellow").add(g, top, label);
-    ctx.g(z, "black").add(cylinder(0.02, 0.04, 10), top, label);
+    G("bananaYellow").add(g, top, label);
+    G("black").add(cylinder(0.02, 0.04, 10), top, label);
   }
 
   // ------------------------------------------------ the playfield node the engine builds the moving parts on

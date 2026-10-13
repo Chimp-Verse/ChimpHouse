@@ -653,7 +653,7 @@ export class Table {
     const scoops = this.def.scoops;
     for (let k = 0; k < scoops.length && b.noCatch <= 0; k++) {
       const sc = scoops[k];
-      if (Math.hypot(b.x - sc.at[0], b.y - sc.at[1]) < 0.011 && Math.hypot(b.vx, b.vy) < 1.5) {
+      if (Math.hypot(b.x - sc.at[0], b.y - sc.at[1]) < 0.014 && Math.hypot(b.vx, b.vy) < 1.7) {
         b.mode = "held";
         b.x = sc.at[0];
         b.y = sc.at[1];
