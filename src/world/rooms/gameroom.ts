@@ -11,7 +11,9 @@ import { rng } from "../geometry/curves";
 import { Geo, box, cylinder, lathe, softBox, sphere, torus, tube, xf } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
 import { GAME, LEVEL, TREES } from "../layout";
-import { airHockey, beanBag, clawMachine, foosball, pinball, plushChimp, vendingMachine } from "../props/arcade";
+import { airHockey, beanBag, clawMachine, foosball, plushChimp, vendingMachine } from "../props/arcade";
+import { pinballMachine } from "../props/pinball";
+import { TABLES, TableDef } from "../props/pinballTables";
 import { sodaCan } from "../props/barware";
 import { drumTable, lowStool, roundRug, sofa } from "../props/furniture";
 import { chimpVibeSign, neonWord, neonWordWidth } from "../props/lettering3d";
@@ -124,12 +126,12 @@ export function buildGameRoom(ctx: WorldCtx): void {
   wovenPendant(ctx, z, new Vector3(fb.x, C, fb.z), 0.26, 1.7, { shape: "drum" });
 
   // pinball machines in the north-east curve, facing into the room
-  for (const [deg, title, body, a, b] of [
-    [69, "JUNGLE QUEST", "arcadeBlue", "#1d2a6b", "#2fbf8f"],
-    [78.5, "BANANA BLITZ", "arcadePink", "#5a1a6e", "#f2a830"],
-  ] as [number, string, string, string, string][]) {
+  for (const [deg, def] of [
+    [69, TABLES[0]],
+    [78.5, TABLES[1]],
+  ] as [number, TableDef][]) {
     const p = arcDeg(c.x, c.z, GAME.r - 0.95, deg, deg, 1)[0];
-    pinball(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), title, body, a, b);
+    pinballMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), def);
   }
   // claw machine and snack machine in the south-east curve
   {

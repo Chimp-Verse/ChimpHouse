@@ -17,6 +17,7 @@ import { loadGameList } from "./gameList";
 import { ButtonId, Lift } from "./lift";
 import { Remotes } from "./remotes";
 import { Theatre } from "./theatre";
+import { Pinball } from "./pinball";
 import { parseYouTube } from "./youtube";
 
 export interface PreviewController {
@@ -71,6 +72,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
+  // the pinball machines: their moving parts, lamps and displays
+  const pinball = new Pinball(scene, world.mats, lighting, fly);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -440,6 +443,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade.update();
     remotes.update();
     theatre.update();
+    pinball.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
