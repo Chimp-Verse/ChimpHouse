@@ -135,7 +135,7 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
       feet.add(cylinder(0.006, 0.05, 8), xf(top.x, 0.01, top.z));
     }
   ctx.g(z, M.legs).add(legs, m, label);
-  ctx.g(z, "chrome").add(plates, m, label);
+  ctx.g(z, "charcoal").add(plates, m, label);
   ctx.g(z, "chrome").add(feet, m, label);
 
   // ------------------------------------------------ the cabinet
@@ -296,8 +296,6 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
     const pts = curve.map(([x, y, hh]) => new Vector3(x, hh, y));
     const chan: [number, number][] = [[-0.024, 0.026], [-0.024, -0.002], [0.024, -0.002], [0.024, 0.026]];
     fixed(M.ramp).add(sweep(chan, pts.slice(0, split + 1), { closedProfile: false, caps: false, up: Vector3.Up() }), PFm, "Ramp");
-    // a lip either side of the mouth, and the ramp's flap on the playfield
-    fixed("steel").add(beam(pts.slice(0, split + 1).map((p) => p.add(new Vector3(0, 0.027, 0))), 0.05, 0.002, { up: Vector3.Up() }), PFm, "Ramp");
     const wire = pts.slice(split);
     const g = new Geo();
     const along = (off: number, lift: number) =>
@@ -392,8 +390,6 @@ export function pinballMachine(ctx: WorldCtx, z: Zone, m: Matrix, def: TableDef)
   // ------------------------------------------------ the playfield node the engine builds the moving parts on
   const standLocal = Vector3.TransformCoordinates(STAND, playfieldFrame().clone().invert());
   ctx.slot(z, ROLE.pinballMachine, def.slot, PFm, standLocal, `Pinball machine ${def.slot}: ${tableName(def)}`);
-  // the playfield's own light: under the plastics, it lights what stands on it
-  ctx.lights.push({ pos: Vector3.TransformCoordinates(new Vector3(0, 0.25, 0.55), PFm), color: def.id === "jungleQuest" ? "#ffe2b0" : "#ffd0ec", day: 0.15, night: 0.6, range: 1.2, rooms: [z.room], level: z.level });
 }
 
 // ---------------------------------------------------------------- the moving parts
@@ -425,8 +421,8 @@ const FLIPPER_COLORS: Record<TableDef["id"], [string, string]> = { jungleQuest: 
 
 /**
  * Build a machine's moving parts on its playfield node (role pinball-machine).
- * They're meshes of their own, kind "special": not solid to a walker (they're
- * under the glass), and seen by the export in their rest pose.
+ * They're meshes of their own, kind "moving": never solid to a walker, and
+ * never in the room's export (the export keeps the playfield node instead).
  */
 export function buildPinballParts(mats: Materials, slot: TransformNode, def: TableDef): PinballParts {
   const scene = mats.scene;
@@ -438,7 +434,7 @@ export function buildPinballParts(mats: Materials, slot: TransformNode, def: Tab
   const meshes: Mesh[] = [];
   const own = (mesh: Mesh, mat: string, role?: string) => {
     mesh.material = mats.get(mat);
-    mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey: mat, kind: "special", ...(role ? { role, slot: def.slot } : {}) } satisfies MeshMeta;
+    mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey: mat, kind: "moving", ...(role ? { role, slot: def.slot } : {}) } satisfies MeshMeta;
     mesh.receiveShadows = true;
     mesh.renderingGroupId = 1;
     meshes.push(mesh);
@@ -565,7 +561,7 @@ function buildLamps(mats: Materials, def: TableDef, own: (m: Mesh, mat: string) 
   const matKey = `pin${def.slot}:lamps`;
   if (!mats.has(matKey)) {
     const tex = toTexture(scene, matKey, atlas.canvas, { wrap: false, hasAlpha: true });
-    mats.unlit(matKey, { tex, alpha: 1, intensity: 2.2 });
+    mats.unlit(matKey, { tex, alpha: 1, intensity: 1.5 });
   }
   const g = new Geo();
   const names: string[] = [];
@@ -587,8 +583,8 @@ function buildLamps(mats: Materials, def: TableDef, own: (m: Mesh, mat: string) 
       const [px, py] = at(u, v);
       g.vert(px, h, py, 0, 0, 0, 1, 0);
     }
-    g.tri(base, base + 2, base + 1);
-    g.tri(base, base + 3, base + 2);
+    g.tri(base, base + 1, base + 2);
+    g.tri(base, base + 2, base + 3);
     quads.push({ lamp: i });
   };
   const cells: number[] = [];

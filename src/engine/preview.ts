@@ -35,6 +35,8 @@ export interface PreviewController {
   readonly theatre: Theatre;
   /** The theatre's remotes: whoever holds one controls the theatre. */
   readonly remotes: Remotes;
+  /** The pinball machines: playing one (walk mode), leaving, a new game. */
+  readonly pinball: Pinball;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -72,10 +74,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
-  // the pinball machines: their moving parts, lamps and displays
-  const pinball = new Pinball(scene, world.mats, lighting, fly);
+  // the pinball machines: their moving parts, lamps and displays, and playing them
+  const pinball = new Pinball(scene, world.mats, lighting, fly, focus, canvas);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
-  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
+  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e) || pinball.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
@@ -156,6 +158,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     leaveCabinet: () => arcade.leave(),
     theatre,
     remotes,
+    pinball,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -270,6 +273,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.pinballPrompt) {
+      if (s.pinballPrompt.busy) flash(`${s.pinballPrompt.busy} is playing ${s.pinballPrompt.name}`);
+      else void pinball.use(s.pinballPrompt.slot);
+    }
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -414,6 +421,50 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       use: (id: ButtonId) => lift.use(id),
       /** the shared lift back as the house opens with it, for everyone in the room (tests start from it) */
       reset: () => lift.reset(),
+    },
+    pinball: {
+      /** the machines, by slot */
+      machines: () => pinball.machines.map((m) => ({ slot: m.def.slot, id: m.def.id, name: m.def.title, flippers: m.def.flippers.length, player: m.player, high: m.high })),
+      use: (slot: number) => pinball.use(slot),
+      leave: () => pinball.leave(),
+      start: () => pinball.start(),
+      /** a control pressed or let go, as its key: ShiftLeft, ShiftRight, Space, KeyX, Period, ArrowUp, Enter */
+      press: (slot: number, key: string, down: boolean) => {
+        const m = pinball.machine(slot);
+        if (m) pinball.input(m, key, down);
+      },
+      /** the table and game as they are: balls, flippers, plunger, score */
+      state: (slot: number) => {
+        const m = pinball.machine(slot);
+        if (!m) return null;
+        const { table, game } = m;
+        return {
+          balls: table.balls.map((b) => ({ mode: b.mode, x: b.x, y: b.y, h: b.h, vx: b.vx, vy: b.vy })),
+          flippers: table.flippers.map((f) => ({ id: f.def.id, angle: f.angle, held: f.held })),
+          plunger: table.plunger.pull,
+          state: game.state,
+          score: game.score,
+          ball: game.ball,
+          tilted: game.tilted,
+          saving: game.saving,
+          multiball: game.multiball,
+          message: game.message?.top ?? null,
+          lamps: Object.fromEntries(game.lamps),
+          status: game.status,
+        };
+      },
+      /** put a ball where a test wants it: [x, y] on the playfield and [vx, vy] */
+      place: (slot: number, ball: number, at: [number, number], v: [number, number]) => {
+        const b = pinball.machine(slot)?.table.balls[ball];
+        if (!b) return;
+        Object.assign(b, { mode: "free", x: at[0], y: at[1], px: at[0], py: at[1], vx: v[0], vy: v[1], h: 0.0135, still: 0 });
+      },
+      /** the pure physics and rules, for tests run in the page */
+      lab: async () => ({ ...(await import("./pinballPhysics")), ...(await import("./pinballRules")), ...(await import("../world/props/pinballTables")) }),
+      pose: (slot: number) => {
+        const m = pinball.machine(slot);
+        return m ? pinball.pose(m) : null;
+      },
     },
     info: () => ({
       fps: Math.round(engine.getFps()),

@@ -493,7 +493,7 @@ export function bananaBlitz(): TableDef {
     slings: base.slings,
     flippers: [...base.flippers, upper],
     targets: [...ban, ...ana],
-    rollovers: [...base.rollovers, { id: "orbitTop", at: [0.0, 1.03], look: "star", lamp: "orbitTop" }],
+    rollovers: [...base.rollovers, { id: "orbitTop", at: [0.0, 1.043], look: "star", lamp: "orbitTop" }],
     spinners: [{ id: "spinner", a: [0.1805, 0.585], b: [0.2155, 0.585] }],
     scoops: [{ id: "mouth", at: [0.03, 0.75], eject: [-0.3, -1.05], lamp: "mouth" }],
     gates: base.gates,
@@ -511,7 +511,7 @@ export function bananaBlitz(): TableDef {
       { lamp: "combo3", at: [-0.035, 0.45], shape: "tri", size: 0.02, color: "#38e8ff", label: "3X", labelAt: [0, -0.02] },
       { lamp: "combo4", at: [0.0, 0.45], shape: "tri", size: 0.02, color: "#38e8ff", label: "4X", labelAt: [0, -0.02] },
       { lamp: "combo5", at: [0.035, 0.43], shape: "tri", size: 0.02, color: "#38e8ff", label: "5X", labelAt: [0, -0.02] },
-      { lamp: "orbitTop", at: [0.0, 1.0], shape: "circle", size: 0.016, color: "#ffffff" },
+      { lamp: "orbitTop", at: [0.0, 1.012], shape: "circle", size: 0.016, color: "#ffffff" },
       { lamp: "mouth", at: [0.03, 0.722], shape: "oval", size: 0.018, color: "#ff3b8f" },
     ],
     prints: [

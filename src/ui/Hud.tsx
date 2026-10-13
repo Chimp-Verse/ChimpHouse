@@ -2,6 +2,7 @@ import { PreviewController } from "../engine/preview";
 import { PreviewState, Quality, VIEWER } from "../engine/store";
 import { store } from "../engine/store";
 import { VIEWPOINTS, findView } from "../world/viewpoints";
+import { PinballOverlay } from "./PinballOverlay";
 import { PlayOverlay } from "./PlayOverlay";
 import { RemotePanel } from "./RemotePanel";
 import { TheatreOverlay } from "./TheatreOverlay";
@@ -13,6 +14,7 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
     <>
       <TheatreOverlay s={s} theatre={ctl.theatre} />
       {s.focus?.kind === "cabinet" && <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />}
+      {s.focus?.kind === "pinball" && <PinballOverlay s={s} onLeave={() => void ctl.pinball.leave()} onStart={() => ctl.pinball.start()} />}
       {!s.focus && <Panels ctl={ctl} s={s} />}
       {s.toast && <div className="toast">{s.toast}</div>}
     </>
@@ -103,7 +105,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet or pinball machine, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -132,6 +134,13 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           <kbd>E</kbd>
           {s.liftPrompt.label}
           <span>or click the button</span>
+        </div>
+      )}
+      {s.walking && s.pinballPrompt && (
+        <div className="play-prompt low">
+          <kbd>E</kbd>
+          {s.pinballPrompt.busy ? `${s.pinballPrompt.busy} is playing ${s.pinballPrompt.name}` : `Play ${s.pinballPrompt.name}`}
+          <span>{s.pinballPrompt.busy ? "one player at a time" : "pinball, 3 balls"}</span>
         </div>
       )}
       {s.help && <Help onClose={() => store.set({ help: false })} />}
@@ -184,6 +193,7 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
+            <tr><td>E (at a pinball machine)</td><td>Play it: Shift or Z and / flip, hold Space or ↓ to pull the plunger, X . and the arrows nudge, Enter starts a new game, Esc leaves</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>

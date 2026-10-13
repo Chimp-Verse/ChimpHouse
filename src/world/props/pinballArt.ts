@@ -311,14 +311,15 @@ export function playfieldCanvas(def: TableDef): HTMLCanvasElement {
     c.restore();
   }
   // outside the arch is the cabinet's wood
-  c.save();
   c.beginPath();
-  c.rect(0, 0, W, fy(PF.archY));
-  c.arc(fx(0), fy(PF.archY), PF.archR * PX, 0, Math.PI, true);
+  c.moveTo(W, fy(PF.archY));
+  c.lineTo(W, 0);
+  c.lineTo(0, 0);
+  c.lineTo(0, fy(PF.archY));
+  c.arc(fx(0), fy(PF.archY), PF.archR * PX, Math.PI, 0, false);
   c.closePath();
   c.fillStyle = "#1b120c";
-  c.fill("evenodd");
-  c.restore();
+  c.fill();
   // the shooter lane: plain, with the lane stripes
   c.fillStyle = def.id === "jungleQuest" ? "#0e2a20" : "#2a0b3f";
   c.fillRect(fx(PF.shooterWall), fy(PF.shooterTop), fx(0.26) - fx(PF.shooterWall), H);
@@ -459,12 +460,12 @@ export function lampAtlas(def: TableDef): { canvas: HTMLCanvasElement; rows: num
       shapePath(c, ins.shape, s);
       const g = c.createRadialGradient(0, 0, 0, 0, 0, s * 0.7);
       if (lit) {
-        g.addColorStop(0, "#ffffff");
-        g.addColorStop(0.35, ins.color);
-        g.addColorStop(1, ins.color);
+        g.addColorStop(0, tint(ins.color, 0.55));
+        g.addColorStop(0.45, ins.color);
+        g.addColorStop(1, shade(ins.color, 0.85));
       } else {
-        g.addColorStop(0, shade(ins.color, 0.32));
-        g.addColorStop(1, shade(ins.color, 0.16));
+        g.addColorStop(0, shade(ins.color, 0.4));
+        g.addColorStop(1, shade(ins.color, 0.24));
       }
       c.fillStyle = g;
       c.fill();
@@ -477,7 +478,7 @@ export function lampAtlas(def: TableDef): { canvas: HTMLCanvasElement; rows: num
       const [x, y] = cell(i, lit);
       const g = c.createRadialGradient(x, y, 0, x, y, LAMP_CELL / 2);
       const col = def.id === "jungleQuest" ? (k === 1 ? "#ff8a1e" : "#ffcf3a") : k ? "#38e8ff" : "#ff4fb0";
-      g.addColorStop(0, lit ? "#ffffff" : shade(col, 0.45));
+      g.addColorStop(0, lit ? tint(col, 0.6) : shade(col, 0.45));
       g.addColorStop(0.45, lit ? col : shade(col, 0.32));
       g.addColorStop(1, lit ? col : shade(col, 0.22));
       c.fillStyle = g;
@@ -496,6 +497,13 @@ export function lampAtlas(def: TableDef): { canvas: HTMLCanvasElement; rows: num
     }
   });
   return { canvas, rows };
+}
+
+/** A colour mixed toward white by k. */
+function tint(hex: string, k: number): string {
+  const v = parseInt(hex.slice(1), 16);
+  const ch = (s: number) => Math.round(((v >> s) & 255) * (1 - k) + 255 * k);
+  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
 }
 
 function shade(hex: string, k: number): string {

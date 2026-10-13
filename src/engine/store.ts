@@ -12,7 +12,7 @@ export interface PickedInfo {
 }
 
 /** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" };
+export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "pinball"; slot: number; name: string };
 
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
@@ -43,6 +43,22 @@ export interface TheatreState {
 export interface TheatreVideo {
   title: string;
   channel: string;
+}
+
+/** A pinball game being played, for the panel beside the machine (engine/pinball.ts). */
+export interface PinballHud {
+  slot: number;
+  name: string;
+  state: "over" | "play" | "bonus";
+  score: number;
+  ball: number;
+  status: string;
+  /** the machine's best scores, highest first */
+  high: { name: string; score: number }[];
+  /** how far the plunger is pulled back, 0..1 */
+  pull: number;
+  tilted: boolean;
+  extra: number;
 }
 
 /** Where a screen in use is on the page, in CSS pixels. */
@@ -100,6 +116,10 @@ export interface PreviewState {
   /** a lift button within reach: E (or a click on it) presses it */
   /** the lift button the walker points at, and what pressing it does */
   liftPrompt: { id: string; label: string } | null;
+  /** walking up to a pinball machine: E plays it (or who is playing it) */
+  pinballPrompt: { slot: number; name: string; busy: string | null } | null;
+  /** the pinball game being played, while one is */
+  pinball: PinballHud | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -140,6 +160,8 @@ class Store {
     remotePrompt: null,
     lift: initialLift(Date.now()),
     liftPrompt: null,
+    pinballPrompt: null,
+    pinball: null,
   };
   private listeners = new Set<Listener>();
 
