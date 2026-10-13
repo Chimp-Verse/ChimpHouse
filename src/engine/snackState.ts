@@ -50,7 +50,7 @@ export const SNACK_TIMING = {
   /** how long a sold-out coil stays empty before the machine restocks it (ms) */
   restock: 45_000,
   /** how long a chosen code stays on the display without its number (ms) */
-  entry: 6000,
+  entry: 10_000,
 };
 
 /** How many snacks the bin holds before the machine asks for them to be taken. */
@@ -232,7 +232,6 @@ export function fallPath(shape: PackShape, sh: Shaft, stack: number): FallPath {
   const hits: FallPath["hits"] = [];
   const dt = 1 / 600;
   const perFrame = Math.round(FALL_STEP / 1000 / dt);
-  let still = 0;
   let step = 0;
   const lastHit: Record<string, number> = {};
   const contacts: { px: number; py: number; nx: number; ny: number; depth: number; what: FallPath["hits"][number]["what"] }[] = [];
@@ -312,7 +311,8 @@ export function fallPath(shape: PackShape, sh: Shaft, stack: number): FallPath {
         const vt = cvz2 * tx + cvy2 * ty;
         const rt = rx * ty - ry * tx;
         let jt = -vt / (inv + rt * rt * invI);
-        const lim = 0.5 * j;
+        // the glass and the painted panels are slippery, the bin's floor and the packs less so
+        const lim = (k.what === "glass" ? 0.12 : k.what === "tray" ? 0.3 : 0.5) * j;
         jt = Math.max(-lim, Math.min(lim, jt));
         vz += jt * tx * inv;
         vy += jt * ty * inv;
@@ -332,11 +332,13 @@ export function fallPath(shape: PackShape, sh: Shaft, stack: number): FallPath {
     z += vz * dt;
     y += vy * dt;
     th += w * dt;
-    // lying still on the floor: done
-    const resting = contacts.some((k) => k.what === "floor" || k.what === "pack") && Math.hypot(vz, vy) < 0.02 && Math.abs(w) < 0.2;
-    still = resting ? still + 1 : 0;
     step++;
-    if (still > 90) break;
+    // lying still: on the floor (or a pack), and hardly moved from where it was a fifth of a second ago
+    if (step % perFrame === 0 && frames.length > 12) {
+      const then = frames[frames.length - 12];
+      const resting = contacts.some((k) => k.what === "floor" || k.what === "pack");
+      if (resting && Math.hypot(z - then.z, y - then.y) < 0.001 && Math.abs(th - then.tip) < 0.02) break;
+    }
   }
   frames.push({ z, y, tip: th });
   return { frames, release, hits };

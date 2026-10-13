@@ -37,8 +37,8 @@ export const SNACK = {
   /** where the front plate's face is, and the glass just behind it */
   front: -0.4,
   glassZ: -0.386,
-  /** the coils' front ends (the drop gap is between them and the glass) and their length */
-  coilZ: -0.228,
+  /** the coils' front ends (the drop gap is between them and the glass, wider than a bag is corner to corner) and their length */
+  coilZ: -0.176,
   coilLen: 0.48,
   /** a coil's radius and the length of one turn: a snack sits in each turn */
   coilR: 0.04,
@@ -54,7 +54,7 @@ export const SNACK = {
    * (the glass is just in front of it), and the bin's chute, sloping from the back of its floor
    * up to the trays' fronts at `top`.
    */
-  shaft: { front: -0.37, binBack: -0.15, top: 0.45 },
+  shaft: { front: -0.37, binBack: -0.1, top: 0.45 },
 } as const;
 
 export const ROWS = ["A", "B", "C", "D", "E"] as const;
@@ -892,7 +892,7 @@ export function snackMachine(ctx: WorldCtx, z: Zone, m: Matrix): void {
   plate(win.x1, win.y0 - 0.02, COL.x0, COL.y1); // mullion
   plate(win.x0, win.y0 - 0.04, win.x1, win.y0); // window sill
   plate(win.x0, win.y1, win.x1, COL.y1); // over the window, under the header
-  plate(COL.x0, COL.y0, xr, COL.y1); // pay column
+  plate(COL.x0, win.y0 - 0.04, xr, COL.y1); // pay column
   plate(win.x0, 0.07, xr, SNACK.bin.y0); // under the bin
   plate(win.x0, SNACK.bin.y1, xr, win.y0 - 0.04); // over the bin
   plate(win.x0, SNACK.bin.y0, SNACK.bin.x0, SNACK.bin.y1); // left of the bin

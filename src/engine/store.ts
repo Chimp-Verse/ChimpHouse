@@ -13,7 +13,7 @@ export interface PickedInfo {
 }
 
 /** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "claw" } | { kind: "pinball"; slot: number; name: string } | { kind: "airHockey"; end: 1 | 2 } | { kind: "foosball"; side: "red" | "blue" };
+export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "claw" } | { kind: "pinball"; slot: number; name: string } | { kind: "airHockey"; end: 1 | 2 } | { kind: "foosball"; side: "red" | "blue" } | { kind: "snack" };
 
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
@@ -160,6 +160,10 @@ export interface PreviewState {
   foosballPrompt: FoosballPrompt | null;
   /** playing foosball: the score, the phase, the rod you kick with, for the HUD */
   foosball: FoosballView | null;
+  /** at the snack machine: what E does (press the key pointed at, take a snack, step up to the machine), or eat the snack in hand */
+  snackPrompt: { action: "key" | "take" | "eat" | "use"; label: string } | null;
+  /** the snack in this visitor's hand, by name */
+  snackHeld: string | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -208,6 +212,8 @@ class Store {
     airHockey: null,
     foosballPrompt: null,
     foosball: null,
+    snackPrompt: null,
+    snackHeld: null,
   };
   private listeners = new Set<Listener>();
 
