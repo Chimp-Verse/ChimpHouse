@@ -499,6 +499,12 @@ export class Table {
       if (side * along < 0 || b.vx * s.dx + b.vy * s.dy > 0) return;
     }
     this.resolve(b, i, nx, ny, reach - d, svx, svy, s.e, s.mu, s);
+    if (t === 0 || t === 1) this.offTheTop(b, nx, ny);
+  }
+
+  /** A slow ball balanced right on top of a round end (a post, a rail's end) rolls off, as a real one does. */
+  private offTheTop(b: Ball, nx: number, ny: number): void {
+    if (ny > 0.995 && Math.abs(b.vx) < 0.02 && Math.abs(b.vy) < 0.05) b.vx += nx >= 0 ? 0.03 : -0.03;
   }
 
   private hitCircle(b: Ball, i: number, c: Circ): void {
@@ -527,6 +533,7 @@ export class Table {
       b.vy -= (1 + e) * vn * ny;
       if (-vn > 0.4) this.events.push({ type: "post", id: c.id, ball: i, speed: -vn });
     }
+    this.offTheTop(b, nx, ny);
   }
 
   /** Separate a ball from a surface and bounce it: normal (nx, ny) out of the surface, the surface moving at (svx, svy). */

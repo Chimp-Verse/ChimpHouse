@@ -459,7 +459,9 @@ function rulesLab(L) {
         g.tick(0.05);
       };
       const mouth = () => {
-        const b = g.table.balls.find((b) => b.mode === "free");
+        // a ball into the mouth: one on the playfield, or a fresh one if none is (drained, or already in the mouth)
+        let b = g.table.balls.find((b) => b.mode === "free");
+        if (!b) b = g.table.balls[g.table.serve()];
         Object.assign(b, { mode: "held", scoop: 0, x: 0.03, y: 0.75, vx: 0, vy: 0 });
         g.table.events.push({ type: "scoop", id: "mouth", ball: g.table.balls.indexOf(b) });
         g.tick(3);
@@ -471,7 +473,8 @@ function rulesLab(L) {
       mouth();
       const ready = g.game.status;
       mouth();
-      g.tick(5);
+      // the two new balls are launched 0.6 s and 2.2 s in; the held one comes out at 2.2 s
+      g.tick(0.5);
       out.bb = { lockLit: lock, ready, multiball: g.game.multiball, inPlay: g.table.inPlay, status: g.game.status };
     }
     return out;
@@ -533,18 +536,26 @@ async function play() {
     // play a while: a robot at the flipper buttons (a ball close above a flipper and coming down gets flipped)
     await ev((n) => {
       const pb = window.__chimp.pinball;
-      const L = { L: 0, R: 0 };
+      // per side: held now, since when, and a pause after letting a cradled ball go
+      const st = { L: { held: false, since: 0, pauseUntil: 0 }, R: { held: false, since: 0, pauseUntil: 0 } };
       window.__pinBot = setInterval(() => {
         const s = pb.state(n);
-        const flips = { L: false, R: false };
+        const now = performance.now();
+        const want = { L: false, R: false };
         for (const b of s.balls) {
           if (b.mode !== "free" || b.y > 0.32 || b.x > 0.2) continue;
-          flips[b.x < -0.022 ? "L" : "R"] = b.vy < 0.2 && b.y < 0.27;
+          want[b.x < -0.022 ? "L" : "R"] = b.vy < 0.2 && b.y < 0.27;
         }
         for (const side of ["L", "R"]) {
-          if (flips[side] && !L[side]) pb.press(n, side === "L" ? "ShiftLeft" : "ShiftRight", true);
-          if (!flips[side] && L[side]) pb.press(n, side === "L" ? "ShiftLeft" : "ShiftRight", false);
-          L[side] = flips[side];
+          const k = st[side];
+          // a cradled ball: let the flipper drop, and flip again as the ball rolls down it
+          if (k.held && now - k.since > 700) k.pauseUntil = now + 180;
+          const on = want[side] && now >= k.pauseUntil;
+          if (on !== k.held) {
+            pb.press(n, side === "L" ? "ShiftLeft" : "ShiftRight", on);
+            k.held = on;
+            k.since = now;
+          }
         }
         if (s.balls.some((b) => b.mode === "free" && b.x > 0.22 && b.y < 0.2) && s.plunger === 0) {
           pb.press(n, "Space", true);

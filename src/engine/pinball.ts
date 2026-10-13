@@ -164,6 +164,8 @@ export class Pinball {
     this.endGame(m);
     m.table.clear();
     m.game.state = "over";
+    // the balls off the table and the flippers down, as the machine is left
+    this.show(m);
     this.playing = null;
     if (m.player?.id === VIEWER) m.setPlayer(null);
     store.set({ pinball: null });
