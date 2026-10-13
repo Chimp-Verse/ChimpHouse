@@ -104,6 +104,8 @@ export class Foosball {
   private sentAt = 0;
   private seatAt = 0;
   private rematchSeen = { red: 0, blue: 0 };
+  /** the last few seat changes and why this page stopped playing, for tests */
+  private log: string[] = [];
 
   // ------------------------------------------------ local
   /** the side this visitor plays, while they play */
@@ -200,12 +202,19 @@ export class Foosball {
     this.sendSeat = { red: () => undefined, blue: () => undefined };
     this.sendRods = { red: () => undefined, blue: () => undefined };
     for (const team of TEAMS) {
-      this.sendSeat[team] = room.share<SeatMsg>(`foosball/seat/${team}`, null, (s) => (this.seats[team] = s));
+      this.sendSeat[team] = room.share<SeatMsg>(`foosball/seat/${team}`, null, (s) => {
+        this.seats[team] = s;
+        this.note(`${team} seat: ${s ? s.name : "free"}`);
+      });
       this.sendRods[team] = room.share<RodsMsg>(`foosball/rods/${team}`, null, (r) => (this.remote[team] = r));
     }
     // a player who leaves gives up their side
     room.onGone((id) => {
-      for (const team of TEAMS) if (this.seats[team]?.id === id) this.sendSeat[team](null);
+      for (const team of TEAMS)
+        if (this.seats[team]?.id === id) {
+          this.note(`${team} player gone`);
+          this.sendSeat[team](null);
+        }
     });
 
     // the player's hands, while they play
@@ -479,6 +488,7 @@ export class Foosball {
     const amHost = host === VIEWER;
     // lost the side to someone who sat at the same moment: step back
     if (this.side && this.seats[this.side]?.id !== VIEWER && now - this.seatAt > 600) {
+      this.note(`lost the ${this.side} side to ${this.seats[this.side]?.name ?? "nobody"}`);
       void this.leave();
       return;
     }
@@ -544,6 +554,7 @@ export class Foosball {
    * left, or red's player sat down), from where this page has the ball; else start one.
    */
   private takeOver(now: number): void {
+    this.note(`hosting from ${this.game.phase}`);
     this.robot = null;
     const going = this.game.phase === "play" || this.game.phase === "serve" || this.game.phase === "goal";
     if (going && this.game.host && now - this.game.at < 3000) {
@@ -845,6 +856,11 @@ export class Foosball {
 
   // ------------------------------------------------------------------ tests
 
+  private note(what: string): void {
+    this.log.push(`${Math.round(performance.now())} ${what}`);
+    if (this.log.length > 12) this.log.shift();
+  }
+
   /** Where things are and how the game stands, for tests. */
   describe() {
     const t = this.table.getAbsolutePosition();
@@ -862,6 +878,7 @@ export class Foosball {
       aimZ: this.aimZ,
       touch: this.touch,
       robot: this.robot?.team ?? null,
+      log: [...this.log],
     };
   }
 

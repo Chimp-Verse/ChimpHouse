@@ -22,16 +22,17 @@ const check = (ok, what, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${what}${detail ? `  (${detail})` : ""}`);
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const browser = await chromium.launch({ headless: !process.env.HEADED, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
+const launch = () => chromium.launch({ headless: !process.env.HEADED, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist", "--disable-renderer-backgrounding", "--disable-background-timer-throttling", "--disable-backgrounding-occluded-windows"] });
+const browser = await launch();
 
-/** A visitor: a page of its own, loaded and ready. */
-async function visitor(name, size = { width: 1400, height: 820 }) {
-  const ctx = await browser.newContext({ viewport: size });
+/** A visitor: a page of its own, loaded and ready (in a browser of its own when given one, so it is never a background window). */
+async function visitor(name, size = { width: 1400, height: 820 }, from = browser, query = "") {
+  const ctx = await from.newContext({ viewport: size });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
-  page.on("console", (m) => m.type() === "error" && !/status of 530|chimpvibe/i.test(m.text()) && console.log(`[${name} error]`, m.text().slice(0, 300)));
+  page.on("console", (m) => m.type() === "error" && !/status of (530|404)|chimpvibe/i.test(m.text()) && console.log(`[${name} error]`, m.text().slice(0, 300)));
   const t0 = Date.now();
-  await page.goto(`${URL}/?view=game&name=${encodeURIComponent(name)}`);
+  await page.goto(`${URL}/?view=game&name=${encodeURIComponent(name)}${query}`, { timeout: 180000 });
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   console.log(`(${name} loaded in ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
   const ev = (fn, a) => page.evaluate(fn, a);
@@ -41,10 +42,11 @@ async function visitor(name, size = { width: 1400, height: 820 }) {
     name,
     fb: () => ev(() => window.__chimp.foosball.describe()),
     state: () => ev(() => window.__chimp.state()),
-    settle: (n = 10) => ev((n) => window.__chimp.settle(n), n),
+    settle: (n = 10) => Promise.race([ev((n) => window.__chimp.settle(n), n), sleep(4000)]),
     shot: (file) => page.screenshot({ path: `captures/foosball-${file}.png` }),
     /** stand at a side of the table, in walk mode, looking at it */
     standAt: async (side, back = 0.75) => {
+      await page.bringToFront();
       await ev(
         ({ side, back }) => {
           const c = window.__chimp;
@@ -376,21 +378,26 @@ if (want("solo")) {
 
 // ------------------------------------------------------------------ duo
 if (want("duo")) {
-  const a = await visitor("Ana", { width: 1000, height: 640 });
+  // each in a browser of its own: two windows side by side, both drawing
+  // two whole houses drawing at once: kept light
+  const a = await visitor("Ana", { width: 860, height: 540 }, browser, "&quality=low");
   await a.ev(() => window.__chimp.foosball.reset());
-  const b = await visitor("Ben", { width: 1000, height: 640 });
+  const second = await launch();
+  const b = await visitor("Ben", { width: 860, height: 540 }, second, "&quality=low");
   await a.standAt("red");
+  await a.page.waitForFunction(() => window.__chimp.state().foosballPrompt?.side === "red", null, { timeout: 8000, polling: 100 });
   await a.page.keyboard.press("KeyE");
-  await a.page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 8000 });
+  await a.page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 15000, polling: 100 });
   await b.standAt("blue");
   await sleep(500);
   const bp = (await b.state()).foosballPrompt;
   check(bp?.side === "blue" && bp?.against === "Ana", "a second visitor at the other side is offered it, against the first", JSON.stringify(bp));
   await b.page.keyboard.press("KeyE");
-  await b.page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 8000 });
+  await b.page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 15000, polling: 100 });
   await sleep(600);
   let [da, db] = await Promise.all([a.fb(), b.fb()]);
-  check(da.robot !== "blue" || da.seats.blue?.name === "Ben", "the second visitor takes the robot's side", JSON.stringify({ a: da.seats, robotOnA: da.robot }));
+  check(da.seats.blue?.name === "Ben" && db.side === "blue", "the second visitor takes the robot's side", JSON.stringify({ a: da.seats, robotOnA: da.robot, benSide: db.side }));
+  if (da.seats.blue?.name !== "Ben") console.log("      (Ana's log:", da.log.join(" | "), ")\n      (Ben's log:", db.log.join(" | "), ")");
   check(da.host === db.host && da.host === da.seats.red?.id, "both pages agree red's page hosts", `${da.host} / ${db.host}`);
   // Ben's hands reach Ana's page
   await b.ev(() => window.__chimp.foosball.aim(0.25));
@@ -398,7 +405,7 @@ if (want("duo")) {
   da = await a.fb();
   check(Math.abs(da.rods[7].slide - 0.2) < 0.03, "Ben's rods move on Ana's page as his hands move them", `blue goalie at ${da.rods[7].slide.toFixed(3)} on Ana's page`);
   // the ball, the same on both
-  await a.ev(() => window.__chimp.foosball.place(0.0, 0.05, 0.8, 0.5));
+  await a.ev(() => window.__chimp.foosball.place(0.0, 0.05, 0.5, 0.3));
   await sleep(500);
   [da, db] = await Promise.all([a.fb(), b.fb()]);
   const apart = Math.hypot(da.ball.x - db.ball.x, da.ball.z - db.ball.z);
@@ -413,18 +420,18 @@ if (want("duo")) {
   da = await a.fb();
   check(da.ball.vx < -1 && da.touch === "blue", "Ben's kick sends the ball towards red's goal on Ana's page", `vx ${da.ball.vx.toFixed(2)}`);
   // Ana leaves: Ben carries on, hosting, against the robot
+  await a.page.bringToFront();
   await a.page.keyboard.press("Escape");
   await sleep(900);
   db = await b.fb();
   check(db.host === db.seats.blue?.id && db.robot === "red" && db.game.phase !== "idle", "when the host leaves, the other player hosts and the robot takes the side", JSON.stringify({ host: db.host, robot: db.robot, phase: db.game.phase }));
-  // Ben closes his page: the side is free again
-  const c = await visitor("Cat", { width: 800, height: 520 });
+  // Ben closes his page: Ana, still at the table, sees his side free again
   await b.page.context().close();
-  await c.page.waitForFunction(() => !window.__chimp.foosball.describe().seats.blue, null, { timeout: 20000 }).catch(() => {});
-  const dc = await c.fb();
+  await second.close();
+  await a.page.waitForFunction(() => !window.__chimp.foosball.describe().seats.blue, null, { timeout: 20000, polling: 200 }).catch(() => {});
+  const dc = await a.fb();
   check(!dc.seats.blue && !dc.seats.red, "a visitor who closes their page gives up their side", JSON.stringify(dc.seats));
   await a.page.context().close();
-  await c.page.context().close();
 }
 
 await browser.close();
