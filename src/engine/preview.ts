@@ -35,6 +35,8 @@ export interface PreviewController {
   readonly theatre: Theatre;
   /** The theatre's remotes: whoever holds one controls the theatre. */
   readonly remotes: Remotes;
+  /** The Game Room's snack machine. */
+  readonly snacks: SnackMachine;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -73,9 +75,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
   // the snack machine: its coils and snacks, shown from its shared state (engine/snackState.ts)
-  const snacks = new SnackMachine(scene, world.mats, lighting);
+  const snacks = new SnackMachine(scene, world.mats, fly, focus, canvas, (msg) => flash(msg));
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
-  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
+  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e) || snacks.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
@@ -156,6 +158,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     leaveCabinet: () => arcade.leave(),
     theatre,
     remotes,
+    snacks,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -270,6 +273,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.snackPrompt) snacks.act();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -418,6 +422,29 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     snacks: {
       /** the machine's base and the way its front faces, for placing the camera */
       machine: () => snacks.where(),
+      /** the shared state and what shows: display, code typed, vends, the snack in hand */
+      describe: () => snacks.describe(),
+      /** a key pressed (A–E, 1–6, CLR), or a whole code typed */
+      press: (key: string) => snacks.press(key),
+      choose: (code: string) => snacks.choose(code),
+      /** E or a click, as the visitor would: whatever is pointed at, or what the prompt offers */
+      act: () => snacks.act(),
+      take: () => snacks.takeSnack(),
+      eat: () => snacks.eat(),
+      use: () => snacks.use(),
+      leave: () => snacks.leave(),
+      /** where the packs on a coil stand, from its front end (m) */
+      coilPacks: (code: string) => snacks.coilPacks(code),
+      /** where each key and the flap are in the world */
+      places: () => snacks.places(),
+      /** the shaft a coil's snacks fall down, in the coil's frame */
+      shaft: (code: string) => snacks.shaftOf(code),
+      /** hold the stock still as it was `ms` after the last vend started (null runs on), for screenshots */
+      pauseAt: (ms: number | null) => snacks.pauseAt(ms),
+      /** hold eating still `ms` into it (null runs on), for screenshots */
+      holdEat: (ms: number | null) => snacks.holdEat(ms),
+      setState: (patch: Parameters<typeof snacks.setState>[0]) => snacks.setState(patch),
+      drop: () => snacks.drop(),
     },
     info: () => ({
       fps: Math.round(engine.getFps()),
@@ -447,7 +474,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade.update();
     remotes.update();
     theatre.update();
-    snacks.update(store.get().night);
+    snacks.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();

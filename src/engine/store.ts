@@ -12,7 +12,7 @@ export interface PickedInfo {
 }
 
 /** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" };
+export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "snack" };
 
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
@@ -100,6 +100,10 @@ export interface PreviewState {
   /** a lift button within reach: E (or a click on it) presses it */
   /** the lift button the walker points at, and what pressing it does */
   liftPrompt: { id: string; label: string } | null;
+  /** at the snack machine: what E does (press the key pointed at, take a snack, step up to the machine), or eat the snack in hand */
+  snackPrompt: { action: "key" | "take" | "eat" | "use"; label: string } | null;
+  /** the snack in this visitor's hand, by name */
+  snackHeld: string | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -140,6 +144,8 @@ class Store {
     remotePrompt: null,
     lift: initialLift(Date.now()),
     liftPrompt: null,
+    snackPrompt: null,
+    snackHeld: null,
   };
   private listeners = new Set<Listener>();
 

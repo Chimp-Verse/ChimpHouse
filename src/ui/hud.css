@@ -671,3 +671,36 @@ kbd {
   margin-top: 8px;
   color: var(--muted);
 }
+
+/* at the snack machine: how to use it, along the bottom */
+.snack-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(10, 32, 30, 0.86);
+  border: 1px solid rgba(111, 240, 191, 0.35);
+  color: #ffe9c9;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: min(760px, calc(100vw - 32px));
+}
+.snack-title {
+  font: 800 16px Nunito, sans-serif;
+  color: #6ff0bf;
+  white-space: nowrap;
+}
+.snack-help kbd {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+}
+.snack-panel button {
+  white-space: nowrap;
+}
