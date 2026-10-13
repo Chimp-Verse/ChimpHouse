@@ -28,12 +28,12 @@
 import { Color3, Matrix, Mesh, PBRMaterial, Quaternion, Ray, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { MeshMeta, SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
-import { FoosballRod, RETURN_CUP, STAND_OUT, buildFoosballBall, buildFoosballBeads, buildFoosballRod, setBeads } from "../world/props/foosball";
+import { FoosballRod, FoosballShafts, RETURN_CUP, STAND_OUT, buildFoosballBall, buildFoosballBeads, buildFoosballRod, buildFoosballShafts, setBeads } from "../world/props/foosball";
 import { ATTACK, BALL_R, FIELD, GOAL, RODS, SIDE, SIDE_WALL, Team, WALL_TOP, WIN_SCORE } from "../world/props/foosballSpec";
 import { ROLE, find, findAll } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
-import { ScreenFocus } from "./focus";
-import { BallState, Hand, PLAYER_HAND, PhysicsEvent, RodPose, advance, driveRod, newBall, restPose, slideFor } from "./foosballPhysics";
+import { ScreenFocus, pickPoint } from "./focus";
+import { BallState, HAND, Hand, PLAYER_HAND, PhysicsEvent, RodPose, advance, driveRod, handTurn, nearestTurn, newBall, restPose, slideFor } from "./foosballPhysics";
 import { FoosGame, FoosballView, Seat, TIMING, advanceGame, halfOf, hostFor, idleGame, initialGame, scoreGoal, serveBall, startMatch, winner } from "./foosballMatch";
 import { ROBOT, RobotMind, newRobot, robotPlay } from "./foosballRobot";
 import { FoosballSound } from "./foosballSound";
@@ -65,12 +65,6 @@ const SEND_MS = 33;
 /** a seat not refreshed for this long is empty (ms): its player's page is gone */
 const SEAT_FRESH = 15000;
 const SEAT_BEAT = 4000;
-/** the turn a flick gives, per pixel of mouse movement to the right (rad) */
-const FLICK = 0.0115;
-/** how quickly the lit rod settles back with its men hanging down once the mouse stops (s) */
-const SETTLE = 0.09;
-/** how long without sideways movement counts as the mouse having stopped (ms) */
-const STILL_MS = 60;
 /** the turn of men lifted by the player (feet back, as for a shot) and lifted out of the way of their own shot (feet forward) */
 const LIFT_BACK = -1.35;
 const LIFT_AHEAD = 1.5;
@@ -84,13 +78,15 @@ const HL = FIELD.length / 2;
 const HW = FIELD.width / 2;
 const OZ = HW + SIDE_WALL;
 
-const nearestTurn = (cur: number, base: number) => base + TAU * Math.round((cur - base) / TAU);
 
 export class Foosball {
   /** the table's frame: the playfield's centre, X along it from red's goal, Z along the rods */
   readonly table: TransformNode;
   readonly field: Mesh;
   readonly rods: FoosballRod[] = [];
+  private shafts: FoosballShafts;
+  /** each shaft's slide as last drawn */
+  private shaftAt = RODS.map(() => 0);
   readonly ballMesh: Mesh;
   private beads = new Map<Team, Mesh>();
   private beadShown = { red: 0, blue: 0 };
@@ -128,6 +124,8 @@ export class Foosball {
   private lag = { x: 0, z: 0 };
   private rolling = Quaternion.Identity();
   private events: PhysicsEvent[] = [];
+  /** the last few strikes of the ball by a man, as this page's physics saw them, for tests */
+  private strikes: { rod: number; at: number; before: number; after: number; turnV: number }[] = [];
   private robot: RobotMind | null = null;
   private stillSince = 0;
   /** the side that touched the ball last, as this page saw it */
@@ -179,15 +177,19 @@ export class Foosball {
     this.tableInv = this.tableWM.clone().invert();
     this.floorY = this.tableWM.getTranslation().y - FIELD.y;
     const meshes: Mesh[] = [];
+    const slots: TransformNode[] = [];
     for (const node of findAll(scene, ROLE.foosballRodSlot) as TransformNode[]) {
       const n = (node.metadata as SlotMeta).slot;
       const rod = buildFoosballRod(mats, node, n);
       rod.men.outlineColor = Color3.FromHexString("#ffe27a");
       rod.men.outlineWidth = 0.0034;
       this.rods[n - 1] = rod;
-      meshes.push(...rod.meshes);
+      slots[n - 1] = node;
+      meshes.push(rod.men);
     }
     if (this.rods.length !== RODS.length || this.rods.some((r) => !r)) throw new Error("The foosball table is missing rods");
+    this.shafts = buildFoosballShafts(mats, table, slots);
+    meshes.push(this.shafts.mesh);
     this.ballMesh = buildFoosballBall(mats, table);
     this.ballMesh.rotationQuaternion = this.rolling;
     this.ballMesh.position.set(0, BALL_R, 0);
@@ -438,13 +440,18 @@ export class Foosball {
 
   // ------------------------------------------------------------------ choosing the rod
 
-  /** The player's rod nearest the ball, keeping the one in use unless another is clearly nearer. */
+  /**
+   * The player's rod nearest the ball, preferring one with the ball in front of it within its
+   * men's reach (a flick sends it forward), and keeping the one in use unless another is clearly nearer.
+   */
   private autoRod(team: Team): number {
     let best = -1;
     let bestD = Infinity;
+    const a = ATTACK[team];
     for (let i = 0; i < RODS.length; i++) {
       if (RODS[i].team !== team) continue;
-      const d = Math.abs(RODS[i].x - this.ball.x) - (i === this.active ? 0.012 : 0);
+      const ahead = (this.ball.x - RODS[i].x) * a;
+      const d = Math.abs(ahead) - (ahead > 0 && ahead < 0.08 ? 0.03 : 0) - (i === this.active ? 0.012 : 0);
       if (d < bestD) {
         bestD = d;
         best = i;
@@ -529,7 +536,13 @@ export class Foosball {
     // the ball
     if (amHost) this.hostStep(dt, now);
     else if (this.game.phase === "play" && !this.held) this.predict(dt);
-    for (const e of this.events.splice(0)) this.hear(e, now);
+    for (const e of this.events.splice(0)) {
+      if (e.kind === "man") {
+        this.strikes.push({ rod: e.rod + 1, at: now, before: e.before[0], after: e.after[0], turnV: e.turnV });
+        if (this.strikes.length > 8) this.strikes.shift();
+      }
+      this.hear(e, now);
+    }
 
     // send what this page owns
     if (now - this.sentAt >= SEND_MS) {
@@ -712,18 +725,14 @@ export class Foosball {
       this.active = active;
       this.rods[active].men.renderOutline = true;
     }
-    const still = performance.now() - this.movedAt > STILL_MS;
-    const settle = 1 - Math.exp(-dt / SETTLE);
+    const still = performance.now() - this.movedAt > HAND.stillMs;
     const ownShot = this.touch === side && this.ball.vx * a > OWN_SHOT;
     for (let i = 0; i < RODS.length; i++) {
       if (RODS[i].team !== side) continue;
       const ahead = (RODS[i].x - this.ball.x) * a;
       if (ownShot && ahead > -0.11 && ahead < 0.35) this.forward[i] = nearestTurn(this.forward[i], LIFT_AHEAD);
       else if (this.liftHeld) this.forward[i] = nearestTurn(this.forward[i], LIFT_BACK);
-      else {
-        if (i === active) this.forward[i] += this.flickPx * FLICK;
-        if (i !== active || still) this.forward[i] += (nearestTurn(this.forward[i], 0) - this.forward[i]) * settle;
-      }
+      else this.forward[i] = handTurn(this.forward[i], i === active, this.flickPx, still, dt);
       const target = slideFor(i, this.aimZ, this.man[i]);
       this.man[i] = target.man;
       driveRod(i, this.poses[i], target.slide, a * this.forward[i], dt, PLAYER_HAND);
@@ -768,10 +777,8 @@ export class Foosball {
   /** Where the cursor points across the table: the line across it under the cursor, at the ball's height. */
   private cursorZ(): number | null {
     if (!this.mouse) return null;
-    const engine = this.scene.getEngine();
-    const box = this.canvas.getBoundingClientRect();
-    const x = ((this.mouse.x - box.left) / box.width) * engine.getRenderWidth();
-    const y = ((this.mouse.y - box.top) / box.height) * engine.getRenderHeight();
+    // in CSS pixels: Babylon applies the hardware scaling (0.8 on a Retina screen at high quality) itself
+    const { x, y } = pickPoint(this.canvas, this.mouse);
     this.scene.createPickingRayToRef(x, y, null, this.ray, this.fly.camera);
     const o = Vector3.TransformCoordinatesToRef(this.ray.origin, this.tableInv, this.v1);
     const d = Vector3.TransformNormalToRef(this.ray.direction, this.tableInv, this.v2);
@@ -784,6 +791,7 @@ export class Foosball {
   /** A sound for what happened, and the coach's tip goes once the player has kicked. */
   private hear(e: PhysicsEvent, now: number): void {
     if (e.kind === "man") {
+      if (e.speed < 0.15) return;
       this.sound.knock(Math.min(1, e.speed / 4), this.distance());
       if (this.side && RODS[e.rod].team === this.side && e.speed > 1) this.coachUntil = Math.min(this.coachUntil, performance.now() + 2500);
     } else if (e.kind === "wall") this.sound.clack(Math.min(1, e.speed / 4), this.distance());
@@ -798,11 +806,19 @@ export class Foosball {
   // ------------------------------------------------------------------ showing it
 
   private show(dt: number, now: number): void {
+    let slid = false;
     for (let i = 0; i < RODS.length; i++) {
       const root = this.rods[i].root;
-      root.position.z = this.poses[i].slide;
-      root.rotation.z = this.poses[i].turn;
+      const p = this.poses[i];
+      root.position.z = p.slide;
+      root.rotation.z = p.turn;
+      if (p.slide !== this.shaftAt[i]) {
+        this.shaftAt[i] = p.slide;
+        this.shafts.place(i, p.slide);
+        slid = true;
+      }
     }
+    if (slid) this.shafts.commit();
     // the ball, by the phase
     const g = this.game;
     const t = now - g.since;
@@ -919,6 +935,9 @@ export class Foosball {
       picked: this.picked + 1,
       aimZ: this.aimZ,
       touch: this.touch,
+      strikes: [...this.strikes],
+      /** the room's time now, to tell later strikes from earlier ones */
+      now: room.now(),
       robot: this.robot?.team ?? null,
       log: [...this.log],
     };
