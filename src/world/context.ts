@@ -30,7 +30,8 @@ export interface MeshMeta {
   matKey: string;
   /** "dynamic": added and removed at run time (a game's cabinet), so solid but never part of the room's export */
   /** "lift": a part of the lift that moves (the car, its doors): solid where it is now, see engine/collision.ts */
-  kind?: "leaves" | "special" | "dynamic" | "lift";
+  /** "moving": a machine's moving part built at run time (a puck, a flipper, a rod): never solid, never part of the room's export */
+  kind?: "leaves" | "special" | "dynamic" | "lift" | "moving";
   /** what the client attaches behaviour to (see roles.ts), with its slot number when it fills one */
   role?: string;
   slot?: number;

@@ -19,7 +19,7 @@ Each machine is a lane with its own branch and worktree, made from `game-room-ov
 | Snack machine | `snack-machine` | `../ChimpHouse-snack` | 5185 |
 | Integration | `game-room-overhaul` | `../ChimpHouse-game-room` | 5180 |
 
-Each lane runs its own dev server on its own port: `npx vite --port <port>` in its worktree, left running in the background. Port 5173 belongs to the user's own dev server: leave it alone. Every test tool reads the address from `URL` (for example `URL=http://localhost:5181`). Give any new tool the same `URL` override, and pass `URL` to `tools/debug-view.mjs`, which assumes 5173 otherwise.
+Each lane runs its own dev server on its own port: `npx vite --port <port>` in its worktree, left running in the background. Port 5173 belongs to the user's own dev server: leave it alone. The `tools/test-*.mjs` tools read the address from `URL` (for example `URL=http://localhost:5181`), and any new tool must do the same. `tools/debug-view.mjs` and `tools/try-poses.mjs` ignore `URL` and always open 5173, which runs the old code. To use one, make the same one-line edit in every lane: in its `page.goto` template string, replace the literal `http://localhost:5173` with `${process.env.URL ?? "http://localhost:5173"}`.
 
 ### Milestones
 
@@ -70,7 +70,12 @@ Five lanes are writing in parallel, and the orchestrator merges them. These conv
 
 **Finding things by role.** Give every interactive part a role in `src/world/roles.ts` (one `ROLE` entry each, named after its machine, e.g. `airHockeyTable`, `pinballFlipper`), with a slot number where there are several. The engine finds those parts only by role and slot (`find`/`findAll`), never by how the room code builds them, so this carries over to the Blender files. Static parts are merged into the room through `ctx.g(zone, mat)` as the rest of the house is, each labelled for inspect: "Air hockey table", "Pinball machine: Jungle Quest" and so on. Moving parts are meshes of their own, built at run time the way `props/cabinet.ts` and `props/remote.ts` build theirs, and added to the lights with `lighting.addMeshes`.
 
-Moving parts must never become stale solids in the walker's collision grid. Read `MeshMeta.kind` in `src/world/context.ts` and `solid()`/`mover()` in `src/engine/collision.ts`, and choose accordingly. Moving parts don't cast the sun's shadow, which is only drawn once.
+Moving parts must never be stale solids in the walker's collision grid, and never be exported twice. Pick one of two patterns for each moving part:
+
+- **Built by the room code** (the lift's pattern): a mesh of its own made by the world builder with a role. It goes into the Blender export, and the engine finds it by role and moves it. Tag it `kind: "special"`, which isn't solid. The engine must never build a second copy.
+- **Built by the engine at run time** (the cabinets' and remotes' pattern): tag it `kind: "moving"`, which is never solid and never exported. Its place is a slot the room code creates (`ctx.slot`), so the Blender files carry the slot and not the part.
+
+Never use `kind: "special"` for a mesh the engine builds at run time: the export would copy it into Blender, and after the cut-over the engine would add a second one. Moving parts don't cast the sun's shadow, which is only drawn once.
 
 **Walking up and playing.** Follow the arcade, theatre and lift patterns:
 

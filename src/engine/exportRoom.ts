@@ -189,7 +189,7 @@ function selectZone(scene: Scene, zoneId: string, level?: string, roofsOver = fa
   for (const m of scene.meshes) {
     const md = m.metadata as MeshMeta | undefined;
     // a game's cabinet is put in its slot at run time: the room file holds the slot (slotNodes), not the cabinet
-    if (!(m instanceof Mesh) || !md || md.kind === "dynamic" || !m.material || m.getTotalIndices() === 0 || SCENERY.test(m.name)) continue;
+    if (!(m instanceof Mesh) || !md || md.kind === "dynamic" || md.kind === "moving" || !m.material || m.getTotalIndices() === 0 || SCENERY.test(m.name)) continue;
     if (md.room === zoneId && (!room || md.level === room.level)) {
       if (md.kind === "leaves") leafMeshes.push(m);
       else if (m.name === "terrain") segs.push(...segmentsOf(m).map((sg) => clipToPlan(sg, siteBounds(scene))));
