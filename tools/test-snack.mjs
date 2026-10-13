@@ -51,9 +51,21 @@ const perf = async () => {
   return ev(() => window.__chimp.info());
 };
 
-await view(2.5, 1.62, 0.3, 1.05);
+await view(2.5, 1.62, 0.3, 1.15, 0, 0.95);
 const p = await perf();
-console.log(`at the machine: ${p.fps} fps, ${p.drawCalls} draw calls`);
+// and with the machine's own meshes hidden (the materials it brought, and what the engine builds), for the cost of it
+const mine = (on) =>
+  ev((on) => {
+    for (const m of window.__chimp.scene.meshes) {
+      const md = m.metadata;
+      if (!md) continue;
+      if (/^snack|^arcadeWhiteKey/.test(md.matKey ?? "") || /^snack-/.test(md.role ?? "") || /Snack machine/.test(m.name)) m.setEnabled(on);
+    }
+  }, on);
+await mine(false);
+const q = await perf();
+await mine(true);
+console.log(`at the machine: ${p.fps} fps, ${p.drawCalls} draw calls; with it hidden: ${q.fps} fps, ${q.drawCalls} draw calls`);
 await shot("look");
 await view(1.15, 1.35, 0.05, 1.15, -0.02, 0.75);
 await settle();
@@ -64,8 +76,11 @@ await shot("keypad");
 await view(1.9, 1.75, -1.4, 1.2, 0.0, 0.85);
 await settle();
 await shot("side");
+await view(1.0, 2.25, 0.4, 2.12, 0.27, 0.6);
+await settle();
+await shot("mascot");
 await ev(() => window.__chimp.setNight(true));
-await view(2.5, 1.62, 0.3, 1.05);
+await view(2.5, 1.62, 0.3, 1.15, 0, 0.95);
 await settle(60);
 await shot("night");
 await ev(() => window.__chimp.setNight(false));

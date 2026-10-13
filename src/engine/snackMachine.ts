@@ -7,7 +7,7 @@
 // are thin instances, a mesh for the coils and one per brand, so the whole stock
 // costs a dozen draw calls and moving a snack is a matrix.
 
-import { Color3, Light, Matrix, PointLight, Scene, TransformNode, Vector3 } from "@babylonjs/core";
+import { Color3, Matrix, PBRMaterial, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { COIL_CAPACITY, PACK_SIZE, SNACK, SnackStockMeshes, buildSnackStock, coilCode, snackBrand } from "../world/props/snackMachine";
@@ -30,8 +30,6 @@ export class SnackMachine {
   private coilAt = new Map<string, Matrix>();
   private stock: SnackStockMeshes;
   private state: SnackState = initialSnacks(COIL_CAPACITY);
-  /** the cabinet's own light on its snacks: a real machine's tubes behind the frame, on day and night */
-  private light: PointLight;
   private night: boolean | null = null;
 
   constructor(
@@ -48,27 +46,19 @@ export class SnackMachine {
       this.coilAt.set(coilCode((n.metadata as SlotMeta).slot), n.computeWorldMatrix(true).multiply(inv));
     }
     this.stock = buildSnackStock(mats, machine, this.coilAt.size);
-    // lit by the cabinet's own light (and the sun and sky), not the room's lamps: they're behind glass in a cabinet, and the
-    // room's many lamps would take every light a material has room for, leaving the cabinet's out
+    // not lit by the room's lamps: they're behind glass in a cabinet, and the room is past its lights per material already
     void lighting;
-    // in front of the window and a little above, so every row is lit about evenly, and only the snacks and coils
-    this.light = new PointLight("Snack machine light", new Vector3((SNACK.win.x0 + SNACK.win.x1) / 2, SNACK.win.y1 - 0.1, SNACK.front - 0.45), scene);
-    this.light.parent = machine;
-    this.light.diffuse = Color3.FromHexString("#fff6ea").toLinearSpace();
-    this.light.specular = this.light.diffuse.scale(0.4);
-    this.light.falloffType = Light.FALLOFF_STANDARD;
-    this.light.range = 2.4;
-    this.light.includedOnlyMeshes = [...this.stock.meshes];
     this.update(false);
     this.showCoils();
     this.showPacks();
   }
 
-  /** Each frame: the cabinet light follows day and night. */
+  /** Each frame: the snacks glow a little more at night, lit by the cabinet's tubes when the room is dark. */
   update(night: boolean): void {
     if (night === this.night) return;
     this.night = night;
-    this.light.intensity = night ? 1.5 : 0.9;
+    const glow = new Color3(1, 1, 1).scale(night ? 0.42 : 0.04);
+    for (const mesh of this.stock.packs.values()) (mesh.material as PBRMaterial).emissiveColor = glow;
   }
 
   /** The machine's base in the world, the way its front faces (unit, flat), and where a visitor stands to use it. */

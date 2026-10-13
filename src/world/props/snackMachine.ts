@@ -48,7 +48,13 @@ export const SNACK = {
   /** lanes per row */
   lanes: [5, 5, 5, 6, 6],
   /** the pickup bin behind the PUSH flap: its opening, and the floor a dropped snack lands on */
-  bin: { x0: -0.37, x1: 0.15, y0: 0.17, y1: 0.42, floor: 0.19, z: -0.33 },
+  bin: { x0: -0.37, x1: 0.15, y0: 0.17, y1: 0.42, floor: 0.19, z: -0.27 },
+  /**
+   * The shaft a snack falls down, in front of the trays below its own: the front panel's back
+   * (the glass is just in front of it), and the bin's chute, sloping from the back of its floor
+   * up to the trays' fronts at `top`.
+   */
+  shaft: { front: -0.37, binBack: -0.15, top: 0.45 },
 } as const;
 
 export const ROWS = ["A", "B", "C", "D", "E"] as const;
@@ -113,12 +119,20 @@ export const PACK_SIZE: Record<PackKind, { w: number; h: number; d: number }> = 
 const brandById = new Map(SNACK_BRANDS.map((b) => [b.id, b]));
 export const snackBrand = (id: string) => brandById.get(id)!;
 
-/** A brand's pack material: its art on the front, its back printed, glossy like a foil bag or a wrapper. */
-export function packMat(mats: Materials, brand: SnackBrand): string {
-  const key = `snackPack:${brand.id}`;
+/**
+ * A brand's pack material: its art on the front, its back printed, glossy like a foil bag or a
+ * wrapper. In the machine (`lit`) its art also glows a little, as the cabinet's tubes light it:
+ * the engine turns that up at night (no lamp of its own, which the room's light budget hasn't room for).
+ */
+export function packMat(mats: Materials, brand: SnackBrand, lit = true): string {
+  const key = `snackPack:${brand.id}${lit ? "" : ":out"}`;
   if (!mats.has(key)) {
     const tex = toTexture(mats.scene, key, packCanvas(brand), { wrap: false });
-    mats.pbr(key, { tex, rough: brand.kind === "box" ? 0.55 : 0.32, metal: brand.kind === "bag" ? 0.25 : 0.05, clearCoat: brand.kind === "box" ? 0 : 0.5 });
+    const m = mats.pbr(key, { tex, rough: brand.kind === "box" ? 0.55 : 0.32, metal: brand.kind === "bag" ? 0.25 : 0.05, clearCoat: brand.kind === "box" ? 0 : 0.5 });
+    if (lit) {
+      m.emissiveTexture = tex;
+      m.emissiveColor = Color3.Black();
+    }
   }
   return key;
 }
@@ -954,9 +968,14 @@ export function snackMachine(ctx: WorldCtx, z: Zone, m: Matrix): void {
 
   // ---- the bin: a chute down behind the lower panel to the floor a dropped snack lands on
   const bin = new Geo();
-  bin.add(box(b.x1 - b.x0 + 0.06, 0.01, 0.2), xf((b.x0 + b.x1) / 2, b.floor - 0.005, front + 0.12, 0, 1, 1, 1, -0.08));
-  bin.add(box(b.x1 - b.x0 + 0.06, 0.48, 0.01), xf((b.x0 + b.x1) / 2, b.floor + 0.24, front + 0.2, 0, 1, 1, 1, 0.28));
-  for (const x of [b.x0 - 0.03, b.x1 + 0.03]) bin.add(box(0.01, win.y0 - b.floor, 0.22), xf(x, (win.y0 + b.floor) / 2, front + 0.11));
+  const sh = SNACK.shaft;
+  const lip = coilZ - 0.014;
+  const bw = b.x1 - b.x0 + 0.06;
+  bin.add(box(bw, 0.01, sh.binBack - front), xf((b.x0 + b.x1) / 2, b.floor - 0.005, (sh.binBack + front) / 2));
+  const chute = Math.hypot(sh.top - b.floor, lip - sh.binBack);
+  bin.add(box(bw, chute, 0.008), xf((b.x0 + b.x1) / 2, (sh.top + b.floor) / 2, (sh.binBack + lip) / 2 + 0.004, 0, 1, 1, 1, -Math.atan2(sh.binBack - lip, sh.top - b.floor)));
+  bin.add(box(bw, win.y0 - sh.top, 0.008), xf((b.x0 + b.x1) / 2, (win.y0 + sh.top) / 2, lip + 0.004));
+  for (const x of [b.x0 - 0.03, b.x1 + 0.03]) bin.add(box(0.01, win.y0 - b.floor, sh.binBack - front), xf(x, (win.y0 + b.floor) / 2, (sh.binBack + front) / 2));
   put("charcoal", bin, Matrix.Identity(), label, { castShadow: false });
   // the flap's brass frame
   const fr = new Geo();
@@ -1139,7 +1158,7 @@ function mascot(ctx: WorldCtx, z: Zone, m: Matrix): void {
   for (const s of [-1, 1]) ctx.g(z, "white", { castShadow: false }).add(sphere(0.004, 6, 4), xf(s * 0.03 + 0.004, 0.366, -0.111).multiply(m), label);
   // the bag of banana chips it's holding, tipped toward the room
   const brand = snackBrand("jungleCrunch");
-  ctx.g(z, packMat(ctx.mats, brand)).add(packGeo("bag"), xf(0, 0.15, -0.15, 0.15, 0.95, 0.95, 0.95, -0.25).multiply(m), label);
+  ctx.g(z, packMat(ctx.mats, brand, false)).add(packGeo("bag"), xf(0, 0.15, -0.15, 0.15, 0.95, 0.95, 0.95, -0.25).multiply(m), label);
 }
 
 // ------------------------------------------------------------------ built at run time
@@ -1164,7 +1183,7 @@ export function buildSnackStock(mats: Materials, machine: TransformNode, coilCou
   const sm = machine.metadata as SlotMeta;
   const root = new TransformNode("Snack machine stock", scene);
   root.parent = machine;
-  const meta = (label: string, matKey: string, role?: string): MeshMeta => ({ room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey, kind: "dynamic", role });
+  const meta = (label: string, matKey: string, role?: string): MeshMeta => ({ room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey, kind: "moving", role });
   const setup = (mesh: Mesh, label: string, matKey: string, role?: string) => {
     mesh.parent = root;
     mesh.material = mats.get(matKey);
