@@ -83,11 +83,11 @@ export type ClawEvent =
 export const CLAW_TUNING = {
   /** seconds to steer per credit */
   time: 20,
-  /** gantry speed (m/s) and how fast it gets up to speed and stops (m/s²) */
+  /** gantry speed (m/s) and how fast it gets up to speed and stops (m/s²): gently, as a real gantry's motors ramp */
   speed: 0.19,
-  accel: 1.2,
-  /** the swing's damping (1/s) */
-  swingDamp: 0.55,
+  accel: 0.5,
+  /** the swing's damping (1/s): the head's weight and the cable's stiffness kill a swing within a second or so */
+  swingDamp: 3,
   /** lowering and winding up (m/s) */
   dropSpeed: 0.3,
   liftSpeed: 0.24,
@@ -106,9 +106,10 @@ export const CLAW_TUNING = {
   carryWeak: 0.62,
   /** what a prize needs held: (its mass + half what lies on it) times this */
   needPerKg: 2.2,
-  /** how much the jolt at the top and a swing on the way take off the grip */
+  /** how much the jolt at the top and a swing on the way take off the grip, the swing's at its full swing speed (m/s) */
   jolt: 0.15,
   swingShake: 0.35,
+  swingFull: 0.07,
 };
 
 const T = CLAW_TUNING;
@@ -381,7 +382,7 @@ export class ClawGame {
         }
         const g = this.grip;
         if (g) {
-          const sw = Math.min(1, Math.hypot(this.svx, this.svz) / 0.25);
+          const sw = Math.min(1, Math.hypot(this.svx, this.svz) / T.swingFull);
           if (g.carry * g.hold * (1 - T.swingShake * sw) < g.need) this.slip("carry");
         }
         if (Math.hypot(R.home[0] - p.x, R.home[1] - p.z) < 0.003 && Math.hypot(this.vx, this.vz) < 0.01) {

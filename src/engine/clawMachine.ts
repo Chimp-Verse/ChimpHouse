@@ -38,6 +38,12 @@ const GLIDE_OUT = 0.7;
 const RESTOCK_AFTER = 4;
 /** how often (s) a player's page tells the others where the claw is, and how far behind (s) a watcher shows it, to have a sample either side */
 const MOTION_EVERY = 1 / 16;
+/** what the player's view must hold (machine-local): the joystick and drop button with their labels, the bed's corners, the gantry's travel at the top */
+const FRAME: [number, number, number][] = [
+  [0.15, 0.94, -0.48], [-0.17, 1.04, -0.48], [-0.17, 0.9, -0.575], [0.15, 0.9, -0.575],
+  [-0.41, 0.94, -0.41], [0.41, 0.94, -0.41], [-0.41, 0.94, 0.41], [0.41, 0.94, 0.41],
+  [-0.3, 1.71, -0.29], [0.31, 1.71, 0.3], [-0.3, 1.71, 0.3], [0.31, 1.71, -0.29],
+];
 const WATCH_BEHIND = 0.12;
 
 /** Who is playing the machine: one visitor at a time. */
@@ -389,14 +395,44 @@ export class ClawMachine {
     this.publishHud();
   }
 
-  /** The player's view: standing at the deck, looking down into the glass box with the whole bed and the chute in view. */
+  /**
+   * The player's view: standing at the deck, looking down past the joystick and drop button
+   * into the glass box, with the whole bed, the chute and the claw at the top in view. Backed
+   * off along one line until every key point fits the frame, the fov widening on a narrow window.
+   */
   playPose(): Pose {
+    const engine = this.scene.getEngine();
+    const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
+    const fov = Math.min(1.45, Math.max(1.0, 2 * Math.atan(Math.tan(0.5) * (0.85 / aspect))));
+    const t = Math.tan(fov / 2);
+    // clear of the HUD's bars, top and bottom (about 70 px each), and a little in from the sides
+    const bar = 140 / Math.max(300, engine.getRenderHeight() * engine.getHardwareScalingLevel());
+    const lo = -t * (1 - bar);
+    const hi = t * (1 - bar);
+    const C = new Vector3(0, 1.28, -0.12);
+    const back = new Vector3(0, Math.sin(0.38), -Math.cos(0.38)); // low enough to see the claw at the top under the glass header
+    const right = new Vector3(1, 0, 0);
+    const up = Vector3.Cross(right, back.negate()).negate();
+    let eye = C.add(back.scale(1.6));
+    for (let d = 0.6; d < 3; d += 0.01) {
+      const e = C.add(back.scale(d));
+      const fits = FRAME.every(([x, y, z]) => {
+        const q = new Vector3(x - e.x, y - e.y, z - e.z);
+        const depth = -Vector3.Dot(q, back);
+        const v = Vector3.Dot(q, up) / depth;
+        return depth > 0 && v > lo && v < hi && Math.abs(Vector3.Dot(q, right) / depth) < t * aspect * 0.94;
+      });
+      if (fits) {
+        eye = e;
+        break;
+      }
+    }
     const wm = this.root.computeWorldMatrix(true);
-    const eye = Vector3.TransformCoordinates(new Vector3(0, 1.66, -0.98), wm);
-    const at = Vector3.TransformCoordinates(new Vector3(0, 1.13, 0.0), wm);
-    const dx = at.x - eye.x;
-    const dz = at.z - eye.z;
-    return { x: eye.x, y: eye.y, z: eye.z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at.y - eye.y, Math.hypot(dx, dz)), fov: 0.86 };
+    const w = Vector3.TransformCoordinates(eye, wm);
+    const at = Vector3.TransformCoordinates(C, wm);
+    const dx = at.x - w.x;
+    const dz = at.z - w.z;
+    return { x: w.x, y: w.y, z: w.z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at.y - w.y, Math.hypot(dx, dz)), fov };
   }
 
   /**
@@ -670,7 +706,7 @@ export class ClawMachine {
     }
     P.prongs.thinInstanceBufferUpdated("matrix");
     P.joystick.rotationQuaternion = Quaternion.RotationYawPitchRoll(0, p.joyZ * 0.32, -p.joyX * 0.32).multiply(baseTurn(P.joystick));
-    P.button.position.y = buttonY(P.button) - p.button * 0.006;
+    P.button.position.y = buttonY(P.button) - p.button * 0.008;
     P.door.rotationQuaternion = Quaternion.RotationYawPitchRoll(0, p.door * 1.4, 0).multiply(baseTurn(P.door));
   }
 

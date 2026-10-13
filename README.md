@@ -58,7 +58,7 @@ The Game Room's cabinets hold the ChimpVibe games admitted to ChimpHouse, one pe
 
 The Chimp Claw stands in the Game Room's south-east curve, beside the snack machine: a crane machine stocked with 20 plush prizes (Plush Chimps, Pink Party Chimps, Banana Buddies, Coco Balls, Vibe Stars and one big King Kongo).
 
-- Walk up to its deck and look at it: **E** steps up to play. The camera looks down into the glass box, with the bed and the chute (front left) in view, and a play starts with the credit timer at 20 s.
+- Walk up to its deck and look at it: **E** steps up to play. The camera looks down past the joystick and drop button (they move as you play) into the glass box, with the bed and the chute (front left) in view, and a play starts with the credit timer at 20 s.
 - **W A S D** or the **arrows** steer the claw (the joystick on the deck leans with them); **Space** or **Enter** (or the **Drop** button) drops it. When the timer runs out it drops by itself. After a play, **Space** plays again; **Esc** or **Leave** walks away. A play under way finishes by itself.
 - The claw opens, lowers until it lands on a prize or the bed, closes (each prong stops where it meets something), winds up, carries what it holds back over the chute and opens. A prize down the chute comes to rest behind the pickup door, which swings open on it. It's taken when you play again or leave, and the attendant puts it back in the machine a few seconds later.
 
@@ -67,7 +67,7 @@ The Chimp Claw stands in the Game Room's south-east curve, beside the snack mach
 
 How hard it is, as on a real machine (the numbers are `CLAW_TUNING` in `src/engine/clawRules.ts`):
 
-- **The claw swings.** The gantry has inertia and the claw hangs on its cable like a pendulum, so stopping the trolley sets it swinging; drop while it swings and it lands off target. The longer the cable, the slower and wider the swing.
+- **The claw swings.** The gantry has inertia and the claw hangs on its cable like a pendulum, so stopping the trolley sets it swinging a few degrees; the swing dies out within a second, and a drop while it swings lands off target. The longer the cable, the slower and wider the swing.
 - **What the prongs catch decides the hold**, from 0 to 1: the prize's own catch (a chimp's neck and arms 0.92, a banana 0.7, a star 0.62, the round Coco Ball 0.5), how many prongs touch it (one 0.35, two 0.8, three 1), whether their tips are under its centre of mass, and how near the claw's middle its centre is. The prize needs its mass (and half of whatever lies on top of it) times 2.2.
 - **Grip strength is set per play**: one play in eight on average is strong (0.9–1.0), the rest weak (0.3–0.62). The full grip picks up; at the top the claw stops with a jolt and drops to its carrying grip (95% of a strong play's, 62% of a weak one's), the jolt costs 15% more, and swinging on the way to the chute up to 35%. A grip that can't take the prize lets it slide out a few centimetres up; one that fails at the top or on the way drops it there, and the claw sags open so it falls clear.
 - So only a good grab on a strong-enough play wins. Simulated over many plays (`__chimp.claw.simulate`, run by the test), steering perfectly over the highest chimp in reach and waiting out the swing wins about one play in ten (about one in three of the strong plays), and a drop anywhere almost never. The claw sinks a couple of centimetres into the plush before it closes; a prize that comes up can still bounce off the chute's rim. People win less often than the perfect player.
