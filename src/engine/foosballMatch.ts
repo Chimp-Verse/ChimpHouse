@@ -47,7 +47,7 @@ export const TIMING = {
   goalReturn: 1200,
   goal: 2300,
   /** a ball that has stopped dead for this long is served again */
-  dead: 7000,
+  dead: 5000,
 };
 
 /** How fast a served ball rolls out of the serve hole (m/s), and how much it can wander along the table. */

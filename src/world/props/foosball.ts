@@ -339,14 +339,12 @@ export interface FoosballRod {
   root: TransformNode;
   /** the men, bumpers, grip and end cap: role foosball-rod, numbered with the slot */
   men: Mesh;
-  shaft: Mesh;
-  meshes: Mesh[];
 }
 
 /**
- * Build rod n (1-8) on its slot: the chrome shaft through both walls, its men
- * facing the way their team attacks, rubber bumpers inside the walls, the grip
- * on its team's side and a cap on the far end.
+ * Build rod n (1-8) on its slot: its men facing the way their team attacks,
+ * rubber bumpers inside the walls, the grip on its team's side and a cap on the
+ * far end. The chrome shafts are all one mesh (buildFoosballShafts).
  */
 export function buildFoosballRod(mats: Materials, slot: TransformNode, n: number): FoosballRod {
   ensureRunMats(mats);
@@ -365,8 +363,6 @@ export function buildFoosballRod(mats: Materials, slot: TransformNode, n: number
   const out = Math.sign(grip);
   plastic.add(gripGeo(r.team), xf(0, 0, grip, 0, 1, 1, 1, out * Math.PI / 2));
   plastic.add(painted(lathe([[0.0098, 0], [0.0098, 0.012], [0.006, 0.016], [0.0005, 0.0165]], 14, false, true), "#202022"), xf(0, 0, far, 0, 1, 1, 1, -out * Math.PI / 2));
-  const shaftLen = Math.abs(grip - far) + 0.02;
-  const shaftGeo = new Geo().add(cylinder(0.008, shaftLen, 14, false), xf(0, 0, Math.min(far, grip + out * 0.02), 0, 1, 1, 1, Math.PI / 2));
 
   const root = new TransformNode(label, scene);
   root.parent = slot;
@@ -374,15 +370,55 @@ export function buildFoosballRod(mats: Materials, slot: TransformNode, n: number
   const men = plastic.build(`${label}:men`, scene);
   men.material = mats.get("foosPlastic");
   men.metadata = meta("foosPlastic", ROLE.foosballRod);
-  const shaft = shaftGeo.build(`${label}:shaft`, scene);
-  shaft.material = mats.get("chrome");
-  shaft.metadata = meta("chrome");
-  for (const mesh of [men, shaft]) {
-    mesh.parent = root;
-    mesh.receiveShadows = true;
-    mesh.renderingGroupId = 1;
-  }
-  return { root, men, shaft, meshes: [men, shaft] };
+  men.parent = root;
+  men.receiveShadows = true;
+  men.renderingGroupId = 1;
+  return { root, men };
+}
+
+export interface FoosballShafts {
+  mesh: Mesh;
+  /** slide shaft i (rod slot i + 1) along its length */
+  place(i: number, slide: number): void;
+  /** after placing: the instances drawn where they now are */
+  commit(): void;
+}
+
+/**
+ * The eight rods' chrome shafts, through both walls: thin instances of one shaft,
+ * stretched to each rod's length, in the table's frame (one draw for all of them).
+ * `slots` are the rods' slots in order.
+ */
+export function buildFoosballShafts(mats: Materials, table: TransformNode, slots: TransformNode[]): FoosballShafts {
+  ensureRunMats(mats);
+  const sm = table.metadata as SlotMeta;
+  const mesh = new Geo().add(cylinder(0.008, 1, 14, false), xf(0, 0, 0, 0, 1, 1, 1, Math.PI / 2)).build("Foosball rods", mats.scene);
+  mesh.parent = table;
+  mesh.material = mats.get("chrome");
+  mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: "Foosball rods" }], matKey: "chrome", kind: "moving" } satisfies MeshMeta;
+  mesh.receiveShadows = true;
+  mesh.renderingGroupId = 1;
+  const inv = table.computeWorldMatrix(true).clone().invert();
+  const base = slots.map((slot, i) => {
+    const at = slot.computeWorldMatrix(true).multiply(inv).getTranslation();
+    const { far, grip } = rodEnds(RODS[i]);
+    return { x: at.x, y: at.y, z0: at.z + Math.min(far, grip + Math.sign(grip) * 0.02), len: Math.abs(grip - far) + 0.02 };
+  });
+  mesh.thinInstanceAdd(base.map(() => Matrix.Identity()), false);
+  const m = new Matrix();
+  const place = (i: number, slide: number) => {
+    const b = base[i];
+    Matrix.ScalingToRef(1, 1, b.len, m);
+    m.setTranslationFromFloats(b.x, b.y, b.z0 + slide);
+    mesh.thinInstanceSetMatrixAt(i, m, false);
+  };
+  const commit = () => {
+    mesh.thinInstanceBufferUpdated("matrix");
+    mesh.thinInstanceRefreshBoundingInfo(false);
+  };
+  base.forEach((_, i) => place(i, 0));
+  commit();
+  return { mesh, place, commit };
 }
 
 /** The ball: white, with a few dark patches so it can be seen to roll. Its centre at the origin of `parent` (the table's frame). */

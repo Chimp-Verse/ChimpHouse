@@ -28,7 +28,7 @@
 import { Color3, Matrix, Mesh, PBRMaterial, Quaternion, Ray, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { MeshMeta, SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
-import { FoosballRod, RETURN_CUP, STAND_OUT, buildFoosballBall, buildFoosballBeads, buildFoosballRod, setBeads } from "../world/props/foosball";
+import { FoosballRod, FoosballShafts, RETURN_CUP, STAND_OUT, buildFoosballBall, buildFoosballBeads, buildFoosballRod, buildFoosballShafts, setBeads } from "../world/props/foosball";
 import { ATTACK, BALL_R, FIELD, GOAL, RODS, SIDE, SIDE_WALL, Team, WALL_TOP, WIN_SCORE } from "../world/props/foosballSpec";
 import { ROLE, find, findAll } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
@@ -91,6 +91,9 @@ export class Foosball {
   readonly table: TransformNode;
   readonly field: Mesh;
   readonly rods: FoosballRod[] = [];
+  private shafts: FoosballShafts;
+  /** each shaft's slide as last drawn */
+  private shaftAt = RODS.map(() => 0);
   readonly ballMesh: Mesh;
   private beads = new Map<Team, Mesh>();
   private beadShown = { red: 0, blue: 0 };
@@ -179,15 +182,19 @@ export class Foosball {
     this.tableInv = this.tableWM.clone().invert();
     this.floorY = this.tableWM.getTranslation().y - FIELD.y;
     const meshes: Mesh[] = [];
+    const slots: TransformNode[] = [];
     for (const node of findAll(scene, ROLE.foosballRodSlot) as TransformNode[]) {
       const n = (node.metadata as SlotMeta).slot;
       const rod = buildFoosballRod(mats, node, n);
       rod.men.outlineColor = Color3.FromHexString("#ffe27a");
       rod.men.outlineWidth = 0.0034;
       this.rods[n - 1] = rod;
-      meshes.push(...rod.meshes);
+      slots[n - 1] = node;
+      meshes.push(rod.men);
     }
     if (this.rods.length !== RODS.length || this.rods.some((r) => !r)) throw new Error("The foosball table is missing rods");
+    this.shafts = buildFoosballShafts(mats, table, slots);
+    meshes.push(this.shafts.mesh);
     this.ballMesh = buildFoosballBall(mats, table);
     this.ballMesh.rotationQuaternion = this.rolling;
     this.ballMesh.position.set(0, BALL_R, 0);
@@ -438,13 +445,18 @@ export class Foosball {
 
   // ------------------------------------------------------------------ choosing the rod
 
-  /** The player's rod nearest the ball, keeping the one in use unless another is clearly nearer. */
+  /**
+   * The player's rod nearest the ball, preferring one with the ball in front of it within its
+   * men's reach (a flick sends it forward), and keeping the one in use unless another is clearly nearer.
+   */
   private autoRod(team: Team): number {
     let best = -1;
     let bestD = Infinity;
+    const a = ATTACK[team];
     for (let i = 0; i < RODS.length; i++) {
       if (RODS[i].team !== team) continue;
-      const d = Math.abs(RODS[i].x - this.ball.x) - (i === this.active ? 0.012 : 0);
+      const ahead = (this.ball.x - RODS[i].x) * a;
+      const d = Math.abs(ahead) - (ahead > 0 && ahead < 0.08 ? 0.03 : 0) - (i === this.active ? 0.012 : 0);
       if (d < bestD) {
         bestD = d;
         best = i;
@@ -798,11 +810,19 @@ export class Foosball {
   // ------------------------------------------------------------------ showing it
 
   private show(dt: number, now: number): void {
+    let slid = false;
     for (let i = 0; i < RODS.length; i++) {
       const root = this.rods[i].root;
-      root.position.z = this.poses[i].slide;
-      root.rotation.z = this.poses[i].turn;
+      const p = this.poses[i];
+      root.position.z = p.slide;
+      root.rotation.z = p.turn;
+      if (p.slide !== this.shaftAt[i]) {
+        this.shaftAt[i] = p.slide;
+        this.shafts.place(i, p.slide);
+        slid = true;
+      }
     }
+    if (slid) this.shafts.commit();
     // the ball, by the phase
     const g = this.game;
     const t = now - g.since;

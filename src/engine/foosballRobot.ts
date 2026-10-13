@@ -110,7 +110,8 @@ export function robotPlay(mind: RobotMind, ball: BallState, poses: RodPose[], to
     if (rand() < 0.02) m.error = (rand() - 0.5) * 2 * ROBOT.error;
     z += m.error;
     // within reach just in front of a man: strike, aimed straight or off the foot's middle
-    const near = ahead > 0.012 && ahead < 0.05 && Math.hypot(b.vx, b.vz) < 1.6;
+    // anywhere its men can reach in front: a toe swung forward reaches a ball's centre about 8 cm ahead
+    const near = ahead > 0.012 && ahead < 0.076 && Math.hypot(b.vx, b.vz) < 1.6;
     const pick = slideFor(i, b.z, m.man);
     const manAt = manZ(rod, pick.man) + pose.slide;
     const ready = near && Math.abs(b.z - manAt) < MAN.halfWidth + BALL_R * 0.4;
