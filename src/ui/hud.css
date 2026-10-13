@@ -768,4 +768,83 @@ kbd {
   font-size: 18px;
   z-index: 22;
   pointer-events: none;
+
+/* playing a pinball machine: a panel beside it (ui/PinballOverlay.tsx) */
+.pinball-panel {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 250px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 210, 58, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+.pinball-name {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #ffd23a;
+}
+.pinball-score {
+  font-size: 28px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+}
+.pinball-ball {
+  color: var(--muted);
+}
+.pinball-ball .tilt {
+  color: #ff5a5a;
+  font-weight: 800;
+}
+.pinball-status {
+  margin-top: 4px;
+  color: var(--mint);
+  font-weight: 700;
+}
+.pinball-pull {
+  height: 5px;
+  margin: 8px 0 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.pinball-pull div {
+  height: 100%;
+  background: linear-gradient(90deg, #6ff7c6, #ffd23a, #ff5a5a);
+}
+.pinball-high {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.pinball-high li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pinball-high li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pinball-high li.none {
+  color: var(--muted);
+  display: list-item;
+}
+.pinball-keys td {
+  padding: 2px 4px 2px 0;
+  vertical-align: top;
+}
+.pinball-keys td:first-child {
+  white-space: nowrap;
+}
+.panel .pinball-start,
+.panel .pinball-leave {
+  margin-top: 10px;
+  justify-content: center;
+  border: 1px solid rgba(255, 210, 58, 0.45);
 }

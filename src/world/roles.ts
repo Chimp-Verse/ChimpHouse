@@ -95,6 +95,14 @@ export const ROLE = {
   clawDisplay: "claw-display",
   /** the flap of the claw machine's pickup door, hinged along its top */
   clawDoor: "claw-door",
+  /** a pinball machine's playfield: a node in its plane (x across, y out of it, z up it), numbered with the machine (1 Jungle Quest, 2 Banana Blitz) */
+  pinballMachine: "pinball-machine",
+  /** a pinball machine's dot-matrix score display in its backbox, numbered with the machine */
+  pinballDmd: "pinball-dmd",
+  /** a pinball machine's flippers, the ball and the plunger, built at run time on its playfield, numbered with the machine */
+  pinballFlipper: "pinball-flipper",
+  pinballBall: "pinball-ball",
+  pinballPlunger: "pinball-plunger",
 } as const;
 
 type Meta = { role?: string; slot?: number };
