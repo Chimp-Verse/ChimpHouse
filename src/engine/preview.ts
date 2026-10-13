@@ -240,8 +240,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (!(e.altKey || store.get().inspectMode) || e.button !== 0) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const sx = ((e.clientX - rect.left) / rect.width) * engine.getRenderWidth();
-    const sy = ((e.clientY - rect.top) / rect.height) * engine.getRenderHeight();
+    // CSS pixels: Babylon scales them by the hardware scaling level itself (engine/focus.ts pickPoint)
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
     const pick = scene.pick(sx, sy, (m) => m.isPickable && m.isEnabled() && m.isVisible);
     if (!pick?.hit || !pick.pickedMesh || !pick.pickedPoint) {
       store.set({ picked: null });
