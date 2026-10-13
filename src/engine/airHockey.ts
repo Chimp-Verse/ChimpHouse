@@ -66,6 +66,8 @@ interface MalletMsg {
   t: number;
   /** the match this player wants a rematch of, or -1 */
   rematch: number;
+  /** this player's view has arrived at the table: they can play */
+  on: boolean;
 }
 
 /** The game, from the page that runs it. */
@@ -89,6 +91,8 @@ interface GameMsg {
   scoredAt: number;
   /** the robot's mallet, x and z, while it plays */
   robot: [number, number] | null;
+  /** in a faceoff, when play begins (ms), once every player is in place; 0 until then */
+  readyAt: number;
 }
 
 /** How near an end a walker must stand to be offered it (m), and how directly at the table they must look. */
@@ -112,6 +116,8 @@ const SNAP = 0.35;
 /** Only near the table does anything happen each frame (m). */
 const NEAR = 16;
 const GLIDE_IN = 0.9;
+/** A faceoff's countdown, once every player is in place (ms). */
+const COUNTDOWN = 3000;
 const GLIDE_OUT = 0.8;
 
 const noSeat = (): Seat => ({ by: null, name: "", at: 0 });
@@ -175,6 +181,8 @@ export class AirHockey {
   private gameSent = 0;
   private lastMalletSent = { x: NaN, z: NaN };
   private rematch = -1;
+  /** whether the last mallet sent said this player's view had arrived */
+  private sentOn = false;
   /** the simulation's clock (s), and when this page's own mallet last struck the puck */
   private clock = 0;
   private ownHit = -1;
@@ -188,7 +196,7 @@ export class AirHockey {
   private v = new Vector3();
   private airLevel = 0;
   /** the match as the sounds last heard it: a change is a moment to sound */
-  private heard: { match: number; goals: number; phase: Phase } | null = null;
+  private heard: { match: number; goals: number; phase: Phase; count: number } | null = null;
   /** where the visitor hears from, reused each frame */
   private ear = { at: [0, 0, 0] as [number, number, number], forward: [0, 0, 1] as [number, number, number], up: [0, 1, 0] as [number, number, number], table: [0, 0, 0] as [number, number, number] };
   private lastFrame = performance.now();
@@ -290,7 +298,7 @@ export class AirHockey {
   }
 
   private idleGame(): GameMsg {
-    return { sim: null, t: 0, phase: "idle", match: 0, players: [null, null], puck: [0, 0, 0, 0], live: true, score: [0, 0], winner: 0, scored: 0, scoredAt: 0, robot: null };
+    return { sim: null, t: 0, phase: "idle", match: 0, players: [null, null], puck: [0, 0, 0, 0], live: true, score: [0, 0], winner: 0, scored: 0, scoredAt: 0, robot: null, readyAt: 0 };
   }
 
   /** The end a walker here would be offered, and against whom; end null while both are taken. Null when not at the table. */
@@ -353,7 +361,8 @@ export class AirHockey {
     if (end === null || f?.kind !== "airHockey" || f.phase === "out") return;
     this.myEnd = null;
     this.publishSeat[end - 1](noSeat());
-    this.publishMallet[end - 1]({ by: ME.id, x: NaN, z: NaN, vx: 0, vz: 0, t: room.now(), rematch: -1 });
+    this.publishMallet[end - 1]({ by: ME.id, x: NaN, z: NaN, vx: 0, vz: 0, t: room.now(), rematch: -1, on: false });
+    this.sentOn = false;
     // the last player away: the game stops, the blower with it
     if (!this.players().some((p) => p && p !== ME.id)) this.sendGame({ ...this.idleGame(), match: this.game.match, puck: this.puckState(), t: room.now() });
     this.canvas.style.cursor = "";
@@ -436,7 +445,11 @@ export class AirHockey {
       if (end === this.myEnd) {
         if (s.focus?.phase === "on") this.cursorTarget(t);
       } else if (end === robotEnd) {
-        if (running) robotMove(sim, i as 0 | 1, this.robot, this.clock, Math.random);
+        if (this.game.phase === "ready") {
+          // a faceoff: the robot waits at home
+          t.x = (end === 1 ? -1 : 1) * (f.hx - 0.17);
+          t.z = 0;
+        } else if (running) robotMove(sim, i as 0 | 1, this.robot, this.clock, Math.random);
         else if (this.game.robot) {
           t.x = this.game.robot[0];
           t.z = this.game.robot[1];
@@ -457,6 +470,11 @@ export class AirHockey {
     else this.followGame(now);
     sim.air = this.game.phase !== "idle" && players.some((p) => !!p);
     step(sim, dt);
+    // a faceoff: the puck stays on its spot until play begins
+    if (this.game.phase === "ready") {
+      placePuck(sim, this.game.puck[0], this.game.puck[1]);
+      sim.nEvents = 0;
+    }
     // the sounds: heard from the table, what the puck struck, the match's moments, the air while it's on
     this.listen();
     for (let k = 0; k < sim.nEvents; k++) {
@@ -493,12 +511,22 @@ export class AirHockey {
     const newPlayers = players[0] !== g.players[0] || players[1] !== g.players[1];
     const rematch = g.phase === "over" && players.every((p, i) => !p || want(i) === g.match);
     if (newPlayers || rematch || g.phase === "idle") {
-      // a new match: 0-0, the puck on a random end's side
+      // a new match: 0-0, a faceoff with the puck held on a random end's side
       const serve = Math.random() < 0.5 ? -1 : 1;
       placePuck(sim, serve * f.hx * 0.45, 0);
-      this.robot = makeRobot();
-      g = { ...g, phase: "play", match: g.match + 1, players, score: [0, 0], winner: 0, scored: 0, scoredAt: 0 };
+      g = { ...g, phase: "ready", readyAt: 0, match: g.match + 1, players, score: [0, 0], winner: 0, scored: 0, scoredAt: 0 };
       this.gameSent = 0;
+    }
+    if (g.phase === "ready") {
+      // the countdown starts once every player's view has arrived at the table, and play when it ends
+      if (!g.readyAt && players.every((p, i) => this.isOn(p, i))) {
+        g = { ...g, readyAt: now + COUNTDOWN };
+        this.gameSent = 0;
+      } else if (g.readyAt && now >= g.readyAt) {
+        this.robot = makeRobot();
+        g = { ...g, phase: "play" };
+        this.gameSent = 0;
+      }
     }
     if (sim.scored && g.phase === "play") {
       // a goal: the other end scores
@@ -519,6 +547,20 @@ export class AirHockey {
     if (now - this.gameSent >= (moving || robot ? SEND_MOVING : SEND_STILL)) {
       this.sendGame({ ...g, t: now, puck: this.puckState(), live: sim.live, robot: robot ? [robot.x, robot.z] : null });
     } else this.game = g;
+  }
+
+  /** Whether player p (at end i + 1) can play: nobody there, or their view has arrived at the table. */
+  private isOn(p: string | null, i: number): boolean {
+    if (!p) return true;
+    if (p === ME.id) return this.arrived();
+    const m = this.mallets[i];
+    return !!m && m.by === p && m.on;
+  }
+
+  /** This visitor's view has arrived behind their end. */
+  private arrived(): boolean {
+    const f = store.get().focus;
+    return this.myEnd !== null && f?.kind === "airHockey" && f.phase === "on";
   }
 
   private sendGame(g: GameMsg): void {
@@ -601,12 +643,14 @@ export class AirHockey {
   private sendMallet(now: number): void {
     const end = this.myEnd!;
     const m = this.sim!.mallets[end - 1];
+    const on = this.arrived();
     const moved = Math.hypot(m.x - this.lastMalletSent.x, m.z - this.lastMalletSent.z) > 0.001 || !Number.isFinite(this.lastMalletSent.x);
-    if (now - this.malletSent < (moved ? SEND_MOVING : SEND_STILL)) return;
+    if (on === this.sentOn && now - this.malletSent < (moved ? SEND_MOVING : SEND_STILL)) return;
+    this.sentOn = on;
     this.malletSent = now;
     this.lastMalletSent.x = m.x;
     this.lastMalletSent.z = m.z;
-    this.publishMallet[end - 1]({ by: ME.id, x: m.x, z: m.z, vx: m.vx, vz: m.vz, t: now, rematch: this.rematch });
+    this.publishMallet[end - 1]({ by: ME.id, x: m.x, z: m.z, vx: m.vx, vz: m.vz, t: now, rematch: this.rematch, on });
   }
 
   private setAir(level: number): void {
@@ -640,13 +684,14 @@ export class AirHockey {
   private matchSounds(): void {
     const g = this.game;
     const goals = g.score[0] + g.score[1];
+    const count = g.phase === "ready" && g.readyAt ? Math.ceil((g.readyAt - room.now()) / 1000) : 0;
     const was = this.heard;
-    this.heard = { match: g.match, goals, phase: g.phase };
+    this.heard = { match: g.match, goals, phase: g.phase, count };
     if (!was) return;
-    if (g.match !== was.match) {
-      if (g.phase === "play") this.sound.start();
-      return;
-    }
+    // the faceoff: a tick for each second of the countdown, the jingle as play begins
+    if (count > 0 && count !== was.count) this.sound.tick();
+    if (g.phase === "play" && was.phase === "ready") this.sound.start();
+    if (g.match !== was.match) return;
     if (goals > was.goals && (g.phase === "goal" || g.phase === "over")) {
       this.sound.goal();
       if (g.phase === "over") setTimeout(() => this.sound.win(), 1300);
@@ -689,7 +734,18 @@ export class AirHockey {
   private paintBoards(): void {
     const g = this.game;
     const live = this.players().some((p) => !!p) && g.phase !== "idle";
-    const msg = !live ? `FIRST\nTO ${WIN_SCORE}` : g.phase === "goal" ? "GOAL!" : g.phase === "over" ? `${g.winner === 1 ? "RED" : "BLUE"}\nWINS` : `FIRST\nTO ${WIN_SCORE}`;
+    const count = g.phase === "ready" && g.readyAt ? Math.max(1, Math.ceil((g.readyAt - room.now()) / 1000)) : 0;
+    const msg = !live
+      ? `FIRST\nTO ${WIN_SCORE}`
+      : g.phase === "ready"
+        ? count
+          ? `GET READY\n${count}`
+          : "GET\nREADY"
+        : g.phase === "goal"
+          ? "GOAL!"
+          : g.phase === "over"
+            ? `${g.winner === 1 ? "RED" : "BLUE"}\nWINS`
+            : `FIRST\nTO ${WIN_SCORE}`;
     const score = live ? g.score : [0, 0];
     const key = `${score.join()}|${msg}`;
     if (key === this.boardKey) return;
@@ -714,6 +770,8 @@ export class AirHockey {
       opponent,
       scored: g.phase === "goal" ? g.scored : 0,
       waiting: g.phase === "over" && this.rematch === g.match && !!players[other - 1],
+      countdown: g.phase === "ready" && g.readyAt ? Math.max(1, Math.ceil((g.readyAt - room.now()) / 1000)) : 0,
+      waitingFor: g.phase === "ready" && !g.readyAt && !this.isOn(players[other - 1], other - 1) ? this.seats[other - 1].name || "the other player" : null,
     };
     const key = JSON.stringify(hud);
     if (key === this.hudKey) return;

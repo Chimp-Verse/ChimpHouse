@@ -1269,3 +1269,38 @@ kbd {
 .snack-panel button {
   white-space: nowrap;
 }
+
+/* the faceoff: a countdown in the middle of the table before play begins */
+.ah-ready {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.ah-get {
+  padding: 5px 16px;
+  border-radius: 999px;
+  background: var(--panel);
+  font: 700 15px "Montserrat", sans-serif;
+  color: var(--ink);
+}
+
+.ah-ready b {
+  font: 800 88px "Nunito", sans-serif;
+  color: var(--amber);
+  text-shadow: 0 0 22px rgba(255, 178, 94, 0.8), 0 2px 8px rgba(0, 0, 0, 0.7);
+  animation: ah-count 0.35s ease-out;
+}
+
+@keyframes ah-count {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}

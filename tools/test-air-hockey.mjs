@@ -95,6 +95,14 @@ if (mode === "look") {
 
 const SHARED = process.env.SHARED === "1";
 
+/** Wait on a page until the puck is in play (after a faceoff's countdown, or a goal's pause); returns the game then. */
+const playOn = (page) =>
+  page.evaluate(async () => {
+    const c = window.__chimp.airHockey;
+    for (let k = 0; k < 400 && !(c.describe().phase === "play" && c.describe().live); k++) await new Promise((r) => setTimeout(r, 20));
+    return c.describe();
+  });
+
 if (mode === "play" && !SHARED) {
   // ---------------------------------------------------------------- 1. the physics and the robot, on their own
   const page = await open({ width: 1200, height: 760 }, "view=game", "Ada");
@@ -276,8 +284,32 @@ if (mode === "play" && !SHARED) {
   await page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 8000 }).catch(() => {});
   const s1 = await page.evaluate(() => ({ focus: window.__chimp.state().focus, hud: window.__chimp.state().airHockey, d: window.__chimp.airHockey.describe() }));
   check(s1.focus?.kind === "airHockey" && s1.focus.end === 1, "E sits the visitor at the red end, the view behind it", JSON.stringify(s1.focus));
-  check(s1.d.runs && s1.d.match > 0 && ["play", "goal"].includes(s1.d.phase), "their page runs the game, and a match starts", JSON.stringify({ runs: s1.d.runs, phase: s1.d.phase, players: s1.d.players }));
+  check(s1.d.runs && s1.d.phase === "ready" && s1.d.score[0] + s1.d.score[1] === 0, "their page runs the game, and a match starts with a faceoff", JSON.stringify({ runs: s1.d.runs, phase: s1.d.phase, players: s1.d.players }));
   check(s1.hud?.opponent === "the robot", "the HUD shows the score and the robot as the opponent", JSON.stringify(s1.hud));
+  // the faceoff: nothing moves the puck and the robot waits until a 3-2-1 countdown has run
+  const face = await page.evaluate(async () => {
+    const c = window.__chimp.airHockey;
+    const t0 = performance.now();
+    const first = c.describe();
+    const counts = new Set();
+    let puckMoved = 0;
+    let robotOff = 0;
+    let goals = 0;
+    while (c.describe().phase === "ready" && performance.now() - t0 < 8000) {
+      const d = c.describe();
+      const h = window.__chimp.state().airHockey;
+      if (h?.countdown) counts.add(h.countdown);
+      puckMoved = Math.max(puckMoved, Math.hypot(d.puck[0] - first.puck[0], d.puck[1] - first.puck[1]), Math.hypot(d.puck[2], d.puck[3]));
+      if (performance.now() - t0 > 400) robotOff = Math.max(robotOff, Math.hypot(d.mallets[1][0] - 0.87, d.mallets[1][1]));
+      goals = d.score[0] + d.score[1];
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    const after = c.describe();
+    return { counts: [...counts].sort(), puckMoved, robotOff, goals, waited: Math.round(performance.now() - t0), phase: after.phase };
+  });
+  check(face.counts.join() === "1,2,3" && face.waited > 2500, "a 3-2-1 countdown runs once the visitor is in place", JSON.stringify(face));
+  check(face.goals === 0 && face.puckMoved < 0.001 && face.robotOff < 0.01, "no goal and no robot strike before the countdown ends: the puck held, the robot waiting", JSON.stringify(face));
+  check(face.phase === "play", "then play begins");
   // the mouse: the mallet goes where the cursor is, across the visitor's half
   const follow = [];
   for (const [x, z] of [
@@ -301,6 +333,7 @@ if (mode === "play" && !SHARED) {
     check(m[0] <= -0.047, "with the cursor over the far half, the mallet stops short of the centre line", m[0].toFixed(3));
   }
   // a hard sweep into the puck: it flies
+  await playOn(page);
   await page.evaluate(() => window.__chimp.airHockey.setPuck(-0.45, 0.0, 0, 0));
   {
     const a = await page.evaluate(() => window.__chimp.airHockey.aim(-0.95, 0));
@@ -373,7 +406,9 @@ if (mode === "play" && !SHARED) {
     for (let k = 0; k < 40 && c.describe().match === m; k++) await new Promise((r) => setTimeout(r, 10));
     return c.describe();
   });
-  check(re.phase !== "over" && re.score[0] + re.score[1] === 0 && re.match === over.d.match + 1, "Rematch starts a new match at 0-0", JSON.stringify({ phase: re.phase, score: re.score, match: re.match }));
+  check(re.phase === "ready" && re.score[0] === 0 && re.score[1] === 0 && re.match === over.d.match + 1, "Rematch starts a new match at 0-0, with a faceoff", JSON.stringify({ phase: re.phase, score: re.score, match: re.match }));
+  const re2 = await playOn(page);
+  check(re2.phase === "play" && re2.score[0] + re2.score[1] === 0, "and play begins after its countdown, nobody having scored", JSON.stringify({ phase: re2.phase, score: re2.score }));
 
   // the sounds (a headless browser can't listen, so this reads what played)
   await sleep(1500);
@@ -430,6 +465,12 @@ if (mode === "play" && SHARED) {
   // whichever page runs the game is where the test moves the puck
   const runner = db.runs ? b : page;
   check(da.score[0] === 0 && da.score[1] === 0 && da.match > re.match, "a new match starts when the robot hands over", JSON.stringify({ score: da.score, match: da.match }));
+  const hb0 = await b.evaluate(async () => {
+    for (let k = 0; k < 200 && !window.__chimp.state().airHockey?.countdown; k++) await new Promise((r) => setTimeout(r, 20));
+    return window.__chimp.state().airHockey;
+  });
+  check(hb0?.phase === "ready" && hb0.countdown > 0 && hb0.waitingFor === null, "the faceoff's countdown starts once both are in place", JSON.stringify(hb0));
+  await playOn(page);
   const hb = await b.evaluate(() => window.__chimp.state().airHockey);
   check(hb?.opponent === "Ada" && hb.end === 2, "the second visitor's HUD shows the first as their opponent", JSON.stringify(hb));
   // B's mouse moves B's mallet at once on B's page, and on A's page soon after

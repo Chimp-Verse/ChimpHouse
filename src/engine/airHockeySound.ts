@@ -215,7 +215,14 @@ export class AirHockeySound {
     lfo.stop(t0 + len + 0.05);
   }
 
-  /** A match starts: a quick rising chirp from the scoreboard. */
+  /** A second of the faceoff's countdown: a short beep from the scoreboard. */
+  tick(): void {
+    if (!this.ctx) return;
+    this.count("tick");
+    this.tone(880, 0.12, 0.13, "square", 0, 0.8, 2200);
+  }
+
+  /** Play begins: a quick rising chirp from the scoreboard. */
   start(): void {
     if (this.ctx) this.count("start");
     [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.11, 0.14, "square", i * 0.085, 1, 2400));
