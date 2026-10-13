@@ -65,6 +65,21 @@ export const ROLE = {
   /** a mallet, numbered with its end, and the puck: put on the table at run time */
   airHockeyMallet: "air-hockey-mallet",
   airHockeyPuck: "air-hockey-puck",
+  /** the Game Room's snack machine, a slot at its base (front -Z) with where a visitor stands to use it */
+  snackMachine: "snack-machine",
+  /** a coil's front end, numbered row * 10 + lane (A1 is 11, E6 is 56): its spiral and snacks are built there at run time */
+  snackCoil: "snack-coil",
+  /** the coils, one mesh of thin instances built at run time, and a brand's packs, numbered with the brand */
+  snackCoils: "snack-coils",
+  snackPack: "snack-pack",
+  /** a key on the snack machine's keypad, numbered in reading order, its legend the slot's label */
+  snackKey: "snack-key",
+  /** the snack machine's display, a screen */
+  snackDisplay: "snack-display",
+  /** the floor of the pickup bin, where a dropped snack lands */
+  snackBin: "snack-bin",
+  /** the PUSH flap over the bin, hinged at its top edge */
+  snackFlap: "snack-flap",
 } as const;
 
 type Meta = { role?: string; slot?: number };

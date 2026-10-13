@@ -1,6 +1,6 @@
-// Games-room furniture: a claw machine full of plush chimps and bananas, a
-// snack vending machine, pinball machines and bean bags (the air hockey table
-// is in airHockey.ts, the foosball table in foosball.ts).
+// Games-room furniture: a claw machine full of plush chimps and bananas,
+// pinball machines and bean bags (the air hockey table is in airHockey.ts, the
+// foosball table in foosball.ts, the snack machine in snackMachine.ts).
 // Each is built in a local frame with its base at m and its front (where the
 // player stands) toward -Z.
 
@@ -130,74 +130,6 @@ export function plushChimp(ctx: WorldCtx, z: Zone, m: Matrix, s = 1): void {
   }
   ctx.g(z, "plushBrown").add(fur, m, "Plush chimp");
   ctx.g(z, "plushTan").add(new Geo().add(sphere(0.035 * s, 10, 8, 0.8), xf(0, 0.16 * s, -0.04 * s)).add(sphere(0.03 * s, 8, 6, 0.6), xf(0, 0.07 * s, -0.055 * s)), m, "Plush chimp");
-}
-
-// ------------------------------------------------------------------ vending machine
-
-/** Snack vending machine, 0.95 m wide, 1.85 m tall: lit window of snack rows, keypad, coin slot. Base at m, front -Z. */
-export function vendingMachine(ctx: WorldCtx, z: Zone, m: Matrix): void {
-  mats(ctx);
-  const label = "Snack vending machine";
-  const W = 0.95;
-  const H = 1.85;
-  const D = 0.8;
-  ctx.g(z, "arcadeRed").add(softBox(W, H, D, 0.03), xf(0, H / 2, 0).multiply(m), label);
-  const win = canvasMat(
-    ctx,
-    "vendWindow",
-    (() => {
-      const { canvas, ctx: c } = makeCanvas(400, 600);
-      c.fillStyle = "#e8eef2";
-      c.fillRect(0, 0, 400, 600);
-      const cols = ["#f2c230", "#d6322b", "#2a5bd7", "#2fbf8f", "#ff7a1a", "#9b59b6", "#e2407e"];
-      for (let row = 0; row < 6; row++) {
-        const y = 20 + row * 96;
-        c.fillStyle = "#9aa4ab";
-        c.fillRect(0, y + 74, 400, 6);
-        for (let k = 0; k < 5; k++) {
-          const x = 14 + k * 76;
-          c.fillStyle = cols[(row * 3 + k) % cols.length];
-          c.fillRect(x, y + 12, 56, 62);
-          c.fillStyle = "rgba(255,255,255,0.55)";
-          c.fillRect(x + 6, y + 24, 44, 10);
-          c.fillStyle = "#333";
-          c.font = "600 14px Montserrat";
-          c.fillText(`${String.fromCharCode(65 + row)}${k + 1}`, x + 18, y + 92);
-        }
-      }
-      return canvas;
-    })(),
-    1.05,
-  );
-  face(ctx, z, win, xf(-0.1, 1.05, -D / 2 - 0.004).multiply(m), 0.62, 0.93, label);
-  ctx.g(z, "glass", { castShadow: false, pickable: false }).add(box(0.64, 0.95, 0.01), xf(-0.1, 1.05, -D / 2 - 0.012).multiply(m), label);
-  // header, keypad, coin slot and pickup flap
-  const hdr = canvasMat(
-    ctx,
-    "vendHeader",
-    (() => {
-      const { canvas, ctx: c } = makeCanvas(512, 120);
-      c.fillStyle = "#1b1030";
-      c.fillRect(0, 0, 512, 120);
-      c.fillStyle = "#ffd54a";
-      c.font = "800 72px Nunito";
-      c.textAlign = "center";
-      c.textBaseline = "middle";
-      c.fillText("SNACKS", 256, 64);
-      return canvas;
-    })(),
-    1.3,
-  );
-  ctx.mats.glowing.add(hdr);
-  face(ctx, z, hdr, xf(0, H - 0.16, -D / 2 - 0.004).multiply(m), W - 0.12, 0.2, label);
-  ctx.g(z, "black").add(box(0.18, 0.5, 0.02), xf(W / 2 - 0.15, 1.1, -D / 2 - 0.006).multiply(m), "Keypad");
-  const keysG = new Geo();
-  for (let i = 0; i < 12; i++) keysG.add(box(0.03, 0.03, 0.01), xf(W / 2 - 0.19 + (i % 3) * 0.04, 1.2 - Math.floor(i / 3) * 0.05, -D / 2 - 0.018));
-  ctx.g(z, "chrome").add(keysG, m, "Keypad");
-  ctx.g(z, "neonCyan", { castShadow: false }).add(plane(0.13, 0.05), xf(W / 2 - 0.15, 1.3, -D / 2 - 0.018).multiply(m), "Keypad");
-  ctx.g(z, "chrome").add(box(0.06, 0.02, 0.01), xf(W / 2 - 0.15, 0.95, -D / 2 - 0.016).multiply(m), "Coin slot");
-  ctx.g(z, "black").add(box(0.62, 0.18, 0.02), xf(-0.1, 0.3, -D / 2 - 0.006).multiply(m), "Pickup flap");
-  ctx.lights.push({ pos: Vector3.TransformCoordinates(new Vector3(-0.1, 1.1, -D / 2 - 0.3), m), color: "#eaf4ff", day: 0.4, night: 1.6, range: 2.5, rooms: [z.room], level: z.level });
 }
 
 // ------------------------------------------------------------------ pinball

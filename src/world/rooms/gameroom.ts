@@ -11,7 +11,7 @@ import { rng } from "../geometry/curves";
 import { Geo, box, cylinder, lathe, softBox, sphere, torus, tube, xf } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
 import { GAME, LEVEL, TREES } from "../layout";
-import { beanBag, clawMachine, pinball, plushChimp, vendingMachine } from "../props/arcade";
+import { beanBag, clawMachine, pinball, plushChimp } from "../props/arcade";
 import { airHockey } from "../props/airHockey";
 import { foosball } from "../props/foosball";
 import { sodaCan } from "../props/barware";
@@ -19,6 +19,7 @@ import { drumTable, lowStool, roundRug, sofa } from "../props/furniture";
 import { chimpVibeSign, neonWord, neonWordWidth } from "../props/lettering3d";
 import { ringPendant, wovenPendant } from "../props/lights";
 import { pottedPlant } from "../props/plants";
+import { snackMachine } from "../props/snackMachine";
 import { screenMat, tvConsole } from "../props/tech";
 import { ROLE } from "../roles";
 import { trunkPlanter } from "../structure/trunks";
@@ -138,7 +139,7 @@ export function buildGameRoom(ctx: WorldCtx): void {
     const p = arcDeg(c.x, c.z, GAME.r - 0.78, -73, -73, 1)[0];
     clawMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), r);
     const q = arcDeg(c.x, c.z, GAME.r - 0.72, -59, -59, 1)[0];
-    vendingMachine(ctx, z, xf(q.x, F, q.z, faceToward(q.x, q.z, c.x, c.z)));
+    snackMachine(ctx, z, xf(q.x, F, q.z, faceToward(q.x, q.z, c.x, c.z)));
     // a plush chimp won from the claw, left on the bromeliad's pot rim
     plushChimp(ctx, z, xf(c.x + 0.4 * K + 0.32, F, 0.75, -0.6), 1.2);
   }

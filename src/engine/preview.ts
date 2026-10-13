@@ -18,6 +18,7 @@ import { loadGameList } from "./gameList";
 import { Foosball } from "./foosball";
 import { ButtonId, Lift } from "./lift";
 import { Remotes } from "./remotes";
+import { SnackMachine } from "./snackMachine";
 import { Theatre } from "./theatre";
 import { parseYouTube } from "./youtube";
 
@@ -77,6 +78,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const foosball = new Foosball(scene, world.mats, lighting);
   // the air hockey table: its mallets and puck
   const airHockey = new AirHockey(scene, world.mats, lighting);
+  // the snack machine: its coils and snacks, shown from its shared state (engine/snackState.ts)
+  const snacks = new SnackMachine(scene, world.mats, lighting);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -427,6 +430,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       where: () => airHockey.where(),
       field: () => airHockey.field,
     },
+    snacks: {
+      /** the machine's base and the way its front faces, for placing the camera */
+      machine: () => snacks.where(),
+    },
     info: () => ({
       fps: Math.round(engine.getFps()),
       drawCalls: engine._drawCalls?.lastSecAverage ? Math.round(engine._drawCalls.lastSecAverage) : engine._drawCalls?.current ?? 0,
@@ -455,6 +462,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade.update();
     remotes.update();
     theatre.update();
+    snacks.update(store.get().night);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
