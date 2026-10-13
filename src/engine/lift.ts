@@ -20,7 +20,7 @@ import { Materials } from "../world/materials/library";
 import { LiftGlyph, buttonMat } from "../world/materials/lift";
 import { ROLE, find } from "../world/roles";
 import { FlyCamera } from "./flyCamera";
-import { pickAt } from "./focus";
+import { pickAt, pickPoint } from "./focus";
 import { LiftSound } from "./liftSound";
 import { LIFT_TIMING, LiftState, advanceLift, callLift, carHeight, carSpeed, doorPosAt, floorHeight, holdDoors, initialLift, musicAt, playMusic, setDoorway, setNearby, shutDoorsNow } from "./liftState";
 import { room } from "./room";
@@ -351,15 +351,8 @@ export class Lift {
     const w = this.fly.walker!;
     const carFloor = LEVEL.lower + carHeight(s, now) + LIFT_CAR.floorLift;
     const inCar = this.inCar(w.feet.x, w.feet.z) && Math.abs(w.feet.y - carFloor) < LEVEL_TOLERANCE;
-    const engine = this.scene.getEngine();
-    let px = engine.getRenderWidth() / 2;
-    let py = engine.getRenderHeight() / 2;
-    if (document.pointerLockElement !== this.canvas && this.mouse) {
-      const box = this.canvas.getBoundingClientRect();
-      px = ((this.mouse.x - box.left) / box.width) * engine.getRenderWidth();
-      py = ((this.mouse.y - box.top) / box.height) * engine.getRenderHeight();
-    }
-    const ray = this.scene.createPickingRay(px, py, Matrix.Identity(), this.fly.camera);
+    const p = pickPoint(this.canvas, this.mouse);
+    const ray = this.scene.createPickingRay(p.x, p.y, Matrix.Identity(), this.fly.camera);
     let best: Button | null = null;
     let bestMiss = Infinity;
     for (const b of this.buttons) {
