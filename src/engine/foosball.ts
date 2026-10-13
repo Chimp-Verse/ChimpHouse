@@ -33,7 +33,7 @@ import { ATTACK, BALL_R, FIELD, GOAL, RODS, SIDE, SIDE_WALL, Team, WALL_TOP, WIN
 import { ROLE, find, findAll } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus } from "./focus";
-import { BallState, Hand, PLAYER_HAND, PhysicsEvent, RodPose, advance, driveRod, newBall, restPose, slideFor } from "./foosballPhysics";
+import { BallState, HAND, Hand, PLAYER_HAND, PhysicsEvent, RodPose, advance, driveRod, handTurn, nearestTurn, newBall, restPose, slideFor } from "./foosballPhysics";
 import { FoosGame, FoosballView, Seat, TIMING, advanceGame, halfOf, hostFor, idleGame, initialGame, scoreGoal, serveBall, startMatch, winner } from "./foosballMatch";
 import { ROBOT, RobotMind, newRobot, robotPlay } from "./foosballRobot";
 import { FoosballSound } from "./foosballSound";
@@ -65,12 +65,6 @@ const SEND_MS = 33;
 /** a seat not refreshed for this long is empty (ms): its player's page is gone */
 const SEAT_FRESH = 15000;
 const SEAT_BEAT = 4000;
-/** the turn a flick gives, per pixel of mouse movement to the right (rad) */
-const FLICK = 0.0115;
-/** how quickly the lit rod settles back with its men hanging down once the mouse stops (s) */
-const SETTLE = 0.09;
-/** how long without sideways movement counts as the mouse having stopped (ms) */
-const STILL_MS = 60;
 /** the turn of men lifted by the player (feet back, as for a shot) and lifted out of the way of their own shot (feet forward) */
 const LIFT_BACK = -1.35;
 const LIFT_AHEAD = 1.5;
@@ -84,7 +78,6 @@ const HL = FIELD.length / 2;
 const HW = FIELD.width / 2;
 const OZ = HW + SIDE_WALL;
 
-const nearestTurn = (cur: number, base: number) => base + TAU * Math.round((cur - base) / TAU);
 
 export class Foosball {
   /** the table's frame: the playfield's centre, X along it from red's goal, Z along the rods */
@@ -724,18 +717,14 @@ export class Foosball {
       this.active = active;
       this.rods[active].men.renderOutline = true;
     }
-    const still = performance.now() - this.movedAt > STILL_MS;
-    const settle = 1 - Math.exp(-dt / SETTLE);
+    const still = performance.now() - this.movedAt > HAND.stillMs;
     const ownShot = this.touch === side && this.ball.vx * a > OWN_SHOT;
     for (let i = 0; i < RODS.length; i++) {
       if (RODS[i].team !== side) continue;
       const ahead = (RODS[i].x - this.ball.x) * a;
       if (ownShot && ahead > -0.11 && ahead < 0.35) this.forward[i] = nearestTurn(this.forward[i], LIFT_AHEAD);
       else if (this.liftHeld) this.forward[i] = nearestTurn(this.forward[i], LIFT_BACK);
-      else {
-        if (i === active) this.forward[i] += this.flickPx * FLICK;
-        if (i !== active || still) this.forward[i] += (nearestTurn(this.forward[i], 0) - this.forward[i]) * settle;
-      }
+      else this.forward[i] = handTurn(this.forward[i], i === active, this.flickPx, still, dt);
       const target = slideFor(i, this.aimZ, this.man[i]);
       this.man[i] = target.man;
       driveRod(i, this.poses[i], target.slide, a * this.forward[i], dt, PLAYER_HAND);
@@ -796,6 +785,7 @@ export class Foosball {
   /** A sound for what happened, and the coach's tip goes once the player has kicked. */
   private hear(e: PhysicsEvent, now: number): void {
     if (e.kind === "man") {
+      if (e.speed < 0.15) return;
       this.sound.knock(Math.min(1, e.speed / 4), this.distance());
       if (this.side && RODS[e.rod].team === this.side && e.speed > 1) this.coachUntil = Math.min(this.coachUntil, performance.now() + 2500);
     } else if (e.kind === "wall") this.sound.clack(Math.min(1, e.speed / 4), this.distance());

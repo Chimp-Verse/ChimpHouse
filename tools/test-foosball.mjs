@@ -392,6 +392,13 @@ try {
     d = await a.fb();
     check(d.game.red === 0 && d.game.blue === 0 && (d.game.phase === "serve" || d.game.phase === "play"), "Rematch starts a new match", JSON.stringify(d.game));
     const during = await a.ev(() => window.__chimp.info());
+    // at night the field still reads: it glows a little more, as if lit by the lamp over it
+    await a.ev(() => window.__chimp.setNight(true));
+    await a.settle(20);
+    const glow = await a.ev(() => window.__chimp.scene.getMaterialByName("foosField").emissiveColor.r);
+    check(glow > 0.2, "at night the playfield glows a little more", `emissive ${glow.toFixed(2)}`);
+    await a.shot("night-play");
+    await a.ev(() => window.__chimp.setNight(false));
     console.log(`      draws and fps: walking up ${before.drawCalls} draws, ${before.fps} fps; playing ${during.drawCalls} draws, ${during.fps} fps`);
 
     // Esc leaves, and gives the side up

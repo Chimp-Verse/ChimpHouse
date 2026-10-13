@@ -33,7 +33,13 @@ export interface BallState {
   vz: number;
 }
 
-export type PhysicsEvent = { kind: "man"; rod: number; speed: number } | { kind: "wall"; speed: number } | { kind: "goal"; into: Team };
+/**
+ * What happened in a step. A man's strike carries its details: the push across the table
+ * (the contact's normal, from the man to the ball, and its height part), the rod's turn and
+ * spin then, and the ball's velocity before and after.
+ */
+export type ManHit = { kind: "man"; rod: number; speed: number; nx: number; nz: number; ny: number; turn: number; turnV: number; before: [number, number]; after: [number, number] };
+export type PhysicsEvent = ManHit | { kind: "wall"; speed: number } | { kind: "goal"; into: Team };
 
 /** The physics' tuning, in SI units. */
 export const PHYS = {
@@ -169,6 +175,8 @@ function hitMen(ball: BallState, i: number, pose: RodPose, events: PhysicsEvent[
     const rvz = ball.vz - uz;
     const vn = rvx * hx + rvz * hz;
     if (vn < 0) {
+      const bx = ball.vx;
+      const bz = ball.vz;
       // bounce, weaker the more the man comes down on top of the ball
       const j = -(1 + PHYS.manBounce) * vn * nh;
       ball.vx += j * hx;
@@ -182,7 +190,7 @@ function hitMen(ball: BallState, i: number, pose: RodPose, events: PhysicsEvent[
       ball.vx -= tx * grip;
       ball.vz -= tz * grip;
       const speed = Math.abs(vn);
-      if (speed > 0.15) events.push({ kind: "man", rod: i, speed });
+      if (speed > 0.05) events.push({ kind: "man", rod: i, speed, nx: hx * nh, nz: hz * nh, ny, turn: pose.turn, turnV: pose.turnV, before: [bx, bz], after: [ball.vx, ball.vz] });
     }
     // out of the man, across the field
     const pen = reach - d;
@@ -309,4 +317,25 @@ export function driveRod(i: number, pose: RodPose, slide: number, turn: number, 
   pose.turn += dt2;
   pose.slideV = ds / dt;
   pose.turnV = dt2 / dt;
+}
+
+/** A turn of the same rod with its men pointing the way `base` does, nearest to `cur`. */
+export const nearestTurn = (cur: number, base: number): number => base + 2 * Math.PI * Math.round((cur - base) / (2 * Math.PI));
+
+/**
+ * The player's hands: the turn a pixel of sideways mouse movement gives the lit rod (rad), how
+ * quickly a rod settles back with its men hanging down (s), and how long without sideways
+ * movement counts as the mouse having stopped (ms).
+ */
+export const HAND = { flick: 0.0115, settle: 0.09, stillMs: 60 };
+
+/**
+ * One frame of a player's rod's turn, as the team sees it (+ swings the toes towards the goal it
+ * attacks): the lit rod turned by the mouse's sideways movement this frame, and a rod that isn't
+ * being flicked settling back to its nearest hanging-down turn.
+ */
+export function handTurn(forward: number, lit: boolean, flickPx: number, still: boolean, dt: number): number {
+  if (lit) forward += flickPx * HAND.flick;
+  if (!lit || still) forward += (nearestTurn(forward, 0) - forward) * (1 - Math.exp(-dt / HAND.settle));
+  return forward;
 }
