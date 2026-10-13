@@ -122,11 +122,25 @@ const lean = await ev(() => window.__chimp.claw.pose());
 await page.screenshot({ path: "captures/claw-play-steer.png" });
 await page.keyboard.up("KeyD");
 await page.keyboard.up("KeyW");
-await page.waitForTimeout(600);
+// the swing after the stop: its largest angle off the plumb line, and when it last stood over 1°
+const swing = await ev(async () => {
+  let peak = 0, last = 0;
+  const t0 = performance.now();
+  while (performance.now() - t0 < 3000) {
+    const p = window.__chimp.claw.pose();
+    const a = (Math.atan2(Math.hypot(p.swingX, p.swingZ), p.cable) * 180) / Math.PI;
+    peak = Math.max(peak, a);
+    if (a > 1) last = (performance.now() - t0) / 1000;
+    await new Promise((r) => setTimeout(r, 30));
+  }
+  return { peak, last };
+});
+console.log(`     swing after the stop: ${swing.peak.toFixed(1)}° at most, under 1° after ${swing.last.toFixed(2)} s`);
+check(swing.peak > 0.5 && swing.peak < 9, "the claw swings a little when the trolley stops", `${swing.peak.toFixed(1)}°`);
+check(swing.last < 1.6, "and the swing dies out within a second or two", `${swing.last.toFixed(2)} s`);
 const p1 = await ev(() => window.__chimp.claw.pose());
 check(p1.x > p0.x + 0.05 && p1.z > p0.z + 0.05, "D and W move the claw right and away", `dx ${(p1.x - p0.x).toFixed(3)} dz ${(p1.z - p0.z).toFixed(3)}`);
 check(lean.joyX > 0.5 && lean.joyZ > 0.5, "the joystick leans as it is pushed");
-check(Math.hypot(p1.swingX, p1.swingZ) > 0.0005 || Math.hypot(lean.swingX, lean.swingZ) > 0.0005, "the claw swings on its cable as the trolley moves");
 
 // ---- a full play by the keys' hook, aimed at the highest chimp with a strong grip: it should win
 // (the steering check's play is ended first: its timer runs out and the claw drops by itself)
@@ -147,7 +161,13 @@ for (let attempt = 0; attempt < 6 && !won; attempt++) {
     await waitFor(() => window.__chimp.claw.state().phase === "over", null, 40000);
     continue;
   }
-  await page.keyboard.press("Space");
+  await page.keyboard.down("Space");
+  if (attempt === 0) {
+    await page.waitForTimeout(150);
+    check((await ev(() => window.__chimp.claw.pose().button)) > 0.9, "the drop button presses down while held");
+    await page.screenshot({ path: "captures/claw-play-button.png" });
+  }
+  await page.keyboard.up("Space");
   const dropped = await waitFor(() => ["drop", "grab", "lift"].includes(window.__chimp.claw.state().phase), null, 3000);
   droppedOnce ||= dropped;
   await waitFor(() => window.__chimp.claw.state().phase === "grab", null, 8000);
@@ -194,6 +214,27 @@ check(await waitFor(() => window.__chimp.claw.state().phase === "over", null, 30
 await page.keyboard.press("Escape");
 check(await waitFor(() => window.__chimp.state().focus === null && window.__chimp.state().walking, null, 5000), "Esc leaves, walking");
 check(await waitFor(() => window.__chimp.claw.prizes().every((p) => !p.gone && p.at[1] > window.__chimp.claw.spec().bedY), null, 15000), "the attendant restocks it into the bed");
+
+// ---- the player's view on a phone-shaped window: the joystick and button still in view
+await page.setViewportSize({ width: 390, height: 844 });
+await ev(async () => {
+  const c = window.__chimp;
+  const { stand, look } = c.claw.standPoint();
+  c.setPose({ x: stand[0], y: stand[1] + 1.6, z: stand[2], yaw: Math.atan2(look[0] - stand[0], look[2] - stand[2]), pitch: 0.25, fov: 1 });
+  c.setWalking(false);
+  c.setWalking(true);
+  await c.settle(10);
+});
+await waitFor(() => window.__chimp.state().clawPrompt === true, null, 5000);
+await page.keyboard.press("KeyE");
+check(await waitFor(() => window.__chimp.state().focus?.kind === "claw" && window.__chimp.state().focus?.phase === "on", null, 6000), "on a phone-shaped window, E steps up to play too");
+await page.keyboard.down("KeyA");
+await page.waitForTimeout(500);
+await page.screenshot({ path: "captures/claw-play-phone.png" });
+await page.keyboard.up("KeyA");
+await page.keyboard.press("Escape");
+await waitFor(() => window.__chimp.state().focus === null, null, 5000);
+await page.setViewportSize({ width: 1600, height: 1000 });
 
 // ---- cost at the machine
 const info = await ev(async () => {
