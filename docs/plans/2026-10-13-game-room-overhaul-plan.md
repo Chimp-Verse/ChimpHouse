@@ -19,7 +19,7 @@ Each machine is a lane with its own branch and worktree, made from `game-room-ov
 | Snack machine | `snack-machine` | `../ChimpHouse-snack` | 5185 |
 | Integration | `game-room-overhaul` | `../ChimpHouse-game-room` | 5180 |
 
-Each lane runs its own dev server on its own port: `npx vite --port <port>` in its worktree, left running in the background. Port 5173 belongs to the user's own dev server: leave it alone. Every test tool reads the address from `URL` (for example `URL=http://localhost:5181`). Give any new tool the same `URL` override, and pass `URL` to `tools/debug-view.mjs`, which assumes 5173 otherwise.
+Each lane runs its own dev server on its own port: `npx vite --port <port>` in its worktree, left running in the background. Port 5173 belongs to the user's own dev server: leave it alone. The `tools/test-*.mjs` tools read the address from `URL` (for example `URL=http://localhost:5181`), and any new tool must do the same. `tools/debug-view.mjs` and `tools/try-poses.mjs` ignore `URL` and always open 5173, which runs the old code. To use one, make the same one-line edit in every lane: in its `page.goto` template string, replace the literal `http://localhost:5173` with `${process.env.URL ?? "http://localhost:5173"}`.
 
 ### Milestones
 
