@@ -794,8 +794,13 @@ kbd {
 }
 
 .ah-goal span {
-  font: 600 16px "Montserrat", sans-serif;
-  color: var(--muted);
+  margin-top: 4px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  font: 600 15px "Montserrat", sans-serif;
+  color: var(--ink);
+  text-shadow: none;
 }
 
 @keyframes ah-pop {

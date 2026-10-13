@@ -1,7 +1,8 @@
 // The air hockey table in the Game Room, against the running preview (npm run dev).
 //   node tools/test-air-hockey.mjs        play it: the physics and the robot on their own, then a
-//                                         visitor playing the robot with the mouse, then two
-//                                         visitors (separate browser contexts) playing each other
+//                                         visitor playing the robot with the mouse
+//   SHARED=1 node tools/test-air-hockey.mjs   two visitors (separate browser contexts, at low
+//                                         quality to spare memory) playing each other instead
 //   node tools/test-air-hockey.mjs look   screenshots of the table: from a walker's eye at about
 //                                         2.5 m, close-ups of its details, and at night
 // Screenshots go to captures/air-hockey-*.png. Exits non-zero when a check fails.
@@ -86,7 +87,9 @@ if (mode === "look") {
   }
 }
 
-if (mode === "play") {
+const SHARED = process.env.SHARED === "1";
+
+if (mode === "play" && !SHARED) {
   // ---------------------------------------------------------------- 1. the physics and the robot, on their own
   const page = await open({ width: 1200, height: 760 }, "view=game", "Ada");
   const phys = await page.evaluate(async () => {
@@ -366,8 +369,28 @@ if (mode === "play") {
   });
   check(re.phase !== "over" && re.score[0] + re.score[1] === 0 && re.match === over.d.match + 1, "Rematch starts a new match at 0-0", JSON.stringify({ phase: re.phase, score: re.score, match: re.match }));
 
-  // ---------------------------------------------------------------- 3. two visitors
-  const b = await open({ width: 900, height: 600 }, "view=game", "Bea");
+  const info = await page.evaluate(() => window.__chimp.info());
+  console.log(`at the table: ${info.fps} fps, ${info.drawCalls} draw calls`);
+  await page.evaluate(() => window.__chimp.airHockey.leave());
+  await page.close();
+}
+
+if (mode === "play" && SHARED) {
+  // ---------------------------------------------------------------- two visitors, each a page of its own
+  const page = await open({ width: 1000, height: 640 }, "view=game&quality=low", "Ada");
+  const t = await page.evaluate(() => window.__chimp.airHockey.where());
+  await page.evaluate(() => window.__chimp.airHockey.reset());
+  await sleep(400);
+  await page.evaluate((p) => {
+    window.__chimp.setPose(p);
+    window.__chimp.setWalking(true);
+  }, poseFor(t, [-1.75, 1.7, 0], [0, 0.8, 0]));
+  await sleep(500);
+  await page.evaluate(() => window.__chimp.airHockey.sit(1));
+  await sleep(600);
+  const re = await page.evaluate(() => window.__chimp.airHockey.describe());
+  check(re.end === 1 && re.runs, "the first visitor plays the robot at the red end, their page running the game", JSON.stringify({ end: re.end, runs: re.runs }));
+  const b = await open({ width: 800, height: 500 }, "view=game&quality=low", "Bea");
   await b.evaluate((p) => {
     window.__chimp.setPose(p);
     window.__chimp.setWalking(true);
@@ -420,8 +443,8 @@ if (mode === "play") {
   await sleep(1300);
   const freed = await page.evaluate(() => ({ players: window.__chimp.airHockey.describe().players, phase: window.__chimp.airHockey.describe().phase }));
   check(freed.players.every((p) => p === null) && freed.phase === "idle", "Esc leaves, and the table is free and idle", JSON.stringify(freed));
-  const info = await page.evaluate(() => window.__chimp.info());
-  console.log(`at the table: ${info.fps} fps, ${info.drawCalls} draw calls`);
+  await b.close();
+  await page.close();
 }
 
 await browser.close();
