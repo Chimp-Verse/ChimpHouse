@@ -70,7 +70,12 @@ Five lanes are writing in parallel, and the orchestrator merges them. These conv
 
 **Finding things by role.** Give every interactive part a role in `src/world/roles.ts` (one `ROLE` entry each, named after its machine, e.g. `airHockeyTable`, `pinballFlipper`), with a slot number where there are several. The engine finds those parts only by role and slot (`find`/`findAll`), never by how the room code builds them, so this carries over to the Blender files. Static parts are merged into the room through `ctx.g(zone, mat)` as the rest of the house is, each labelled for inspect: "Air hockey table", "Pinball machine: Jungle Quest" and so on. Moving parts are meshes of their own, built at run time the way `props/cabinet.ts` and `props/remote.ts` build theirs, and added to the lights with `lighting.addMeshes`.
 
-Moving parts must never become stale solids in the walker's collision grid. Read `MeshMeta.kind` in `src/world/context.ts` and `solid()`/`mover()` in `src/engine/collision.ts`, and choose accordingly. Moving parts don't cast the sun's shadow, which is only drawn once.
+Moving parts must never be stale solids in the walker's collision grid, and never be exported twice. Pick one of two patterns for each moving part:
+
+- **Built by the room code** (the lift's pattern): a mesh of its own made by the world builder with a role. It goes into the Blender export, and the engine finds it by role and moves it. Tag it `kind: "special"`, which isn't solid. The engine must never build a second copy.
+- **Built by the engine at run time** (the cabinets' and remotes' pattern): tag it `kind: "moving"`, which is never solid and never exported. Its place is a slot the room code creates (`ctx.slot`), so the Blender files carry the slot and not the part.
+
+Never use `kind: "special"` for a mesh the engine builds at run time: the export would copy it into Blender, and after the cut-over the engine would add a second one. Moving parts don't cast the sun's shadow, which is only drawn once.
 
 **Walking up and playing.** Follow the arcade, theatre and lift patterns:
 
