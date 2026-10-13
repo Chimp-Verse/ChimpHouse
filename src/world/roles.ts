@@ -62,6 +62,8 @@ export const ROLE = {
   airHockeyEnd: "air-hockey-end",
   /** a face of the overhead scoreboard, numbered with the end it faces */
   airHockeyScore: "air-hockey-score",
+  /** where a puck put into an end's goal comes back out, numbered with the end: on its puck return's tray */
+  airHockeyReturn: "air-hockey-return",
   /** a mallet, numbered with its end, and the puck: put on the table at run time */
   airHockeyMallet: "air-hockey-mallet",
   airHockeyPuck: "air-hockey-puck",

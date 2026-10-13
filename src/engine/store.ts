@@ -12,7 +12,7 @@ export interface PickedInfo {
 }
 
 /** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "claw" } | { kind: "pinball"; slot: number; name: string };
+export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "claw" } | { kind: "pinball"; slot: number; name: string } | { kind: "airHockey"; end: 1 | 2 };
 
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
@@ -79,6 +79,23 @@ export interface ScreenRect {
   h: number;
 }
 
+/** Playing air hockey (engine/airHockey.ts): the match as this player sees it. */
+export interface AirHockeyHud {
+  /** the end this visitor plays (1 red, 2 blue) */
+  end: 1 | 2;
+  /** red's goals, blue's */
+  score: [number, number];
+  phase: "idle" | "play" | "goal" | "over";
+  /** the end that won the match, once it is over */
+  winner: 0 | 1 | 2;
+  /** who plays the other end: a visitor's name, or "the robot" */
+  opponent: string;
+  /** the end the last goal went into, while it is being shown */
+  scored: 0 | 1 | 2;
+  /** this player has asked for a rematch and waits for the other */
+  waiting: boolean;
+}
+
 export interface PreviewState {
   loading: boolean;
   progress: number;
@@ -134,6 +151,10 @@ export interface PreviewState {
   pinballPrompt: { slot: number; name: string; busy: string | null } | null;
   /** the pinball game being played, while one is */
   pinball: PinballHud | null;
+  /** walking up to the air hockey table: E plays at that end (against the robot, or the visitor at the other end); end null while both ends are taken */
+  airHockeyPrompt: { end: 1 | 2 | null; opponent: string } | null;
+  /** playing air hockey: the score and the match */
+  airHockey: AirHockeyHud | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -178,6 +199,8 @@ class Store {
     claw: null,
     pinballPrompt: null,
     pinball: null,
+    airHockeyPrompt: null,
+    airHockey: null,
   };
   private listeners = new Set<Listener>();
 
