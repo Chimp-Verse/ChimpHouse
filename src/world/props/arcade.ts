@@ -1,5 +1,6 @@
-// Games-room furniture: air hockey, foosball, a claw machine full of plush
-// chimps and bananas, a snack vending machine, pinball machines and bean bags.
+// Games-room furniture: air hockey, a claw machine full of plush
+// chimps and bananas, a snack vending machine, pinball machines and bean bags
+// (the foosball table is in foosball.ts).
 // Each is built in a local frame with its base at m and its front (where the
 // player stands) toward -Z.
 
@@ -108,69 +109,6 @@ export function airHockey(ctx: WorldCtx, z: Zone, m: Matrix): void {
     ctx.g(z, mat).add(new Geo().add(cylinder(0.05, 0.03, 18)).add(cylinder(0.022, 0.07, 12), xf(0, 0.03, 0)).add(sphere(0.026, 10, 8), xf(0, 0.1, 0)), xf(x, T - 0.03, zz).multiply(m), "Mallet");
   }
   ctx.g(z, "black").add(cylinder(0.03, 0.008, 16), xf(0.1, T - 0.034, 0.12).multiply(m), "Puck");
-}
-
-// ------------------------------------------------------------------ foosball
-
-/** Foosball table, 1.4 m by 0.75 m, rods along Z, players on two teams. Base at m. */
-export function foosball(ctx: WorldCtx, z: Zone, m: Matrix): void {
-  mats(ctx);
-  const L = 1.4;
-  const W = 0.75;
-  const label = "Foosball table";
-  const fieldKey = canvasMat(
-    ctx,
-    "foosField",
-    (() => {
-      const { canvas, ctx: c } = makeCanvas(512, 280);
-      c.fillStyle = "#2e7d4f";
-      c.fillRect(0, 0, 512, 280);
-      c.fillStyle = "rgba(255,255,255,0.08)";
-      for (let i = 0; i < 8; i++) c.fillRect(i * 64, 0, 32, 280);
-      c.strokeStyle = "#f4f2ee";
-      c.lineWidth = 4;
-      c.strokeRect(6, 6, 500, 268);
-      c.beginPath();
-      c.moveTo(256, 6);
-      c.lineTo(256, 274);
-      c.stroke();
-      c.beginPath();
-      c.arc(256, 140, 40, 0, Math.PI * 2);
-      c.stroke();
-      c.strokeRect(6, 80, 50, 120);
-      c.strokeRect(456, 80, 50, 120);
-      return canvas;
-    })(),
-    0.7,
-  );
-  // legs, then the box with its field set below the rim
-  const legs = new Geo();
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) legs.add(box(0.08, 0.6, 0.08), xf(sx * (L / 2 - 0.12), 0.3, sz * (W / 2 - 0.08)));
-  legs.add(box(L - 0.3, 0.05, 0.05), xf(0, 0.18, 0));
-  ctx.g(z, "black").add(legs, m, label);
-  const shell = new Geo();
-  shell.add(box(L, 0.04, W), xf(0, 0.62, 0));
-  for (const s of [-1, 1]) shell.add(box(L, 0.28, 0.04), xf(0, 0.74, s * (W / 2 - 0.02)));
-  for (const s of [-1, 1]) shell.add(box(0.04, 0.28, W), xf(s * (L / 2 - 0.02), 0.74, 0));
-  ctx.g(z, "timber").add(shell, m, label);
-  ctx.g(z, fieldKey, { castShadow: false }).add(new Geo().add(plane(L - 0.08, W - 0.08), xf(0, 0, 0, 0, 1, 1, 1, Math.PI / 2)), xf(0, 0.645, 0).multiply(m), label);
-  // rods across the table, with grips, and players on them
-  const rodsX = [-0.56, -0.4, -0.24, -0.08, 0.08, 0.24, 0.4, 0.56];
-  const counts = [1, 2, 5, 3, 3, 5, 2, 1];
-  const rods = new Geo();
-  rodsX.forEach((x, i) => {
-    rods.add(tube([new Vector3(x, 0.8, -(W / 2 + 0.15)), new Vector3(x, 0.8, W / 2 + 0.15)], 0.008, 8));
-    const team = i < 4 ? (i % 2 ? "arcadeBlue" : "arcadeRed") : i % 2 ? "arcadeRed" : "arcadeBlue";
-    const n = counts[i];
-    for (let k = 0; k < n; k++) {
-      const zz = (k - (n - 1) / 2) * ((W - 0.15) / Math.max(1, n));
-      ctx.g(z, team).add(new Geo().add(box(0.035, 0.12, 0.05), xf(0, -0.02, 0)).add(sphere(0.022, 8, 6), xf(0, 0.06, 0)), xf(x, 0.75, zz).multiply(m), "Foosball player");
-    }
-    const side = i % 2 ? 1 : -1;
-    ctx.g(z, "black").add(tube([new Vector3(x, 0.8, side * (W / 2 + 0.06)), new Vector3(x, 0.8, side * (W / 2 + 0.2))], 0.022, 10, true), m, "Rod grip");
-  });
-  ctx.g(z, "chrome").add(rods, m, label);
-  ctx.g(z, "white").add(sphere(0.018, 10, 8), xf(0.05, 0.665, 0.08).multiply(m), "Foosball");
 }
 
 // ------------------------------------------------------------------ claw machine

@@ -42,6 +42,18 @@ export const ROLE = {
   /** the car's own doors, which open with the landing's: the left and right leaves */
   liftCarDoorLeft: "lift-car-door-left",
   liftCarDoorRight: "lift-car-door-right",
+  /** the foosball table's frame: a slot at the playfield's centre (props/foosballSpec.ts), its stand point where red's player stands; blue's is across the table */
+  foosballTable: "foosball-table",
+  /** the foosball table's playfield: one quad, facing up */
+  foosballField: "foosball-field",
+  /** the place of a foosball rod, numbered 1-8 from red's goal: its shaft, men and grip are built there at run time */
+  foosballRodSlot: "foosball-rod-slot",
+  /** a foosball rod's men, bumpers and grip, numbered with its slot */
+  foosballRod: "foosball-rod",
+  /** a foosball score counter's rod over each end, 1 red's and 2 blue's: its beads are put there at run time */
+  foosballCounter: "foosball-counter",
+  /** the foosball */
+  foosballBall: "foosball-ball",
 } as const;
 
 type Meta = { role?: string; slot?: number };
