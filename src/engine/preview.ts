@@ -16,6 +16,10 @@ import { AirHockey } from "./airHockey";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
 import { Foosball } from "./foosball";
+import * as foosballMatch from "./foosballMatch";
+import * as foosballPhysics from "./foosballPhysics";
+import * as foosballRobot from "./foosballRobot";
+import * as foosballSpec from "../world/props/foosballSpec";
 import { ButtonId, Lift } from "./lift";
 import { ClawMachine } from "./clawMachine";
 import { Remotes } from "./remotes";
@@ -45,6 +49,8 @@ export interface PreviewController {
   readonly pinball: Pinball;
   /** The air hockey table: playing at it, and leaving. */
   readonly airHockey: AirHockey;
+  /** The foosball table: playing it, against the robot or another visitor. */
+  readonly foosball: Foosball;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -82,8 +88,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
-  // the foosball table's rods, ball and score counters
-  const foosball = new Foosball(scene, world.mats, lighting);
+  // the foosball table: its rods, ball and score counters, and playing it
+  const foosball = new Foosball(scene, world.mats, lighting, fly, focus, canvas);
   // the air hockey table: its mallets and puck
   const airHockey = new AirHockey(scene, world.mats, lighting, fly, focus, canvas, (msg) => flash(msg));
   // the snack machine: its coils and snacks, shown from its shared state (engine/snackState.ts)
@@ -177,6 +183,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     claw,
     pinball,
     airHockey,
+    foosball,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -297,6 +304,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       else void pinball.use(s.pinballPrompt.slot);
     }
     else if (e.code === "KeyE" && s.walking && s.airHockeyPrompt?.end) airHockey.act();
+    else if (e.code === "KeyE" && s.walking && s.foosballPrompt && "side" in s.foosballPrompt) void foosball.use();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -443,8 +451,23 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       reset: () => lift.reset(),
     },
     foosball: {
-      /** where the table, its rods and ball are */
+      /** where the table, its rods and ball are, and how the game stands */
       describe: () => foosball.describe(),
+      /** play a side (walk mode, at the table), or the side offered; leave; rematch once a match is over */
+      use: (side?: "red" | "blue") => foosball.use(side),
+      leave: () => foosball.leave(),
+      rematch: () => foosball.rematch(),
+      /** the player's hands: a click's spin kick, a flick of px to the right, the lift held, aiming at a line across the table (null: the cursor) */
+      kick: () => foosball.kick(),
+      flick: (px: number) => foosball.flick(px),
+      lift: (on: boolean) => foosball.setLift(on),
+      aim: (z: number | null) => (foosball.aimOverride = z),
+      /** on the host: the ball put in play somewhere, the score set; and everyone's table back as new */
+      place: (x: number, z: number, vx?: number, vz?: number) => foosball.place(x, z, vx, vz),
+      setScore: (red: number, blue: number) => foosball.setScore(red, blue),
+      reset: () => foosball.reset(),
+      /** the pure rules, physics and robot, to test in the page */
+      pure: { physics: foosballPhysics, match: foosballMatch, robot: foosballRobot, spec: foosballSpec },
     },
     airHockey: {
       /** the table's base in the world and the turn of its long axis, and its playfield in its own space */
@@ -586,6 +609,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     claw.update(dt);
     pinball.update(dt);
     airHockey.update();
+    foosball.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();

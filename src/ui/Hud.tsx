@@ -5,6 +5,7 @@ import { VIEWPOINTS, findView } from "../world/viewpoints";
 import { ClawMachineHud } from "./ClawMachineHud";
 import { PinballOverlay } from "./PinballOverlay";
 import { AirHockeyOverlay } from "./AirHockeyOverlay";
+import { FoosballPanel } from "./FoosballPanel";
 import { PlayOverlay } from "./PlayOverlay";
 import { RemotePanel } from "./RemotePanel";
 import { TheatreOverlay } from "./TheatreOverlay";
@@ -19,6 +20,7 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       {s.focus?.kind === "claw" && <ClawMachineHud s={s} claw={ctl.claw} />}
       {s.focus?.kind === "pinball" && <PinballOverlay s={s} onLeave={() => void ctl.pinball.leave()} onStart={() => ctl.pinball.start()} />}
       {s.focus?.kind === "airHockey" && <AirHockeyOverlay s={s} onLeave={() => void ctl.airHockey.leave()} onRematch={() => ctl.airHockey.askRematch()} />}
+      {s.focus?.kind === "foosball" && <FoosballPanel s={s} foosball={ctl.foosball} />}
       {!s.focus && <Panels ctl={ctl} s={s} />}
       {s.toast && <div className="toast">{s.toast}</div>}
     </>
@@ -109,7 +111,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet or pinball machine, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around Â· <b>WASD</b> walk Â· <b>Shift</b> run Â· right-drag to look Â· <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote or use the lift Â· <b>F</b> fly Â· <b>Alt-click</b> inspect Â· <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -145,6 +147,21 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           ) : (
             <>
               Air hockey<span>both ends are taken</span>
+            </>
+          )}
+        </div>
+      )}
+      {s.walking && s.foosballPrompt && (
+        <div className="play-prompt">
+          {"side" in s.foosballPrompt ? (
+            <>
+              <kbd>E</kbd>Play foosball as {s.foosballPrompt.side}
+              <span>against {s.foosballPrompt.against}</span>
+            </>
+          ) : (
+            <>
+              Foosball: {s.foosballPrompt.full}
+              <span>both sides are taken</span>
             </>
           )}
         </div>
@@ -222,6 +239,10 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E (at the claw machine)</td><td>Play the Chimp Claw: W A S D or arrows steer the claw, Space drops it (and plays again), Esc leaves</td></tr>
             <tr><td>E (at a pinball machine)</td><td>Play it: Shift or Z and / flip, hold Space or ↓ to pull the plunger, X . and the arrows nudge, Enter starts a new game, Esc leaves</td></tr>
             <tr><td>E (at the air hockey table)</td><td>Play air hockey: your mallet follows the mouse; against the robot, or a visitor at the other end; Esc leaves</td></tr>
+            <tr><td>E (walking, foosball table)</td><td>Play foosball from the side you're at: against the robot, or the visitor across the table</td></tr>
+            <tr><td>Foosball: mouse up / down</td><td>Your men follow the cursor across the table</td></tr>
+            <tr><td>Foosball: flick right, click or Space</td><td>Kick with the glowing rod (nearest the ball), harder the faster the flick; a click spins it right round</td></tr>
+            <tr><td>Foosball: wheel or 1–4, right button or Shift, Esc</td><td>Pick another rod (goalie, defence, midfield, attack) / lift your men while held / leave the table</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>
