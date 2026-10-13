@@ -539,7 +539,7 @@ export function buildAirHockeyPieces(mats: Materials, table: TransformNode): Air
       const mesh = geo.build(`${name}:${mat}`, scene);
       mesh.parent = node;
       mesh.material = mats.get(mat);
-      mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: name }], matKey: mat, kind: "special", role, slot } satisfies MeshMeta;
+      mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: name }], matKey: mat, kind: "moving", role, slot } satisfies MeshMeta;
       mesh.receiveShadows = true;
       mesh.renderingGroupId = 1;
       mesh.isPickable = false;
