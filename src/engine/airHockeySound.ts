@@ -145,7 +145,7 @@ export class AirHockeySound {
     if (!this.ctx || speed < 0.08) return;
     this.count(kind);
     // as loud as the blow was hard, a soft tap barely there
-    const k = Math.min(1, Math.pow(speed / 7, 0.8));
+    const k = Math.min(1, Math.pow(speed / 6, 0.8));
     const vary = 0.94 + Math.random() * 0.12;
     if (kind === "mallet") {
       // hard plastic on plastic: a bright click with a short hollow knock under it

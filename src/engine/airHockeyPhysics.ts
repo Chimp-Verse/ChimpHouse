@@ -40,21 +40,24 @@ export interface SimEvent {
 export const PHYSICS = {
   /** the fixed substep (s) */
   substep: 1 / 600,
-  /** the air cushion's drag on the puck, per second: it glides for many seconds */
-  puckDrag: 0.16,
+  /** the air cushion's drag on the puck, per second: it glides for seconds, losing a little speed to the air */
+  puckDrag: 0.2,
   /** with the blower off, the puck sits on the laminate and soon stops */
   stillDrag: 7,
-  /** the rails' bounce: how much of the puck's speed into them it keeps */
-  railBounce: 0.86,
+  /** the rails' bounce: how much of the puck's speed into them it keeps (a rubber rail takes a quarter) */
+  railBounce: 0.75,
   /** the speed along a rail it keeps in a bounce */
-  railGrip: 0.97,
-  /** a mallet's bounce on the puck */
-  malletBounce: 0.82,
-  /** the fastest a puck travels (m/s) */
-  puckMax: 14,
+  railGrip: 0.95,
+  /**
+   * a mallet's bounce on the puck: a hand-held mallet gives, so a struck puck leaves at about the
+   * mallet's speed (1.3x, not the 1.8x of a hard bounce) and one hitting a still mallet mostly dies
+   */
+  malletBounce: 0.3,
+  /** the fastest a puck travels (m/s): an arcade shot, not a pro's */
+  puckMax: 8,
   /** how quickly a mallet catches up with its target (s), and its top speed (m/s): a hand sweeps, it doesn't jump */
   malletLag: 0.016,
-  malletMax: [6.5, 6.5] as [number, number],
+  malletMax: [4.5, 4.5] as [number, number],
 };
 
 export interface Sim {
@@ -401,13 +404,13 @@ export const ROBOT = {
   /** how often it looks at the table (s): it reacts, it doesn't foresee */
   look: 0.08,
   /** how long it takes to react to a shot (s), at least, and how much longer at most */
-  reaction: 0.1,
-  reactionSpread: 0.08,
-  /** its top speed (m/s): a little slower than a player's hand */
-  speed: 4.6,
+  reaction: 0.15,
+  reactionSpread: 0.1,
+  /** its top speed (m/s): slower than a player's hand, so it never hits harder than a person can */
+  speed: 3.6,
   /** how far off its aim and its guesses are (m) */
   aimError: 0.07,
-  guessError: 0.03,
+  guessError: 0.05,
   /** how far past the puck it drives through on a strike (m) */
   follow: 0.16,
 };

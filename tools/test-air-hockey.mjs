@@ -144,8 +144,8 @@ if (mode === "play" && !SHARED) {
       sim = fresh();
       P.placePuck(sim, (Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 0.9);
       const a = Math.random() * Math.PI * 2;
-      sim.puck.vx = Math.cos(a) * 13;
-      sim.puck.vz = Math.sin(a) * 13;
+      sim.puck.vx = Math.cos(a) * P.PHYSICS.puckMax;
+      sim.puck.vz = Math.sin(a) * P.PHYSICS.puckMax;
       run(sim, 1.5, (s) => {
         const p = s.puck;
         if (s.live && (Math.abs(p.z) > spec.hz - spec.puckR + 1e-6 || Math.abs(p.x) > spec.hx + spec.puckR + 1e-6)) escaped++;
@@ -180,13 +180,14 @@ if (mode === "play" && !SHARED) {
       return Math.hypot(s.puck.vx, s.puck.vz);
     };
     out.soft = blow(2);
-    out.hard = blow(6.5);
+    out.hard = blow(P.PHYSICS.malletMax[0]);
+    out.robotHard = blow(P.ROBOT.speed);
     // a puck at full speed at a still mallet bounces off it
     sim = fresh();
     P.placePuck(sim, 0.5, 0);
     sim.mallets[0].x = sim.targets[0].x = -0.5;
     sim.mallets[0].z = sim.targets[0].z = 0;
-    sim.puck.vx = -14;
+    sim.puck.vx = -P.PHYSICS.puckMax;
     overlap = 0;
     run(sim, 0.15, (s) => {
       const m = s.mallets[0];
@@ -225,7 +226,7 @@ if (mode === "play" && !SHARED) {
       const aimZ = bank ? Math.sign(Math.random() - 0.5) * (2 * (0.52 - 0.041)) - aimZ0 : aimZ0;
       const dx = 1.04 - sim.puck.x;
       const dz = aimZ - sim.puck.z;
-      const sp = 3.5 + Math.random() * 3.5;
+      const sp = 3 + Math.random() * 3;
       const l = Math.hypot(dx, dz);
       sim.puck.vx = (dx / l) * sp;
       sim.puck.vz = (dz / l) * sp;
@@ -253,15 +254,18 @@ if (mode === "play" && !SHARED) {
       if (sim.scored === 1) robotGoals++;
     }
     out.robotGoals = robotGoals;
+    out.malletMax = P.PHYSICS.malletMax[0];
     return out;
   });
   console.log(JSON.stringify(phys));
-  check(phys.glide > 0.8, "the puck glides on its air cushion, near frictionless", `keeps ${(phys.glide * 100).toFixed(0)}% of its speed over 1 s`);
-  check(phys.rebound < -0.75 && phys.rebound > -0.95, "the puck rebounds off a rail", `vz ${phys.rebound.toFixed(2)}x`);
+  check(phys.glide > 0.75, "the puck glides on its air cushion, near frictionless", `keeps ${(phys.glide * 100).toFixed(0)}% of its speed over 1 s`);
+  check(phys.rebound < -0.6 && phys.rebound > -0.85, "the puck rebounds off a rail, losing some speed", `vz ${phys.rebound.toFixed(2)}x`);
   check(phys.escaped === 0, "400 random fast shots never leave the table", `${phys.escaped} escapes, ${phys.randomGoals} went in`);
   check(phys.sweep.vx > 3 && phys.sweep.overlap === 0, "a fast mallet sweeping through a still puck strikes it, never passing through", JSON.stringify(phys.sweep));
   check(phys.hard > phys.soft * 2, "the mallet's speed passes to the puck", `soft ${phys.soft.toFixed(2)} m/s, hard ${phys.hard.toFixed(2)} m/s`);
-  check(phys.fast.vx > 3 && phys.fast.overlap === 0, "a puck at full speed bounces off a still mallet", JSON.stringify(phys.fast));
+  check(phys.hard < phys.malletMax * 1.5 && phys.hard <= 8, "a hit gives the puck about the mallet's speed, no big boost", `${phys.hard.toFixed(2)} m/s from a ${phys.malletMax} m/s mallet`);
+  check(phys.robotHard < phys.hard, "the robot never hits harder than a person can", `robot ${phys.robotHard.toFixed(2)} m/s, person ${phys.hard.toFixed(2)} m/s`);
+  check(phys.fast.vx > 1 && phys.fast.overlap === 0, "a puck at full speed bounces off a still mallet", JSON.stringify(phys.fast));
   check(phys.goal === 2, "a straight shot into the blue goal scores");
   check(phys.post.scored === 0 && phys.post.vx < 0, "a shot onto the post bounces out", JSON.stringify(phys.post));
   check(phys.clamp[0] <= -0.047 && phys.clamp[1] <= 0.52 - 0.047, "a mallet stays in its own half, inside the rails", JSON.stringify(phys.clamp));

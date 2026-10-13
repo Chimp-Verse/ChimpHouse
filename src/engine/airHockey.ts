@@ -28,7 +28,7 @@ import { Materials } from "../world/materials/library";
 import { AIR_HOCKEY, AirHockeyPieces, SCOREBOARD_SIZE, buildAirHockeyPieces, paintScoreboard, scoreSides } from "../world/props/airHockey";
 import { ROLE, find, findAll } from "../world/roles";
 import { AirHockeySound } from "./airHockeySound";
-import { RobotMind, Sim, TableSpec, WIN_SCORE, coast, makeRobot, makeSim, placePuck, robotMove, step, winner } from "./airHockeyPhysics";
+import { PHYSICS, RobotMind, Sim, TableSpec, WIN_SCORE, coast, makeRobot, makeSim, placePuck, robotMove, step, winner } from "./airHockeyPhysics";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus, pickPoint } from "./focus";
 import { Lighting } from "./lighting";
@@ -441,7 +441,7 @@ export class AirHockey {
     for (const end of [1, 2] as const) {
       const i = end - 1;
       const t = sim.targets[i];
-      sim.malletMax[i] = 6.5;
+      sim.malletMax[i] = PHYSICS.malletMax[i];
       if (end === this.myEnd) {
         if (s.focus?.phase === "on") this.cursorTarget(t);
       } else if (end === robotEnd) {
