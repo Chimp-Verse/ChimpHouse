@@ -16,7 +16,7 @@
 //
 // Nothing runs per frame unless the pile is moving, the claw is, or someone is playing.
 
-import { DynamicTexture, Matrix, Mesh, PBRMaterial, Quaternion, Scene, TransformNode, Vector3 } from "@babylonjs/core";
+import { DynamicTexture, Matrix, Mesh, PBRMaterial, Quaternion, Ray, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { MeshMeta, SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { ClawSpec, PRIZE_NAMES, PrizeKind, plushMat, prizeGeo } from "../world/props/clawMachine";
@@ -112,7 +112,7 @@ export class ClawMachine {
   private pileOwed = false;
 
   constructor(
-    scene: Scene,
+    private scene: Scene,
     mats: Materials,
     lighting: Lighting,
     private fly: FlyCamera,
@@ -399,23 +399,28 @@ export class ClawMachine {
     return { x: eye.x, y: eye.y, z: eye.z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at.y - eye.y, Math.hypot(dx, dz)), fov: 0.86 };
   }
 
-  /** Whether the walker stands at the deck, facing the machine and looking at it. */
+  /**
+   * Whether the walker stands at the deck and is looking at this machine: near the stand point,
+   * in front of it, and the first thing the line of sight meets inside the cabinet's own box
+   * (so looking at the snack machine beside it doesn't offer the claw).
+   */
   private atDeck(): boolean {
     const walker = this.fly.walker;
     if (!walker) return false;
     const wm = this.root.computeWorldMatrix(true);
     const stand = Vector3.TransformCoordinates(Vector3.FromArray((this.root.metadata as SlotMeta).stand), wm);
-    const c = Vector3.TransformCoordinates(new Vector3(0, 0, 0), wm);
     const f = walker.feet;
-    if (Math.hypot(f.x - stand.x, f.z - stand.z) > REACH || Math.abs(f.y - c.y) > 0.6) return false;
-    const front = this.root.getDirection(new Vector3(0, 0, -1));
-    const dx = c.x - f.x;
-    const dz = c.z - f.z;
-    const d = Math.hypot(dx, dz) || 1;
-    if (-(dx * front.x + dz * front.z) / d < 0.3) return false; // beside or behind it
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
-    const fl = Math.hypot(fwd.x, fwd.z) || 1;
-    return (fwd.x * dx + fwd.z * dz) / (fl * d) > Math.cos((55 * Math.PI) / 180);
+    if (Math.hypot(f.x - stand.x, f.z - stand.z) > REACH || Math.abs(f.y - stand.y) > 0.6) return false;
+    // in front of it, and the first thing on the line of sight is the machine (not the snack machine's keypad beside it)
+    const inv = wm.clone().invert();
+    if (Vector3.TransformCoordinates(this.fly.camera.position, inv).z > this.spec.outer[4]) return false;
+    const ray = new Ray(this.fly.camera.position.clone(), this.fly.camera.getDirection(Vector3.Forward()), 2.5);
+    const hit = this.scene.pickWithRay(ray, (m) => m.isPickable && m.isEnabled() && m.isVisible);
+    if (!hit?.hit || !hit.pickedPoint) return false;
+    const p = Vector3.TransformCoordinates(hit.pickedPoint, inv);
+    const b = this.spec.outer;
+    const e = 0.02;
+    return p.x > b[0] - e && p.x < b[1] + e && p.y > b[2] - e && p.y < b[3] + e && p.z > b[4] - e && p.z < b[5] + e;
   }
 
   /** Prizes behind the pickup door are taken, and go back in the machine a little later. */
