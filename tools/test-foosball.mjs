@@ -172,6 +172,55 @@ try {
       const playing = gm.phase;
       for (let i = 0; i < S.WIN_SCORE; i++) gm = M.advanceGame(M.scoreGoal(gm, "blue", 10000 * (i + 1)), 10000 * (i + 1) + M.TIMING.goal + 1, 0.5);
       out.match = { served, playing, red: gm.red, blue: gm.blue, phase: gm.phase, winner: M.winner(gm), serve: gm.serve };
+      // a player's flick, frame by frame through the hand, the rod's driver and the physics as the engine runs
+      // them, over where the ball rests in front of the man (just touching his foot to the tip of his reach),
+      // the flick's size and speed, the frame rate, and the rod at rest, drawn back, or still settling from a
+      // forward flick: the midfield's first strike always sends the ball forward
+      const flicks = { runs: 0, wrong: [], weak: [] };
+      for (const fps of [30, 60])
+        for (const pre of ["rest", "drawn", "forward"])
+          for (const dx of [0.02, 0.03, 0.045, 0.06, 0.075])
+            for (const px of [60, 160, 320])
+              for (const frames of [1, 2, 4]) {
+                const dt = 1 / fps;
+                const poses = rods();
+                const prev = rods();
+                const tmp = rods();
+                const ball = P.newBall(S.RODS[3].x + dx, 0, 0, 0);
+                let forward = 0;
+                const moves = pre === "drawn" ? [[0.05, -60]] : pre === "forward" ? [[0.2, 120]] : [];
+                for (let k = 0; k < frames; k++) moves.push([0.3 + k * dt, px / frames]);
+                let last = -1;
+                let first = null;
+                const events = [];
+                for (let f = 1; f * dt <= 0.7 && !first; f++) {
+                  const t = f * dt;
+                  let mx = 0;
+                  for (const [mt, mp] of moves) if (mt > t - dt - 1e-9 && mt <= t + 1e-9) mx += mp;
+                  if (mx) last = t;
+                  forward = P.handTurn(forward, true, mx, last < 0 || (t - last) * 1000 > P.HAND.stillMs, dt);
+                  poses.forEach((p, i) => Object.assign(prev[i], p));
+                  P.driveRod(3, poses[3], 0, forward, dt, P.PLAYER_HAND);
+                  events.length = 0;
+                  P.advance(
+                    ball,
+                    dt,
+                    (tt, out) => {
+                      const k = Math.min(1, tt / dt);
+                      poses.forEach((p, i) => Object.assign(out[i], { slide: p.slide, turn: prev[i].turn + (p.turn - prev[i].turn) * k, slideV: p.slideV, turnV: p.turnV }));
+                    },
+                    tmp,
+                    events,
+                  );
+                  first = events.find((e) => e.kind === "man" && e.rod === 3) ?? null;
+                }
+                flicks.runs++;
+                const seen = { fps, pre, dx, px, frames, first: first && { turn: +first.turn.toFixed(2), turnV: +first.turnV.toFixed(1), nx: +first.nx.toFixed(2), before: +first.before[0].toFixed(2), after: +first.after[0].toFixed(2) } };
+                // backwards, or no faster: wrong. A big flick (160 px or more) that misses or barely moves it: weak
+                if (first && (first.nx <= 0 || first.after[0] <= first.before[0])) flicks.wrong.push(seen);
+                else if (px >= 160 && (!first || first.after[0] < 1)) flicks.weak.push(seen);
+              }
+      out.flicks = { runs: flicks.runs, wrong: flicks.wrong.length, weak: flicks.weak.length, examples: [...flicks.wrong, ...flicks.weak].slice(0, 3) };
       // the robot (blue) against straight shots and hard angled ones, from red's attack rod
       const trial = (speed, angled, seed) => {
         let s = seed;
@@ -216,6 +265,7 @@ try {
     check(r.endWall.alive && r.endWall.vx < 0, "a ball at the end wall beside the mouth bounces back", JSON.stringify(r.endWall));
     check(r.corner.x < 0.6 - 0.035 && r.corner.z < 0.34 - 0.035, "a ball left in a corner rolls back out of it", JSON.stringify(r.corner));
     check(r.match.served === "serve" && r.match.playing === "play" && r.match.red === 5 && r.match.phase === "over" && r.match.winner === "red", "a match: serve, play, first to 5 wins", JSON.stringify(r.match));
+    check(r.flicks.wrong === 0 && r.flicks.weak === 0, "a flick's first strike always sends the ball forward, and a big one always strikes hard (any ball in reach, flick size and speed, frame rate, rod state)", `${r.flicks.runs} flicks, ${r.flicks.wrong} backwards, ${r.flicks.weak} weak${r.flicks.wrong + r.flicks.weak ? `: ${JSON.stringify(r.flicks.examples)}` : ""}`);
     check(r.robot.slowIn <= 3, "the robot stops slow straight shots", `${r.robot.slowIn} of ${r.robot.of} went in`);
     check(r.robot.hardIn >= 3 && r.robot.hardIn <= 26, "the robot can be beaten by hard angled shots, but not every time", `${r.robot.hardIn} of ${r.robot.of} went in`);
     await a.page.context().close();
@@ -265,8 +315,16 @@ try {
     const hud = await a.ev(() => ({ score: document.querySelector(".foos-score")?.textContent, bar: document.querySelector(".foos-bar")?.textContent, coach: !!document.querySelector(".foos-coach") }));
     check(/You.*0.*0.*Robot/.test(hud.score ?? "") && /Kicking with/.test(hud.bar ?? ""), "the scoreboard and the controls bar show", JSON.stringify(hud));
 
-    // the real mouse: up and down slides the rods under the cursor's line
-    // the cursor's line is at the ball's height, so the ball under the cursor is the one the men go to
+    // the real mouse: up and down slides the rods under the cursor's line. The line is at the ball's
+    // height, so the ball under the cursor is the one the men go to. Checked at a hardware scaling of
+    // 0.8, as on a Retina screen at high quality (picking takes CSS pixels, whatever the scaling)
+    const scaling = await a.ev(() => {
+      const e = window.__chimp.scene.getEngine();
+      const was = e.getHardwareScalingLevel();
+      e.setHardwareScalingLevel(0.8);
+      return was;
+    });
+    await a.settle(4);
     const near = await a.onPage(0, 0.0175, -0.2);
     const far = await a.onPage(0, 0.0175, 0.2);
     await a.page.mouse.move(near.x, near.y);
@@ -275,69 +333,47 @@ try {
     await a.page.mouse.move(far.x, far.y, { steps: 6 });
     await sleep(250);
     const atFar = await a.fb();
-    check(Math.abs(atNear.aimZ + 0.2) < 0.02 && Math.abs(atFar.aimZ - 0.2) < 0.02, "the cursor's line across the table follows the mouse up and down", `${atNear.aimZ.toFixed(3)} then ${atFar.aimZ.toFixed(3)}`);
+    check(Math.abs(atNear.aimZ + 0.2) < 0.02 && Math.abs(atFar.aimZ - 0.2) < 0.02, "the cursor's line across the table follows the mouse up and down (at a scaling of 0.8, as on a Retina screen)", `${atNear.aimZ.toFixed(3)} then ${atFar.aimZ.toFixed(3)}`);
     const goalieMoved = atFar.rods[0].slide - atNear.rods[0].slide;
     check(goalieMoved > 0.3, "the player's rods slide after it (the goalie from one side of his goal to the other)", `goalie slid ${goalieMoved.toFixed(3)} m`);
+    await a.ev((was) => window.__chimp.scene.getEngine().setHardwareScalingLevel(was), scaling);
+    await a.settle(4);
 
-    // a flick: the ball resting in front of red's midfield, under the cursor; a quick move right kicks it.
-    // Real time in a busy house: if the first flick doesn't take, its trace is printed and it's tried once more
-    const mid = await a.onPage(0, 0, 0);
-    const flickOnce = async (first) => {
-      await a.ev(() => window.__chimp.foosball.place(-0.075 + 0.035, 0.0, 0, 0));
-      await a.page.mouse.move(mid.x - 60, mid.y);
-      await sleep(400);
-      const before = await a.fb();
-      if (first) {
-        check(before.active === 4, "the glowing rod is the player's nearest the ball (red midfield, slot 4)", `active ${before.active}`);
-        const outline = await a.ev(() => window.__chimp.scene.meshes.filter((m) => m.metadata?.role === "foosball-rod" && m.renderOutline).map((m) => m.metadata.slot));
-        check(outline.length === 1 && outline[0] === 4, "only the glowing rod is outlined", outline.join());
-      }
-      const pre = `before the flick: ball (${before.ball.x.toFixed(3)}, ${before.ball.z.toFixed(3)}) v (${before.ball.vx.toFixed(2)}, ${before.ball.vz.toFixed(2)}), midfield slide ${before.rods[3].slide.toFixed(3)} turn ${before.rods[3].turn.toFixed(2)}, phase ${before.game.phase}`;
-      const fastest = a.ev(() => new Promise((done) => {
-        let best = 0;
-        const trace = [];
-        const t0 = performance.now();
-        const look = () => {
-          const d = window.__chimp.foosball.describe();
-          best = Math.max(best, d.ball.vx);
-          trace.push(`${Math.round(performance.now() - t0)}ms x${d.ball.x.toFixed(3)} vx${d.ball.vx.toFixed(2)} turn${d.rods[3].turn.toFixed(2)} a${d.active}`);
-          if (performance.now() - t0 < 400) requestAnimationFrame(look);
-          else done({ best, trace });
-        };
-        look();
-      }));
-      await a.page.mouse.move(mid.x + 160, mid.y, { steps: 4 });
-      const kicked = await fastest;
-      if (kicked.best <= 1.2) console.log(`      (${first ? "first" : "second"} flick: ${pre})\n      (${kicked.trace.slice(0, 14).join(" | ")})`);
-      return kicked.best;
-    };
-    let kicked = await flickOnce(true);
-    if (kicked <= 1.2) kicked = Math.max(kicked, await flickOnce(false));
+    // a flick: the ball resting in front of red's midfield, under the cursor; a quick move right
+    // strikes it. What's checked is the strike itself, as the physics records it: a hard shot can meet
+    // the robot's midfield 11 cm on within the same frame and come straight back (real foosball), so
+    // the ball's speed sampled frame by frame can't say how hard it was struck
+    const mid = await a.onPage(0, 0.0175, 0);
+    await a.ev(() => window.__chimp.foosball.place(-0.075 + 0.035, 0.0, 0, 0));
+    await a.page.mouse.move(mid.x - 60, mid.y);
+    await sleep(400);
     d = await a.fb();
-    check(kicked > 1.2 && d.touch !== null, "a quick flick to the right kicks the ball towards blue's goal", `ball up to ${kicked.toFixed(2)} m/s`);
+    check(d.active === 4, "the glowing rod is the player's nearest the ball (red midfield, slot 4)", `active ${d.active}`);
+    const outline = await a.ev(() => window.__chimp.scene.meshes.filter((m) => m.metadata?.role === "foosball-rod" && m.renderOutline).map((m) => m.metadata.slot));
+    check(outline.length === 1 && outline[0] === 4, "only the glowing rod is outlined", outline.join());
+    const firstStrike = (since) =>
+      a.page
+        .waitForFunction((since) => window.__chimp.foosball.describe().strikes.find((h) => h.rod === 4 && h.at > since) ?? false, since, { timeout: 2000, polling: 30 })
+        .then((h) => h.jsonValue(), () => null);
+    const flickStrike = firstStrike((await a.fb()).now);
+    await a.page.mouse.move(mid.x + 160, mid.y, { steps: 4 });
+    const fs = await flickStrike;
+    check(!!fs && fs.after > 1.2 && fs.after > fs.before && fs.turnV > 0, "a quick flick to the right strikes the ball towards blue's goal", fs ? `struck from ${fs.before.toFixed(2)} to ${fs.after.toFixed(2)} m/s, the rod turning ${fs.turnV.toFixed(0)} rad/s` : "no strike");
     await a.shot("kick");
 
-    // a click: the glowing rod spins right round
+    // a click: the glowing rod spins right round, striking the ball forward on the way
     await a.ev(() => window.__chimp.foosball.place(-0.075 + 0.03, 0.12, 0, 0));
-    const p2 = await a.onPage(0, 0, 0.12);
+    const p2 = await a.onPage(0, 0.0175, 0.12);
     await a.page.mouse.move(p2.x, p2.y, { steps: 3 });
     await sleep(350);
     const t0 = (await a.fb()).rods[3].turn;
-    const spun = a.ev(() => new Promise((done) => {
-      let best = 0;
-      const t0 = performance.now();
-      const look = () => {
-        best = Math.max(best, window.__chimp.foosball.describe().ball.vx);
-        if (performance.now() - t0 < 400) requestAnimationFrame(look);
-        else done(best);
-      };
-      look();
-    }));
+    const clickStrike = firstStrike((await a.fb()).now);
     await a.page.mouse.down();
     await a.page.mouse.up();
-    const spunTo = await spun;
+    const cs = await clickStrike;
+    await sleep(250);
     d = await a.fb();
-    check(d.rods[3].turn - t0 > 5.5 && spunTo > 1.5, "a click whips the glowing rod right round, through the ball", `turned ${(d.rods[3].turn - t0).toFixed(2)} rad, ball up to ${spunTo.toFixed(2)} m/s`);
+    check(d.rods[3].turn - t0 > 5.5 && !!cs && cs.after > 1.5, "a click whips the glowing rod right round, striking the ball forward", `turned ${(d.rods[3].turn - t0).toFixed(2)} rad${cs ? `, struck to ${cs.after.toFixed(2)} m/s` : ", no strike"}`);
 
     // the wheel picks another rod until the ball moves on
     await a.ev(() => window.__chimp.foosball.place(-0.04, -0.1, 0, 0));

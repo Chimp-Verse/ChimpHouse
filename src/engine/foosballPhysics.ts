@@ -327,7 +327,7 @@ export const nearestTurn = (cur: number, base: number): number => base + 2 * Mat
  * quickly a rod settles back with its men hanging down (s), and how long without sideways
  * movement counts as the mouse having stopped (ms).
  */
-export const HAND = { flick: 0.0115, settle: 0.09, stillMs: 60 };
+export const HAND = { flick: 0.0115, settle: 0.065, stillMs: 45 };
 
 /**
  * One frame of a player's rod's turn, as the team sees it (+ swings the toes towards the goal it

@@ -32,7 +32,7 @@ import { FoosballRod, FoosballShafts, RETURN_CUP, STAND_OUT, buildFoosballBall, 
 import { ATTACK, BALL_R, FIELD, GOAL, RODS, SIDE, SIDE_WALL, Team, WALL_TOP, WIN_SCORE } from "../world/props/foosballSpec";
 import { ROLE, find, findAll } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
-import { ScreenFocus } from "./focus";
+import { ScreenFocus, pickPoint } from "./focus";
 import { BallState, HAND, Hand, PLAYER_HAND, PhysicsEvent, RodPose, advance, driveRod, handTurn, nearestTurn, newBall, restPose, slideFor } from "./foosballPhysics";
 import { FoosGame, FoosballView, Seat, TIMING, advanceGame, halfOf, hostFor, idleGame, initialGame, scoreGoal, serveBall, startMatch, winner } from "./foosballMatch";
 import { ROBOT, RobotMind, newRobot, robotPlay } from "./foosballRobot";
@@ -124,6 +124,8 @@ export class Foosball {
   private lag = { x: 0, z: 0 };
   private rolling = Quaternion.Identity();
   private events: PhysicsEvent[] = [];
+  /** the last few strikes of the ball by a man, as this page's physics saw them, for tests */
+  private strikes: { rod: number; at: number; before: number; after: number; turnV: number }[] = [];
   private robot: RobotMind | null = null;
   private stillSince = 0;
   /** the side that touched the ball last, as this page saw it */
@@ -534,7 +536,13 @@ export class Foosball {
     // the ball
     if (amHost) this.hostStep(dt, now);
     else if (this.game.phase === "play" && !this.held) this.predict(dt);
-    for (const e of this.events.splice(0)) this.hear(e, now);
+    for (const e of this.events.splice(0)) {
+      if (e.kind === "man") {
+        this.strikes.push({ rod: e.rod + 1, at: now, before: e.before[0], after: e.after[0], turnV: e.turnV });
+        if (this.strikes.length > 8) this.strikes.shift();
+      }
+      this.hear(e, now);
+    }
 
     // send what this page owns
     if (now - this.sentAt >= SEND_MS) {
@@ -769,10 +777,8 @@ export class Foosball {
   /** Where the cursor points across the table: the line across it under the cursor, at the ball's height. */
   private cursorZ(): number | null {
     if (!this.mouse) return null;
-    const engine = this.scene.getEngine();
-    const box = this.canvas.getBoundingClientRect();
-    const x = ((this.mouse.x - box.left) / box.width) * engine.getRenderWidth();
-    const y = ((this.mouse.y - box.top) / box.height) * engine.getRenderHeight();
+    // in CSS pixels: Babylon applies the hardware scaling (0.8 on a Retina screen at high quality) itself
+    const { x, y } = pickPoint(this.canvas, this.mouse);
     this.scene.createPickingRayToRef(x, y, null, this.ray, this.fly.camera);
     const o = Vector3.TransformCoordinatesToRef(this.ray.origin, this.tableInv, this.v1);
     const d = Vector3.TransformNormalToRef(this.ray.direction, this.tableInv, this.v2);
@@ -929,6 +935,9 @@ export class Foosball {
       picked: this.picked + 1,
       aimZ: this.aimZ,
       touch: this.touch,
+      strikes: [...this.strikes],
+      /** the room's time now, to tell later strikes from earlier ones */
+      now: room.now(),
       robot: this.robot?.team ?? null,
       log: [...this.log],
     };
