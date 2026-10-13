@@ -15,6 +15,10 @@ import { Arcade } from "./arcade";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
 import { Foosball } from "./foosball";
+import * as foosballMatch from "./foosballMatch";
+import * as foosballPhysics from "./foosballPhysics";
+import * as foosballRobot from "./foosballRobot";
+import * as foosballSpec from "../world/props/foosballSpec";
 import { ButtonId, Lift } from "./lift";
 import { Remotes } from "./remotes";
 import { Theatre } from "./theatre";
@@ -35,6 +39,8 @@ export interface PreviewController {
   readonly theatre: Theatre;
   /** The theatre's remotes: whoever holds one controls the theatre. */
   readonly remotes: Remotes;
+  /** The foosball table: playing it, against the robot or another visitor. */
+  readonly foosball: Foosball;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -72,8 +78,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
-  // the foosball table's rods, ball and score counters
-  const foosball = new Foosball(scene, world.mats, lighting);
+  // the foosball table: its rods, ball and score counters, and playing it
+  const foosball = new Foosball(scene, world.mats, lighting, fly, focus, canvas);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -156,6 +162,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     leaveCabinet: () => arcade.leave(),
     theatre,
     remotes,
+    foosball,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -270,6 +277,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.foosballPrompt && "side" in s.foosballPrompt) void foosball.use();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -416,8 +424,23 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       reset: () => lift.reset(),
     },
     foosball: {
-      /** where the table, its rods and ball are */
+      /** where the table, its rods and ball are, and how the game stands */
       describe: () => foosball.describe(),
+      /** play a side (walk mode, at the table), or the side offered; leave; rematch once a match is over */
+      use: (side?: "red" | "blue") => foosball.use(side),
+      leave: () => foosball.leave(),
+      rematch: () => foosball.rematch(),
+      /** the player's hands: a click's spin kick, a flick of px to the right, the lift held, aiming at a line across the table (null: the cursor) */
+      kick: () => foosball.kick(),
+      flick: (px: number) => foosball.flick(px),
+      lift: (on: boolean) => foosball.setLift(on),
+      aim: (z: number | null) => (foosball.aimOverride = z),
+      /** on the host: the ball put in play somewhere, the score set; and everyone's table back as new */
+      place: (x: number, z: number, vx?: number, vz?: number) => foosball.place(x, z, vx, vz),
+      setScore: (red: number, blue: number) => foosball.setScore(red, blue),
+      reset: () => foosball.reset(),
+      /** the pure rules, physics and robot, to test in the page */
+      pure: { physics: foosballPhysics, match: foosballMatch, robot: foosballRobot, spec: foosballSpec },
     },
     info: () => ({
       fps: Math.round(engine.getFps()),
@@ -447,6 +470,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade.update();
     remotes.update();
     theatre.update();
+    foosball.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();

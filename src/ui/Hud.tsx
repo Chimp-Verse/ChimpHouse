@@ -2,6 +2,7 @@ import { PreviewController } from "../engine/preview";
 import { PreviewState, Quality, VIEWER } from "../engine/store";
 import { store } from "../engine/store";
 import { VIEWPOINTS, findView } from "../world/viewpoints";
+import { FoosballPanel } from "./FoosballPanel";
 import { PlayOverlay } from "./PlayOverlay";
 import { RemotePanel } from "./RemotePanel";
 import { TheatreOverlay } from "./TheatreOverlay";
@@ -13,6 +14,7 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
     <>
       <TheatreOverlay s={s} theatre={ctl.theatre} />
       {s.focus?.kind === "cabinet" && <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />}
+      {s.focus?.kind === "foosball" && <FoosballPanel s={s} foosball={ctl.foosball} />}
       {!s.focus && <Panels ctl={ctl} s={s} />}
       {s.toast && <div className="toast">{s.toast}</div>}
     </>
@@ -127,6 +129,21 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           {!s.theatre.videoId && <span>or click the screen</span>}
         </div>
       )}
+      {s.walking && s.foosballPrompt && (
+        <div className="play-prompt">
+          {"side" in s.foosballPrompt ? (
+            <>
+              <kbd>E</kbd>Play foosball as {s.foosballPrompt.side}
+              <span>against {s.foosballPrompt.against}</span>
+            </>
+          ) : (
+            <>
+              Foosball: {s.foosballPrompt.full}
+              <span>both sides are taken</span>
+            </>
+          )}
+        </div>
+      )}
       {s.walking && s.liftPrompt && (
         <div className="play-prompt low">
           <kbd>E</kbd>
@@ -184,6 +201,10 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
+            <tr><td>E (walking, foosball table)</td><td>Play foosball from the side you're at: against the robot, or the visitor across the table</td></tr>
+            <tr><td>Foosball: mouse up / down</td><td>Your men follow the cursor across the table</td></tr>
+            <tr><td>Foosball: flick right, click or Space</td><td>Kick with the glowing rod (nearest the ball), harder the faster the flick; a click spins it right round</td></tr>
+            <tr><td>Foosball: wheel or 1–4, right button or Shift, Esc</td><td>Pick another rod (goalie, defence, midfield, attack) / lift your men while held / leave the table</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>

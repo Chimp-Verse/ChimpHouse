@@ -1,5 +1,6 @@
 // Minimal observable store shared by the Babylon preview and the React HUD.
 
+import type { FoosballView, FoosballPrompt } from "./foosballMatch";
 import { LiftState, initialLift } from "./liftState";
 import { ME } from "./room";
 
@@ -12,7 +13,10 @@ export interface PickedInfo {
 }
 
 /** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" };
+export type FocusInfo =
+  | { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string }
+  | { kind: "theatre" }
+  | { kind: "foosball"; side: "red" | "blue" };
 
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
@@ -100,6 +104,10 @@ export interface PreviewState {
   /** a lift button within reach: E (or a click on it) presses it */
   /** the lift button the walker points at, and what pressing it does */
   liftPrompt: { id: string; label: string } | null;
+  /** walking up to the foosball table: E plays the side offered, or both sides are taken (engine/foosball.ts) */
+  foosballPrompt: FoosballPrompt | null;
+  /** playing foosball: the score, the phase, the rod you kick with, for the HUD */
+  foosball: FoosballView | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -140,6 +148,8 @@ class Store {
     remotePrompt: null,
     lift: initialLift(Date.now()),
     liftPrompt: null,
+    foosballPrompt: null,
+    foosball: null,
   };
   private listeners = new Set<Listener>();
 

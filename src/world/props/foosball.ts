@@ -370,7 +370,7 @@ export function buildFoosballRod(mats: Materials, slot: TransformNode, n: number
 
   const root = new TransformNode(label, scene);
   root.parent = slot;
-  const meta = (matKey: string, role?: string): MeshMeta => ({ room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey, kind: "special", ...(role && { role, slot: n }) });
+  const meta = (matKey: string, role?: string): MeshMeta => ({ room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey, kind: "moving", ...(role && { role, slot: n }) });
   const men = plastic.build(`${label}:men`, scene);
   men.material = mats.get("foosPlastic");
   men.metadata = meta("foosPlastic", ROLE.foosballRod);
@@ -393,7 +393,7 @@ export function buildFoosballBall(mats: Materials, table: TransformNode): Mesh {
   ball.parent = table;
   ball.rotationQuaternion = null;
   ball.material = mats.get("foosBall");
-  ball.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: "Foosball" }], matKey: "foosBall", kind: "special", role: ROLE.foosballBall } satisfies MeshMeta;
+  ball.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: "Foosball" }], matKey: "foosBall", kind: "moving", role: ROLE.foosballBall } satisfies MeshMeta;
   ball.receiveShadows = true;
   ball.renderingGroupId = 1;
   return ball;
@@ -410,7 +410,7 @@ export function buildFoosballBeads(mats: Materials, counter: TransformNode, team
   const mesh = new Geo().add(bead, xf(0, 0, 0, 0, 1, 1, 1, Math.PI / 2)).build(`Foosball score beads ${sm.slot}`, mats.scene);
   mesh.parent = counter;
   mesh.material = mats.get("foosPlastic");
-  mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: `Foosball score counter (${team})` }], matKey: "foosPlastic", kind: "special" } satisfies MeshMeta;
+  mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label: `Foosball score counter (${team})` }], matKey: "foosPlastic", kind: "moving" } satisfies MeshMeta;
   mesh.receiveShadows = true;
   mesh.renderingGroupId = 1;
   const id = Matrix.Identity();
