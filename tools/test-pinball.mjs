@@ -1,13 +1,16 @@
 // The pinball machines in a real browser against the running preview (npm run dev).
-//   node tools/test-pinball.mjs [look | lab]
+//   node tools/test-pinball.mjs [look | lab]      SHARED=1 node tools/test-pinball.mjs
 // "look" only takes the screenshots of the machines (from a walker's eye, close up,
 // the backboxes, at night); "lab" only runs the physics and rules checks, in Node
-// without a browser. Screenshots: captures/pinball-*.png. Exits non-zero when a check fails.
+// without a browser. SHARED=1 runs only the two-visitor check (one player per
+// machine, the high scores shared): a second copy of the house, so it's opt-in. Screenshots: captures/pinball-*.png. Exits non-zero when a check fails.
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
 
 const URL = process.env.URL ?? "http://localhost:5173";
 const mode = process.argv[2] ?? "all";
+/** SHARED=1: only the two-visitor check (a second copy of the house: run it rarely), both pages at low quality */
+const SHARED = !!process.env.SHARED;
 await mkdir("captures", { recursive: true });
 
 let failed = 0;
@@ -41,9 +44,6 @@ const waitFor = (fn, arg, timeout = 30000) => page.waitForFunction(fn, arg, { ti
 const shot = (name) => page.screenshot({ path: `captures/pinball-${name}.png` });
 const frames = (n) => ev((n) => window.__chimp.settle(n), n);
 
-await page.goto(`${URL}/?capture=1&view=entry`, { timeout: 300000 });
-await waitFor(() => window.__chimp?.ready === true, null, 300000);
-await sleep(500);
 
 /**
  * A machine's frame from its playfield node (role pinball-machine): its centre on the floor,
@@ -73,6 +73,12 @@ const look = (eye, target, fov = 0.9) =>
     [eye, target, fov],
   );
 
+// the browser is closed however the checks end
+try {
+await page.goto(`${URL}/?capture=1&view=entry${SHARED ? "&quality=low" : ""}`, { timeout: 300000 });
+await waitFor(() => window.__chimp?.ready === true, null, 300000);
+await sleep(500);
+
 // ------------------------------------------------ 1. the machines, found by role
 const found = await ev(() => {
   const s = window.__chimp.scene;
@@ -83,53 +89,60 @@ const found = await ev(() => {
 check(found.machines.every((c) => c === 1) && found.dmd.every((c) => c === 1), "each machine's playfield and display carry their roles", JSON.stringify(found));
 check(found.flippers[0] === 2 && found.flippers[1] === 3, "Jungle Quest has two flippers, Banana Blitz three", JSON.stringify(found.flippers));
 
-// ------------------------------------------------ 2. how they look
-const A = await machine(1);
-const B = await machine(2);
-const mid = [(A.mid[0] + B.mid[0]) / 2, A.floor + 1.0, (A.mid[2] + B.mid[2]) / 2];
-const front = [(A.front[0] + B.front[0]) / 2, (A.front[1] + B.front[1]) / 2];
-const away = (p, d, h) => [p[0] + front[0] * d, A.floor + h, p[2] + front[1] * d];
-await look(away(mid, 2.5, 1.55), mid, 1.0);
-await frames(30);
-await shot("room");
-const perf = await ev(() => window.__chimp.info());
-console.log(`at the machines: ${perf.fps} fps, ${perf.drawCalls} draw calls, ${perf.activeMeshes} active meshes; pose ${JSON.stringify(await ev(() => window.__chimp.pose()))}`);
-// each playfield as its player sees it, and the backboxes
-for (const [name, M] of [
-  ["jq", A],
-  ["bb", B],
-]) {
-  const eye = [M.stand[0] + M.front[0] * 0.05, M.floor + 1.62, M.stand[2] + M.front[1] * 0.05];
-  await look(eye, [M.mid[0] - M.front[0] * 0.05, M.floor + 0.92, M.mid[2] - M.front[1] * 0.05], 0.85);
-  await frames(20);
-  await shot(`${name}-player`);
-  const top = [M.mid[0] + M.front[0] * 0.15, M.floor + 1.75, M.mid[2] + M.front[1] * 0.15];
-  await look(top, [M.mid[0] - M.front[0] * 0.08, M.floor + 0.9, M.mid[2] - M.front[1] * 0.08], 0.75);
-  await frames(20);
-  await shot(`${name}-above`);
-}
-await look(away(mid, 1.6, 1.4), [mid[0], A.floor + 1.45, mid[2]], 0.8);
-await frames(20);
-await shot("backboxes");
-// from the side: legs, cabinet art
-const side = [-front[1], front[0]];
-await look([A.mid[0] + side[0] * 1.6 + front[0] * 0.6, A.floor + 1.2, A.mid[2] + side[1] * 1.6 + front[1] * 0.6], [A.mid[0], A.floor + 0.8, A.mid[2]], 0.9);
-await frames(20);
-await shot("side");
-await ev(() => window.__chimp.setNight(true));
-await look(away(mid, 2.5, 1.55), mid, 1.0);
-await frames(40);
-await shot("night");
-await ev(() => window.__chimp.setNight(false));
+if (!SHARED) await looks();
 
-if (mode !== "look") {
+/** Screenshots: the machines from a walker's eye, as their players see them, the backboxes, the side, at night. */
+async function looks() {
+// ------------------------------------------------ 2. how they look
+  const A = await machine(1);
+  const B = await machine(2);
+  const mid = [(A.mid[0] + B.mid[0]) / 2, A.floor + 1.0, (A.mid[2] + B.mid[2]) / 2];
+  const front = [(A.front[0] + B.front[0]) / 2, (A.front[1] + B.front[1]) / 2];
+  const away = (p, d, h) => [p[0] + front[0] * d, A.floor + h, p[2] + front[1] * d];
+  await look(away(mid, 2.5, 1.55), mid, 1.0);
+  await frames(30);
+  await shot("room");
+  const perf = await ev(() => window.__chimp.info());
+  console.log(`at the machines: ${perf.fps} fps, ${perf.drawCalls} draw calls, ${perf.activeMeshes} active meshes; pose ${JSON.stringify(await ev(() => window.__chimp.pose()))}`);
+  // each playfield as its player sees it, and the backboxes
+  for (const [name, M] of [
+    ["jq", A],
+    ["bb", B],
+  ]) {
+    const eye = [M.stand[0] + M.front[0] * 0.05, M.floor + 1.62, M.stand[2] + M.front[1] * 0.05];
+    await look(eye, [M.mid[0] - M.front[0] * 0.05, M.floor + 0.92, M.mid[2] - M.front[1] * 0.05], 0.85);
+    await frames(20);
+    await shot(`${name}-player`);
+    const top = [M.mid[0] + M.front[0] * 0.15, M.floor + 1.75, M.mid[2] + M.front[1] * 0.15];
+    await look(top, [M.mid[0] - M.front[0] * 0.08, M.floor + 0.9, M.mid[2] - M.front[1] * 0.08], 0.75);
+    await frames(20);
+    await shot(`${name}-above`);
+  }
+  await look(away(mid, 1.6, 1.4), [mid[0], A.floor + 1.45, mid[2]], 0.8);
+  await frames(20);
+  await shot("backboxes");
+  // from the side: legs, cabinet art
+  const side = [-front[1], front[0]];
+  await look([A.mid[0] + side[0] * 1.6 + front[0] * 0.6, A.floor + 1.2, A.mid[2] + side[1] * 1.6 + front[1] * 0.6], [A.mid[0], A.floor + 0.8, A.mid[2]], 0.9);
+  await frames(20);
+  await shot("side");
+  await ev(() => window.__chimp.setNight(true));
+  await look(away(mid, 2.5, 1.55), mid, 1.0);
+  await frames(40);
+  await shot("night");
+  await ev(() => window.__chimp.setNight(false));
+}
+
+if (SHARED) await shared();
+else if (mode !== "look") {
   await physics();
   await rules();
   await play();
-  await shared();
 }
 
-await browser.close();
+} finally {
+  await browser.close().catch(() => {});
+}
 console.log(failed ? `${failed} check(s) failed` : "all checks passed");
 
 // ------------------------------------------------ 3. the physics, pure, run in the page
@@ -446,7 +459,9 @@ function rulesLab(L) {
         g.tick(0.05);
       };
       const mouth = () => {
-        const b = g.table.balls.find((b) => b.mode === "free");
+        // a ball into the mouth: one on the playfield, or a fresh one if none is (drained, or already in the mouth)
+        let b = g.table.balls.find((b) => b.mode === "free");
+        if (!b) b = g.table.balls[g.table.serve()];
         Object.assign(b, { mode: "held", scoop: 0, x: 0.03, y: 0.75, vx: 0, vy: 0 });
         g.table.events.push({ type: "scoop", id: "mouth", ball: g.table.balls.indexOf(b) });
         g.tick(3);
@@ -458,7 +473,8 @@ function rulesLab(L) {
       mouth();
       const ready = g.game.status;
       mouth();
-      g.tick(5);
+      // the two new balls are launched 0.6 s and 2.2 s in; the held one comes out at 2.2 s
+      g.tick(0.5);
       out.bb = { lockLit: lock, ready, multiball: g.game.multiball, inPlay: g.table.inPlay, status: g.game.status };
     }
     return out;
@@ -520,18 +536,26 @@ async function play() {
     // play a while: a robot at the flipper buttons (a ball close above a flipper and coming down gets flipped)
     await ev((n) => {
       const pb = window.__chimp.pinball;
-      const L = { L: 0, R: 0 };
+      // per side: held now, since when, and a pause after letting a cradled ball go
+      const st = { L: { held: false, since: 0, pauseUntil: 0 }, R: { held: false, since: 0, pauseUntil: 0 } };
       window.__pinBot = setInterval(() => {
         const s = pb.state(n);
-        const flips = { L: false, R: false };
+        const now = performance.now();
+        const want = { L: false, R: false };
         for (const b of s.balls) {
           if (b.mode !== "free" || b.y > 0.32 || b.x > 0.2) continue;
-          flips[b.x < -0.022 ? "L" : "R"] = b.vy < 0.2 && b.y < 0.27;
+          want[b.x < -0.022 ? "L" : "R"] = b.vy < 0.2 && b.y < 0.27;
         }
         for (const side of ["L", "R"]) {
-          if (flips[side] && !L[side]) pb.press(n, side === "L" ? "ShiftLeft" : "ShiftRight", true);
-          if (!flips[side] && L[side]) pb.press(n, side === "L" ? "ShiftLeft" : "ShiftRight", false);
-          L[side] = flips[side];
+          const k = st[side];
+          // a cradled ball: let the flipper drop, and flip again as the ball rolls down it
+          if (k.held && now - k.since > 700) k.pauseUntil = now + 180;
+          const on = want[side] && now >= k.pauseUntil;
+          if (on !== k.held) {
+            pb.press(n, side === "L" ? "ShiftLeft" : "ShiftRight", on);
+            k.held = on;
+            k.since = now;
+          }
         }
         if (s.balls.some((b) => b.mode === "free" && b.x > 0.22 && b.y < 0.2) && s.plunger === 0) {
           pb.press(n, "Space", true);
@@ -567,10 +591,10 @@ process.exit(failed ? 1 : 0);
 
 // ------------------------------------------------ 6. shared through the room: one player per machine, high scores
 async function shared() {
-  const ctx2 = await browser.newContext({ viewport: { width: 900, height: 600 } });
+  const ctx2 = await browser.newContext({ viewport: { width: 800, height: 500 } });
   const other = await ctx2.newPage();
   other.on("pageerror", (e) => console.log("[pageerror 2]", e.message));
-  await other.goto(`${URL}/?capture=1&view=entry&name=Bonzo`, { timeout: 300000 });
+  await other.goto(`${URL}/?capture=1&view=entry&quality=low&name=Bonzo`, { timeout: 300000 });
   await other.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   const M = await machine(1);
   // this visitor plays Jungle Quest
