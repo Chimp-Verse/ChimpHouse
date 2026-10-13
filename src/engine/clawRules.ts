@@ -94,8 +94,8 @@ export const CLAW_TUNING = {
   /** seconds for the prongs to open and to close */
   openTime: 0.3,
   closeTime: 0.85,
-  /** how far (m) the claw must be left pressing into a prize to have landed on it, and a prong to be stopped by one */
-  landPress: 0.007,
+  /** how far (m) the claw must be left pressing into a prize to have landed on it (it sinks a little into the plush), and a prong to be stopped by one */
+  landPress: 0.018,
   prongPress: 0.004,
   /** the chance a play is strong (the payout rate), and the grip of strong and weak plays (0..1) */
   strongChance: 1 / 8,
@@ -542,7 +542,13 @@ export class ClawGame {
   /** A prize that has dropped down the chute is won (whether the claw put it there or knocked it in). */
   private watchChute() {
     const w = this.world;
+    const R = this.rig;
     for (let b = 0; b < w.count; b++) {
+      // one that came to rest jammed in the shaft, out of sight in the cabinet, goes on down to the bin
+      if (this.counted.has(b) && !w.isGone(b) && w.isAsleep(b) && w.pose[b * 7 + 1] > R.binY + 0.2 && w.pose[b * 7 + 1] < R.bedY - 0.05) {
+        const q = w.pose.subarray(b * 7 + 3, b * 7 + 7);
+        w.place(b, (R.chute[0] + R.chute[1]) / 2, R.binY + 0.16, (R.chute[2] + R.chute[3]) / 2, [q[0], q[1], q[2], q[3]]);
+      }
       if (w.isGone(b) || this.counted.has(b) || b === w.held) continue;
       if (w.pose[b * 7 + 1] < this.rig.bedY - 0.08) {
         this.counted.add(b);

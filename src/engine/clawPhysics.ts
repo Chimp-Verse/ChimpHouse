@@ -524,10 +524,8 @@ export class PrizeWorld {
     if (y < B.bedY + 0.005) {
       // inside the shaft and the bin: its walls are the chute's
       if (inHole(p[o] - r * 0.5, p[o + 2] - r * 0.5) || y < B.bedY - 0.01) {
-        // below the guard the shaft widens inside the cabinet, so no prize wedges on its way down
-        const wide = y < B.bedY - 0.06 ? 0.07 : 0;
-        if (p[o] > cx1 + wide - r) this.push(k, -1, 0, 0, p[o] - (cx1 + wide - r), MU_WALL);
-        if (p[o + 2] > cz1 + wide - r) this.push(k, 0, 0, -1, p[o + 2] - (cz1 + wide - r), MU_WALL);
+        if (p[o] > cx1 - r) this.push(k, -1, 0, 0, p[o] - (cx1 - r), MU_WALL);
+        if (p[o + 2] > cz1 - r) this.push(k, 0, 0, -1, p[o + 2] - (cz1 - r), MU_WALL);
       }
       const fy = B.binY + 0.2 * (p[o + 2] - B.doorZ);
       if (p[o + 1] < fy + r) this.push(k, 0, 1, 0, fy + r - p[o + 1], MU_WALL);

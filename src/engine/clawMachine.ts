@@ -96,6 +96,7 @@ export class ClawMachine {
   /** the keys held while playing */
   private keys = new Set<string>();
   private dropHeld = false;
+  private dropTapped = false;
   /** prizes taken, and when each goes back in */
   private restocks: { b: number; at: number }[] = [];
   private clock = 0;
@@ -221,6 +222,8 @@ export class ClawMachine {
   /** The drop button: drops the claw while steering, or starts the next play once one is over. */
   pressDrop(): void {
     this.dropHeld = true;
+    // a tap shorter than a frame still counts
+    this.dropTapped = true;
     const g = this.game;
     if (g.phase === "idle" || g.phase === "over") this.play();
   }
@@ -238,6 +241,7 @@ export class ClawMachine {
     const ok = this.game.start();
     // the press that started it isn't also the drop
     this.dropHeld = false;
+    this.dropTapped = false;
     this.publishHud();
     return ok;
   }
@@ -247,10 +251,12 @@ export class ClawMachine {
     const k = this.keys;
     out.x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
     out.z = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
-    out.drop = this.dropHeld;
+    out.drop = this.dropHeld || this.dropTapped;
+    this.dropTapped = false;
     if (this.aim && this.game.phase === "aim") {
+      const drop = out.drop;
       steerTo(this.pose, this.aim[0], this.aim[1], out);
-      out.drop = this.dropHeld;
+      out.drop = drop;
       return out;
     }
     if (this.override) {
