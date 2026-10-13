@@ -1,10 +1,16 @@
 // The air hockey table in the Game Room, against the running preview (npm run dev).
 //   node tools/test-air-hockey.mjs        play it: the physics and the robot on their own, then a
 //                                         visitor playing the robot with the mouse
+// QUALITY=low loads at low quality (a hardware scaling other than 1, as on a Retina Mac at high)
 //   SHARED=1 node tools/test-air-hockey.mjs   two visitors (separate browser contexts, at low
 //                                         quality to spare memory) playing each other instead
 //   node tools/test-air-hockey.mjs look   screenshots of the table: from a walker's eye at about
 //                                         2.5 m, close-ups of its details, and at night
+//   node tools/test-air-hockey.mjs lights [name]   the Game Room's light budget: every light meant
+//                                         for the room reaches its meshes, no mesh past the 8 a
+//                                         material takes; and screenshots of the room by day and
+//                                         night, the front at night and the claw and snack machines
+//                                         at night, as captures/lights-<name>-*.png
 // Screenshots go to captures/air-hockey-*.png. Exits non-zero when a check fails.
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
@@ -24,7 +30,7 @@ async function open(viewport = { width: 1400, height: 860 }, query = "capture=1&
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
-  await page.goto(`${URL}/?${query}${name ? `&name=${name}` : ""}`, { timeout: 180000, waitUntil: "domcontentloaded" });
+  await page.goto(`${URL}/?${query}${name ? `&name=${name}` : ""}${process.env.QUALITY && !query.includes("quality") ? `&quality=${process.env.QUALITY}` : ""}`, { timeout: 180000, waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   return page;
 }
@@ -270,7 +276,7 @@ if (mode === "play" && !SHARED) {
   await page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 8000 }).catch(() => {});
   const s1 = await page.evaluate(() => ({ focus: window.__chimp.state().focus, hud: window.__chimp.state().airHockey, d: window.__chimp.airHockey.describe() }));
   check(s1.focus?.kind === "airHockey" && s1.focus.end === 1, "E sits the visitor at the red end, the view behind it", JSON.stringify(s1.focus));
-  check(s1.d.runs && s1.d.phase === "play", "their page runs the game, and a match starts", JSON.stringify({ runs: s1.d.runs, phase: s1.d.phase, players: s1.d.players }));
+  check(s1.d.runs && s1.d.match > 0 && ["play", "goal"].includes(s1.d.phase), "their page runs the game, and a match starts", JSON.stringify({ runs: s1.d.runs, phase: s1.d.phase, players: s1.d.players }));
   check(s1.hud?.opponent === "the robot", "the HUD shows the score and the robot as the opponent", JSON.stringify(s1.hud));
   // the mouse: the mallet goes where the cursor is, across the visitor's half
   const follow = [];
@@ -444,6 +450,87 @@ if (mode === "play" && SHARED) {
   const freed = await page.evaluate(() => ({ players: window.__chimp.airHockey.describe().players, phase: window.__chimp.airHockey.describe().phase }));
   check(freed.players.every((p) => p === null) && freed.phase === "idle", "Esc leaves, and the table is free and idle", JSON.stringify(freed));
   await b.close();
+  await page.close();
+}
+
+if (mode === "lights") {
+  const name = process.argv[3] ?? "now";
+  const page = await open({ width: 1400, height: 860 }, "capture=1&view=game", "");
+  for (const night of [false, true]) {
+    const r = await page.evaluate(async (night) => {
+      const c = window.__chimp;
+      c.setNight(night);
+      await c.settle(5);
+      const scene = c.scene;
+      const inRoom = (m) => m.metadata?.room === "gameRoom" && m.isEnabled();
+      const room = scene.meshes.filter(inRoom);
+      // the lights meant for the room: the sky's (on every mesh) and every room light whose meshes include one of the room's
+      const meant = scene.lights.filter((l) => l.isEnabled() && (!l.includedOnlyMeshes.length || l.includedOnlyMeshes.some(inRoom)));
+      let worst = 0;
+      let worstMesh = "";
+      const missing = new Set();
+      for (const m of room) {
+        m.computeWorldMatrix(true);
+        const has = m.lightSources ?? [];
+        if (has.length > worst) {
+          worst = has.length;
+          worstMesh = m.name;
+        }
+        for (const l of meant) if ((!l.includedOnlyMeshes.length || l.includedOnlyMeshes.includes(m)) && !has.includes(l)) missing.add(`${l.name}@${l.position?.asArray?.().map((v) => v.toFixed(1)).join(",")}`);
+      }
+      const describe = (l) => `${l.name}${l.position ? "@" + l.position.asArray().map((v) => v.toFixed(1)).join(",") : ""}`;
+      return { meshes: room.length, meant: meant.map(describe), worst, worstMesh, missing: [...missing] };
+    }, night);
+    console.log(`${night ? "night" : "day"}: ${r.meant.length} lights meant for the Game Room: ${r.meant.join(" ")}`);
+    check(r.worst <= 8, `${night ? "at night" : "by day"}, no Game Room mesh has more than 8 lights`, `${r.worst} on ${r.worstMesh}, ${r.meshes} meshes`);
+    check(r.meant.length <= 8 && r.missing.length === 0, `${night ? "at night" : "by day"}, every light meant for the Game Room reaches its meshes, within the cap`, `${r.meant.length} meant${r.missing.length ? `, missing ${r.missing.join(" ")}` : ""}`);
+  }
+  // the screenshots
+  const view = async (id, night, file) => {
+    await page.evaluate(async ({ id, night }) => {
+      window.__chimp.goTo(id);
+      window.__chimp.setNight(night);
+      await window.__chimp.settle(5);
+      await window.__chimp.whenReady();
+      await window.__chimp.settle(30);
+    }, { id, night });
+    await page.screenshot({ path: `captures/lights-${name}-${file}.png` });
+  };
+  await view("game", false, "game-day");
+  await view("game", true, "game-night");
+  await view("front-night", true, "front-night");
+  const machines = await page.evaluate(() => {
+    const at = (role) => {
+      const n = [...window.__chimp.scene.transformNodes, ...window.__chimp.scene.meshes].find((x) => x.metadata?.role === role);
+      if (!n) return null;
+      const m = n.computeWorldMatrix(true);
+      const p = n.getAbsolutePosition();
+      // its front, -Z in its own space
+      const fx = -m.m[8];
+      const fz = -m.m[10];
+      const l = Math.hypot(fx, fz) || 1;
+      return { x: p.x, y: p.y, z: p.z, fx: fx / l, fz: fz / l };
+    };
+    return { claw: at("claw-machine"), snack: at("snack-machine") };
+  });
+  if (machines.claw && machines.snack) {
+    const mx = (machines.claw.x + machines.snack.x) / 2;
+    const mz = (machines.claw.z + machines.snack.z) / 2;
+    const fx = machines.claw.fx + machines.snack.fx;
+    const fz = machines.claw.fz + machines.snack.fz;
+    const l = Math.hypot(fx, fz) || 1;
+    const ex = mx + (fx / l) * 2.6;
+    const ez = mz + (fz / l) * 2.6;
+    const pose = { x: ex, y: machines.claw.y + 1.5, z: ez, yaw: Math.atan2(mx - ex, mz - ez), pitch: Math.atan2(0.4, 2.6), fov: 0.9 };
+    await page.evaluate(async (pose) => {
+      window.__chimp.setNight(true);
+      window.__chimp.setPose(pose);
+      await window.__chimp.settle(5);
+      await window.__chimp.whenReady();
+      await window.__chimp.settle(30);
+    }, pose);
+    await page.screenshot({ path: `captures/lights-${name}-machines-night.png` });
+  } else check(false, "the claw and snack machines are found by role", JSON.stringify(machines));
   await page.close();
 }
 

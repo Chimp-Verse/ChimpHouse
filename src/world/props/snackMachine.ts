@@ -1025,8 +1025,8 @@ export function snackMachine(ctx: WorldCtx, z: Zone, m: Matrix): void {
     ctx.leaf(z, Leaf.Pothos, leafMatrix(p, Vector3.TransformNormal(new Vector3(Math.cos(a), 0.15, Math.sin(a)), m), 0.1, (r() - 0.5) * 1.2));
   }
 
-  // the light inside the cabinet, at the top of the window, which spills a little out of the glass
-  ctx.lights.push({ pos: Vector3.TransformCoordinates(new Vector3((win.x0 + win.x1) / 2, win.y1 - 0.12, glassZ + 0.08), m), color: "#f4fff6", day: 0.5, night: 1.3, range: 1.6, rooms: [z.room], level: z.level });
+  // no light of its own inside the cabinet: the Game Room's lights fill the 8 a material takes, and a
+  // point light this near the top row of snacks washed them out (1/d² falloff ignores its range)
 
   // ---- what moves, by role: the machine, its coils, keys, display, bin and flap
   ctx.slot(z, ROLE.snackMachine, 1, m, new Vector3(0, 0, -0.75), label);
