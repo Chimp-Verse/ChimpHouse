@@ -2,6 +2,7 @@ import { PreviewController } from "../engine/preview";
 import { PreviewState, Quality, VIEWER } from "../engine/store";
 import { store } from "../engine/store";
 import { VIEWPOINTS, findView } from "../world/viewpoints";
+import { ClawMachineHud } from "./ClawMachineHud";
 import { PlayOverlay } from "./PlayOverlay";
 import { RemotePanel } from "./RemotePanel";
 import { TheatreOverlay } from "./TheatreOverlay";
@@ -13,6 +14,7 @@ export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
     <>
       <TheatreOverlay s={s} theatre={ctl.theatre} />
       {s.focus?.kind === "cabinet" && <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />}
+      {s.focus?.kind === "claw" && <ClawMachineHud s={s} claw={ctl.claw} />}
       {!s.focus && <Panels ctl={ctl} s={s} />}
       {s.toast && <div className="toast">{s.toast}</div>}
     </>
@@ -134,6 +136,12 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           <span>or click the button</span>
         </div>
       )}
+      {s.walking && s.clawPrompt && (
+        <div className="play-prompt low">
+          <kbd>E</kbd>Play the Chimp Claw
+          <span>steer the claw, drop it, win a plush</span>
+        </div>
+      )}
       {s.help && <Help onClose={() => store.set({ help: false })} />}
     </>
   );
@@ -184,6 +192,7 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
+            <tr><td>E (at the claw machine)</td><td>Play the Chimp Claw: W A S D or arrows steer the claw, Space drops it (and plays again), Esc leaves</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>

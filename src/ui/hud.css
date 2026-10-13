@@ -671,3 +671,101 @@ kbd {
   margin-top: 8px;
   color: var(--muted);
 }
+
+/* ------------------------------------------------ playing the claw machine (ui/ClawMachineHud.tsx) */
+.claw-hud {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 79, 163, 0.5);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 22;
+}
+
+.claw-hud.top {
+  top: 14px;
+}
+
+.claw-hud.bottom {
+  bottom: 18px;
+}
+
+.claw-title {
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  color: #ffd23f;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.claw-timer {
+  min-width: 44px;
+  text-align: center;
+  font-family: Montserrat, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ff5a46;
+}
+
+.claw-timer.hurry {
+  animation: claw-blink 0.5s steps(2) infinite;
+}
+
+@keyframes claw-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.claw-message {
+  color: var(--muted);
+  font-weight: 500;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claw-keys {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.claw-hud button {
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-weight: 700;
+}
+
+.claw-drop {
+  background: #ff3d7f;
+  color: #fff;
+  border: 0;
+}
+
+.claw-drop:disabled {
+  opacity: 0.4;
+}
+
+.claw-won {
+  position: absolute;
+  left: 50%;
+  top: 66px;
+  transform: translateX(-50%);
+  background: rgba(255, 210, 63, 0.95);
+  color: #2a0b45;
+  border-radius: 12px;
+  padding: 10px 20px;
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  z-index: 22;
+  pointer-events: none;
+}
