@@ -120,7 +120,7 @@ function clawMats(ctx: WorldCtx) {
     m.useSpecularOverAlpha = true;
   }
   if (!ctx.mats.has("clawSmoke")) {
-    const m = ctx.mats.pbr("clawSmoke", { color: "#2a1838", rough: 0.08, alpha: 0.55 });
+    const m = ctx.mats.pbr("clawSmoke", { color: "#2a1838", rough: 0.08, alpha: 0.4 });
     m.backFaceCulling = false;
     m.useSpecularOverAlpha = true;
   }

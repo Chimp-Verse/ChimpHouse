@@ -145,8 +145,8 @@ if (won) {
     const fx = (stand[0] - look[0]) / Math.hypot(stand[0] - look[0], stand[2] - look[2]);
     const fz = (stand[2] - look[2]) / Math.hypot(stand[0] - look[0], stand[2] - look[2]);
     const door = c.claw.doorAt();
-    const eye = [door[0] + fx * 0.75 - fz * 0.25, door[1] + 0.45, door[2] + fz * 0.75 + fx * 0.25];
-    const dx = door[0] - eye[0], dy = door[1] + 0.1 - eye[1], dz = door[2] - eye[2];
+    const eye = [door[0] + fx * 0.62 - fz * 0.12, door[1] + 0.16, door[2] + fz * 0.62 + fx * 0.12];
+    const dx = door[0] - eye[0], dy = door[1] - 0.03 - eye[1], dz = door[2] - eye[2];
     c.setPose({ x: eye[0], y: eye[1], z: eye[2], yaw: Math.atan2(dx, dz), pitch: -Math.atan2(dy, Math.hypot(dx, dz)), fov: 0.9 });
     await c.settle(20);
   });
