@@ -15,7 +15,7 @@
 // Shared through the room (engine/room.ts): who is playing each machine, so
 // one visitor plays it at a time, and each machine's high scores.
 
-import { Mesh, Scene, TransformNode, Vector3 } from "@babylonjs/core";
+import { Mesh, PBRMaterial, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { PinballParts, buildPinballParts } from "../world/props/pinball";
@@ -78,6 +78,9 @@ export class Pinball {
   private keys = new Set<string>();
   /** which play view (VIEWS) */
   private view = 0;
+  /** the playfields' materials, whose own glow (the lamps under them) shows more at night */
+  private fields: PBRMaterial[] = [];
+  private night: boolean | null = null;
 
   constructor(
     private scene: Scene,
@@ -111,6 +114,8 @@ export class Pinball {
         if (merged.length !== h.length || merged.some((e, i) => e.score !== h[i]?.score)) queueMicrotask(() => m.setHigh(merged));
       });
       this.machines.push(m);
+      const field = mats.get(`pin${n}:field`);
+      if (field instanceof PBRMaterial) this.fields.push(field);
     }
     room.onGone((id) => {
       for (const m of this.machines) if (m.player?.id === id) m.setPlayer(null);
@@ -127,6 +132,11 @@ export class Pinball {
 
   /** Each frame: the game being played, attract mode on the machines near the camera, and the prompt. */
   update(dt: number): void {
+    const night = store.get().night;
+    if (night !== this.night) {
+      this.night = night;
+      for (const f of this.fields) f.emissiveIntensity = night ? 0.62 : 0.32;
+    }
     const cam = this.fly.camera.position;
     for (const m of this.machines) {
       if (m === this.playing) this.play(m, dt);

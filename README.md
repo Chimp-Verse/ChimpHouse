@@ -151,6 +151,8 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `server/roomServer.ts` | The room server for now: a Vite plugin sharing state between the pages the dev server serves |
 | `src/engine/room.ts` | This visitor (`ME`), and shared state through the room server: `room.share`, `room.onGone`, the room's clock `room.now()` |
 | `src/engine/lift.ts` | The lift in the page: shows the shared state, reads the doorway, finds the button you point at, lights the car, plays the sounds (`liftSound.ts`) and the car's music (`liftMusic.ts`) |
+| `src/world/props/pinballTables.ts`, `pinball.ts`, `pinballArt.ts` | The two pinball machines: each table's layout, lamps and rules' parts as one definition (read by the model and the physics), the machines' model, and their printed art (playfield, backglass, sides, apron, lamp atlas) |
+| `src/engine/pinball.ts`, `pinballPhysics.ts`, `pinballRules.ts` | Playing pinball: the machines in the page (walking up, keys, the display, attract mode, sharing who plays and the high scores), the physics and the rules as pure modules (no Babylon) |
 | `src/world/environment/` | Sky, terrain, waterfalls, jungle, giant trees, front approach, canopy bridge |
 | `src/world/materials/` | Procedural textures, leaf atlas, signs, shared material library |
 | `src/world/viewpoints.ts` | Saved camera viewpoints |
