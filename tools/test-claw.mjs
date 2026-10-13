@@ -1,7 +1,9 @@
 // Browser test of the Chimp Claw (engine/clawMachine.ts, clawRules.ts, clawPhysics.ts):
 // the machine found by role and its pile settled, the odds of its rules over many simulated
-// plays, walking up and pressing E, steering with the keys, dropping, a won prize coming out
-// of the pickup door, the timer dropping by itself, leaving with Esc, and restocking.
+// plays, walking up and pressing E, steering with the keys, dropping, a won prize carried to the
+// chute and dropped in (never through the glass, never flung) and coming out of the pickup door,
+// the timer dropping by itself, leaving with Esc, restocking, and prizes dropped in deep in one
+// another coming apart gently and settling.
 //   URL=http://localhost:5183 node tools/test-claw.mjs
 // Screenshots go to captures/claw-play-*.png.
 import { chromium } from "playwright";
@@ -36,6 +38,40 @@ const waitFor = async (fn, arg, ms) => {
     return false;
   }
 };
+// a watch on the prizes frame by frame, in the page: the fastest any prize's centre goes (and
+// leaving out a fall), and the furthest any pokes out through the glass. A prize the attendant
+// puts back in jumps there, so a jump of more than 25 cm in a frame isn't counted as speed.
+const startProbe = () =>
+  ev(() => {
+    const c = window.__chimp.claw;
+    const probe = { any: 0, across: 0, out: 0, on: true };
+    let last = null;
+    let lastT = 0;
+    const tick = (t) => {
+      if (!probe.on) return;
+      const now = c.prizes();
+      const dt = (t - lastT) / 1000;
+      if (last && dt > 0)
+        now.forEach((q, i) => {
+          if (q.gone || last[i].gone) return;
+          const [dx, dy, dz] = [0, 1, 2].map((j) => q.at[j] - last[i].at[j]);
+          if (Math.hypot(dx, dy, dz) > 0.25) return;
+          probe.any = Math.max(probe.any, Math.hypot(dx, dy, dz) / dt);
+          probe.across = Math.max(probe.across, Math.hypot(dx, dz, Math.max(0, dy)) / dt);
+        });
+      probe.out = Math.max(probe.out, c.glassOut());
+      last = now;
+      lastT = t;
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+    window.__clawProbe = probe;
+  });
+const stopProbe = () =>
+  ev(() => {
+    window.__clawProbe.on = false;
+    return window.__clawProbe;
+  });
 
 // ---- the machine and its pile
 const prizes = await ev(() => window.__chimp.claw.prizes());
@@ -150,6 +186,8 @@ await ev(() => window.__chimp.claw.force(1));
 let won = false;
 let aimedOnce = false;
 let droppedOnce = false;
+// the prizes over every attempt: fastest (leaving out falls) and furthest through the glass
+const carried = { across: 0, out: 0 };
 for (let attempt = 0; attempt < 6 && !won; attempt++) {
   await ev(() => window.__chimp.claw.play());
   await ev(() => window.__chimp.claw.aimAtBest());
@@ -161,6 +199,7 @@ for (let attempt = 0; attempt < 6 && !won; attempt++) {
     await waitFor(() => window.__chimp.claw.state().phase === "over", null, 40000);
     continue;
   }
+  await startProbe();
   await page.keyboard.down("Space");
   if (attempt === 0) {
     await page.waitForTimeout(150);
@@ -175,13 +214,18 @@ for (let attempt = 0; attempt < 6 && !won; attempt++) {
   await waitFor(() => window.__chimp.claw.state().phase === "carry", null, 12000);
   await page.screenshot({ path: "captures/claw-play-carry.png" });
   if (!(await waitFor(() => window.__chimp.claw.state().phase === "over", null, 40000))) console.log("     the play didn't end in time");
+  const pr = await stopProbe();
+  carried.across = Math.max(carried.across, pr.across);
+  carried.out = Math.max(carried.out, pr.out);
   st = await ev(() => window.__chimp.claw.state());
   won = st.inBin.length > 0;
   console.log(`     attempt ${attempt + 1}: ${st.message}`);
 }
 check(aimedOnce, "the claw can be steered over a chosen prize and held still there");
 check(droppedOnce, "Space drops the claw");
-check(won, "a strong, well-aimed grab wins a prize");
+check(won, "a strong, well-aimed grab wins a prize: carried to the chute and dropped in, it lands in the chute");
+check(carried.out < 0.01, "no prize passes through the glass, carried or let go", `${(carried.out * 100).toFixed(1)} cm out at most`);
+check(carried.across < 1.5, "and none is flung: grabbed, carried, dropped and landing", `${carried.across.toFixed(2)} m/s at most, leaving out falls`);
 if (won) {
   check(await waitFor(() => window.__chimp.claw.pose().door > 0.9, null, 6000), "the pickup door swings open on the prize");
   await ev(async () => {
@@ -235,6 +279,18 @@ await page.keyboard.up("KeyA");
 await page.keyboard.press("Escape");
 await waitFor(() => window.__chimp.state().focus === null, null, 5000);
 await page.setViewportSize({ width: 1600, height: 1000 });
+
+// ---- prizes dropped in deep in one another come apart gently and settle
+await ev(() => window.__chimp.claw.jumble(8));
+await startProbe();
+const t0 = Date.now();
+const calm = await waitFor(() => window.__chimp.claw.prizes().every((p) => p.gone || p.asleep), null, 12000);
+const calmIn = (Date.now() - t0) / 1000;
+const jp = await stopProbe();
+check(jp.any < 1.5, "prizes dropped in deep in one another come apart gently", `${jp.any.toFixed(2)} m/s at most`);
+check(calm && calmIn < 8, "and settle into a resting pile within a few seconds", calm ? `${calmIn.toFixed(1)} s` : "still moving after 12 s");
+check(jp.out < 0.01, "none of them pushed out through the glass", `${(jp.out * 100).toFixed(1)} cm out at most`);
+await ev(() => window.__chimp.claw.reset());
 
 // ---- cost at the machine
 const info = await ev(async () => {

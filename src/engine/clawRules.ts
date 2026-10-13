@@ -95,10 +95,10 @@ export const CLAW_TUNING = {
   openTime: 0.3,
   closeTime: 0.85,
   /** how far (m) the claw must be left pressing into a prize to have landed on it (it sinks a little into the plush), and a prong to be stopped by one */
-  landPress: 0.018,
+  landPress: 0.008,
   prongPress: 0.004,
   /** the chance a play is strong (the payout rate), and the grip of strong and weak plays (0..1) */
-  strongChance: 1 / 8,
+  strongChance: 1 / 4,
   strong: [0.9, 1.0] as [number, number],
   weak: [0.3, 0.62] as [number, number],
   /** the carrying grip after the top, as a share of the pick-up grip: strong and weak plays */

@@ -294,6 +294,42 @@ export class ClawMachine {
     return b;
   }
 
+  /** for tests: n prizes dropped in on top of one another in the middle of the bed, deep in each other and in the pile there */
+  jumble(n: number): number[] {
+    const w = this.world;
+    const S = this.spec;
+    const rnd = seeded(11);
+    const cx = (S.bed[0] + S.bed[1]) / 2 + 0.06;
+    const cz = (S.bed[2] + S.bed[3]) / 2 + 0.04;
+    const out: number[] = [];
+    for (let b = 0; b < w.count && out.length < n; b++) {
+      if (w.isGone(b) || b === w.held) continue;
+      w.place(b, cx + (rnd() - 0.5) * 0.06, S.bedY + 0.08 + rnd() * 0.06, cz + (rnd() - 0.5) * 0.06, [0, rnd(), 0, 1]);
+      out.push(b);
+    }
+    this.syncPrizes();
+    this.dirty = true;
+    return out;
+  }
+
+  /** for tests: the furthest any prize pokes out through the glass (m) */
+  glassOut(): number {
+    const w = this.world;
+    const [x0, x1, z0, z1] = this.spec.bed;
+    const s: number[] = [];
+    let out = 0;
+    for (let b = 0; b < w.count; b++) {
+      if (w.isGone(b)) continue;
+      w.spheres(b, s);
+      for (let i = 0; i < s.length; i += 4) {
+        const [x, y, z, r] = [s[i], s[i + 1], s[i + 2], s[i + 3]];
+        // the front glass stands over the bin; below, the bin's own front holds them
+        out = Math.max(out, x0 - (x - r), x + r - x1, z + r - z1, y > this.spec.binY + 0.3 ? z0 - (z - r) : 0);
+      }
+    }
+    return out;
+  }
+
   /** The machine as it opens: every prize back in a freshly stocked pile, the claw home, nobody playing, for everyone (tests start from it). */
   reset(): void {
     if (store.get().focus?.kind === "claw") return;

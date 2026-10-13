@@ -564,6 +564,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** hold the joystick and button as given (null gives the keys back) */
       drive: (i: { x: number; z: number; drop: boolean } | null) => (claw.override = i),
       simulate: (n: number, strategy: "aim" | "random", strength: number | null) => claw.simulate(n, strategy, strength),
+      /** n prizes dropped in on top of one another, deep in each other (the indexes); and how far any prize pokes out through the glass (m) */
+      jumble: (n: number) => claw.jumble(n),
+      glassOut: () => claw.glassOut(),
       /** the machine as it opens, for everyone in the room: a fresh pile, nobody playing (tests start from it) */
       reset: () => claw.reset(),
       /** who is playing, if another visitor is (shared through the room) */

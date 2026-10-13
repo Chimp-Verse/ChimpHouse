@@ -10,6 +10,14 @@
 // every contact. Bodies that come to rest sleep until something wakes them, so a
 // settled pile costs nothing.
 //
+// Only overlap made by a substep's own motion is undone at once (that is a contact
+// stopping a body). Overlap a body already had (prizes dropped in on top of each
+// other, a prize let go inside the prongs) is eased out a little at the start of each
+// substep, before the substep's motion begins, the whole body moved as one, so it
+// separates without being given the speed of the push: PBD turns every push into
+// velocity, and a centimetre pushed out in one substep is a prize flung at metres a
+// second. No prize moves faster than a plush toy can (MAX_* below) whatever happens.
+//
 // Everything is in the machine's own frame (metres; base at y 0, front -Z) as
 // its ClawSpec gives it. A body held by the claw is moved by the claw (setHeld);
 // letting go hands it back to gravity with the speed it had.
@@ -42,6 +50,9 @@ const chimpSpheres = (s: number): [number, number, number, number][] =>
       [0, 0.168, -0.004, 0.058],
       [-0.045, 0.026, -0.078, 0.024],
       [0.045, 0.026, -0.078, 0.024],
+      // the legs' tops, joining them to the body (with a gap there, the guard's thin wall could slip between leg and body)
+      [-0.024, 0.046, -0.04, 0.028],
+      [0.024, 0.046, -0.04, 0.028],
     ] as [number, number, number, number][]
   ).map(([x, y, z, r]) => [x * s, y * s, z * s, r * s]);
 
@@ -95,6 +106,18 @@ const SLEEP_V = 0.035;
 const SLEEP_T = 0.35;
 const CREEP_V = 0.12;
 const CREEP_T = 2;
+/** overlap a body already had is eased out by at most this much a substep (m): about 0.15 m/s */
+const EASE = 0.0006;
+/** and the solve takes back at most this much of it per pass (m), so what its passes leave can't build up; that too moves it without speed */
+const CREEP_OUT = 0.0002;
+/** overlap left under this (m) is let be: a resting pile always presses in a little, and easing it would keep the pile from sleeping */
+const SLOP = 0.0005;
+/** the fastest a prize's centre goes (m/s): across, and up; and falling (down the shaft) */
+const MAX_ACROSS = 1.0;
+const MAX_UP = 0.8;
+const MAX_FALL = 6;
+/** and the fastest any part of it turns about its centre (m/s): a chimp toppling over swings its head about this fast */
+const MAX_SPIN = 1.5;
 
 /** Rotate (x, y, z) by quaternion q (x, y, z, w) into out[o..o+2]. */
 function rot(q: Float64Array, qo: number, x: number, y: number, z: number, out: Float64Array, o: number) {
@@ -157,6 +180,17 @@ export class PrizeWorld {
   private w = new Float64Array(0);
   /** per body: bounding radius about the com */
   private bound = new Float64Array(0);
+  /** in the easing pass (old overlap eased out, no speed given), not the substep's solve */
+  private easing = false;
+  /** per body, in the easing pass: the most any of its spheres wants moving each way (+x, -x, +y, -y, +z, -z), by the other prizes and by the machine */
+  private ease = new Float64Array(0);
+  private easeWall = new Float64Array(0);
+  private easingWall = false;
+  /** per body: its centre and turn as this substep began, before easing (whether it is still is how far those moved) */
+  private comStart = new Float64Array(0);
+  private turnStart = new Float64Array(0);
+  /** per body: how far the solve's creeping out of old overlap moved its centre this substep (not to become speed) */
+  private crept = new Float64Array(0);
   private acc = 0;
   private tmp = new Float64Array(3);
   /** the claw's capsules this step: the head, then each prong's two segments */
@@ -169,6 +203,16 @@ export class PrizeWorld {
   capBody: number[] = [];
   /** the held body's pose to follow (com xyz, quaternion xyzw), set by setHeld */
   private heldPose = new Float64Array(7);
+  /**
+   * The body just let go (or slipped), still in the prongs it was held in (-1 none): it drops out
+   * of them as they open (they had dug into the plush, and would drag it or shoot it out), and
+   * the head eases it out of the overlap it had there rather than shooting it out, still
+   * stopping whatever new overlap the claw or its fall makes. So until it has fallen clear below
+   * the claw, or come to rest.
+   */
+  loose = -1;
+  /** per particle of the loose body: how far into the claw it was last substep */
+  private clawHad = new Float64Array(0);
 
   constructor(readonly box: ClawBox) {}
 
@@ -216,6 +260,12 @@ export class PrizeWorld {
     this.body = bodyArr;
     this.pose = grow(this.pose, 7);
     this.bound = grow(this.bound, 1);
+    this.ease = grow(this.ease, 6);
+    this.easeWall = grow(this.easeWall, 6);
+    this.comStart = grow(this.comStart, 3);
+    this.turnStart = grow(this.turnStart, 4);
+    this.crept = grow(this.crept, 3);
+    this.clawHad = grow(this.clawHad, n);
     this.still = grow(this.still, 1);
     const s8 = new Uint8Array(b + 1);
     s8.set(this.sleeping);
@@ -288,6 +338,7 @@ export class PrizeWorld {
     this.gone[b] = 1;
     this.sleeping[b] = 1;
     if (this.held === b) this.held = -1;
+    if (this.loose === b) this.loose = -1;
   }
 
   isGone(b: number): boolean {
@@ -330,7 +381,13 @@ export class PrizeWorld {
 
   /** Hold body b with the claw (or -1 to let go): from now it follows setHeld's pose. */
   hold(b: number): void {
-    if (this.held >= 0 && this.held !== b) this.wake(this.held);
+    if (this.held >= 0 && this.held !== b) {
+      this.wake(this.held);
+      // let go from inside shut prongs: eased out of them, not shot out by them
+      this.loose = this.held;
+      for (let k = this.start[this.loose]; k < this.start[this.loose + 1]; k++) this.clawHad[k] = Infinity;
+    }
+    if (b >= 0 && this.loose === b) this.loose = -1;
     this.held = b;
     if (b >= 0) {
       this.wake(b);
@@ -379,6 +436,11 @@ export class PrizeWorld {
   private substep() {
     const { p, prev, v, body } = this;
     const N = this.start[this.count];
+    for (let b = 0; b < this.count; b++) {
+      this.centre(b, this.comStart, b * 3);
+      for (let i = 0; i < 4; i++) this.turnStart[b * 4 + i] = this.pose[b * 7 + 3 + i];
+    }
+    this.easeOut();
     // the held body moves to its pose; the rest fall
     if (this.held >= 0) this.pose.set(this.heldPose, this.held * 7);
     for (let k = 0; k < N; k++) {
@@ -404,33 +466,45 @@ export class PrizeWorld {
       p[o + 1] += v[o + 1] * H;
       p[o + 2] += v[o + 2] * H;
     }
+    if (this.held >= 0) this.confineHeld();
     // the claw pushes first, so what the walls and the pile push back with shows as the claw's overlap left at the end
     for (let it = 0; it < ITERS; it++) {
       this.collideClaw(false);
-      for (let k = 0; k < N; k++) {
-        const b = body[k];
-        if (this.sleeping[b] || this.gone[b] || b === this.held) continue;
-        this.collideStatic(k);
-      }
-      this.collidePairs();
-      for (let b = 0; b < this.count; b++) if (!this.sleeping[b] && !this.gone[b] && b !== this.held) this.match(b);
+      this.solvePile();
     }
     this.collideClaw(true);
+    this.speedLimit();
     // velocities from how far each moved; bodies that have been still go to sleep
     for (let b = 0; b < this.count; b++) {
       if (this.sleeping[b] || this.gone[b]) continue;
-      let vmax = 0;
+      // creeping out of old overlap moved it, but gives it no speed
+      const cx = this.crept[b * 3];
+      const cy = this.crept[b * 3 + 1];
+      const cz = this.crept[b * 3 + 2];
+      this.crept[b * 3] = this.crept[b * 3 + 1] = this.crept[b * 3 + 2] = 0;
       for (let k = this.start[b]; k < this.start[b + 1]; k++) {
         const o = k * 3;
+        prev[o] += cx;
+        prev[o + 1] += cy;
+        prev[o + 2] += cz;
         v[o] = (p[o] - prev[o]) / H;
         v[o + 1] = (p[o + 1] - prev[o + 1]) / H;
         v[o + 2] = (p[o + 2] - prev[o + 2]) / H;
-        vmax = Math.max(vmax, Math.hypot(v[o], v[o + 1], v[o + 2]));
       }
       if (b === this.held) continue;
-      // still, or barely creeping for a while (held in a jam that jitters): to sleep either way
-      if (vmax < SLEEP_V) this.still[b] += H;
-      else if (vmax < CREEP_V) this.still[b] += H * (SLEEP_T / CREEP_T);
+      // still, or barely creeping for a while (held in a jam that jitters): to sleep either way. It is
+      // how far the body went this substep, easing too, as drawn (its centre, and its turn at its
+      // edge): eased off a prize and settled back onto it is still, being eased out of one is moving,
+      // and its spheres shimmering a fraction of a millimetre about its shape is not moving
+      const c = this.tmp;
+      this.centre(b, c, 0);
+      const q = this.pose;
+      const t0 = this.turnStart;
+      const dot = Math.abs(q[b * 7 + 3] * t0[b * 4] + q[b * 7 + 4] * t0[b * 4 + 1] + q[b * 7 + 5] * t0[b * 4 + 2] + q[b * 7 + 6] * t0[b * 4 + 3]);
+      const turned = 2 * Math.acos(Math.min(1, dot)) * this.bound[b];
+      const moved = (Math.hypot(c[0] - this.comStart[b * 3], c[1] - this.comStart[b * 3 + 1], c[2] - this.comStart[b * 3 + 2]) + turned) / H;
+      if (moved < SLEEP_V) this.still[b] += H;
+      else if (moved < CREEP_V) this.still[b] += H * (SLEEP_T / CREEP_T);
       else this.still[b] = 0;
       if (this.still[b] > SLEEP_T) {
         this.sleeping[b] = 1;
@@ -439,10 +513,183 @@ export class PrizeWorld {
     }
   }
 
-  /** Move particle k out by (nx, ny, nz) * depth, with friction against a still surface. */
-  private push(k: number, nx: number, ny: number, nz: number, depth: number, mu: number) {
+  /**
+   * No prize goes faster than a plush toy can, whatever pushed it (prizes jammed deep in one
+   * another push each other on in a chain within one substep): each body's centre is held to
+   * MAX_* this substep (easing and all), the body drawn back as one toward where it began it,
+   * which was clear of the machine, so this can't put it through the glass; and its turn is held
+   * to MAX_SPIN.
+   */
+  private speedLimit() {
+    const { p, prev, w } = this;
+    for (let b = 0; b < this.count; b++) {
+      if (this.sleeping[b] || this.gone[b] || b === this.held) continue;
+      // the centre's move since the solve began (its motion), and since the substep began (easing too)
+      let mx = 0;
+      let my = 0;
+      let mz = 0;
+      for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+        mx += (p[k * 3] - prev[k * 3]) * w[k];
+        my += (p[k * 3 + 1] - prev[k * 3 + 1]) * w[k];
+        mz += (p[k * 3 + 2] - prev[k * 3 + 2]) * w[k];
+      }
+      const c = this.tmp;
+      this.centre(b, c, 0);
+      const dx = c[0] - this.comStart[b * 3];
+      const dy = c[1] - this.comStart[b * 3 + 1];
+      const dz = c[2] - this.comStart[b * 3 + 2];
+      const across = Math.hypot(dx, dz);
+      const s = across > MAX_ACROSS * H ? (MAX_ACROSS * H) / across : 1;
+      const bx = dx * (s - 1);
+      const by = Math.max(-MAX_FALL * H, Math.min(MAX_UP * H, dy)) - dy;
+      const bz = dz * (s - 1);
+      // each sphere's move apart from the centre's is its turn
+      let spin = 0;
+      for (let k = this.start[b]; k < this.start[b + 1]; k++)
+        spin = Math.max(spin, Math.hypot(p[k * 3] - prev[k * 3] - mx, p[k * 3 + 1] - prev[k * 3 + 1] - my, p[k * 3 + 2] - prev[k * 3 + 2] - mz));
+      const f = spin > MAX_SPIN * H ? (MAX_SPIN * H) / spin : 1;
+      if (bx === 0 && by === 0 && bz === 0 && f === 1) continue;
+      for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+        const o = k * 3;
+        p[o] = prev[o] + mx + bx + (p[o] - prev[o] - mx) * f;
+        p[o + 1] = prev[o + 1] + my + by + (p[o + 1] - prev[o + 1] - my) * f;
+        p[o + 2] = prev[o + 2] + mz + bz + (p[o + 2] - prev[o + 2] - mz) * f;
+      }
+      this.pose[b * 7] += bx;
+      this.pose[b * 7 + 1] += by;
+      this.pose[b * 7 + 2] += bz;
+    }
+  }
+
+  /**
+   * Old overlap eased out a little, before this substep's motion begins: each body moved as one
+   * (a small sphere pushed alone would mostly be pulled back by its shape) by what its spheres
+   * want, at most EASE each way, so it is moved but given no speed. The machine wins over the
+   * other prizes: one pressed between a prize and the glass or floor is eased along the glass,
+   * never into it.
+   */
+  private easeOut() {
+    const N = this.start[this.count];
+    const e = this.ease;
+    const ew = this.easeWall;
+    e.fill(0);
+    ew.fill(0);
+    this.easing = true;
+    this.collidePairs();
+    this.easingWall = true;
+    for (let k = 0; k < N; k++) {
+      const b = this.body[k];
+      if (!this.sleeping[b] && !this.gone[b] && b !== this.held) this.collideStatic(k);
+    }
+    this.easingWall = false;
+    this.easing = false;
+    const axis = (o: number) => {
+      // what the machine wants this way and that, then the other prizes where the machine doesn't push back
+      const plus = ew[o + 1] > 0 ? ew[o] : Math.max(ew[o], e[o]);
+      const minus = ew[o] > 0 ? ew[o + 1] : Math.max(ew[o + 1], e[o + 1]);
+      return Math.max(-EASE, Math.min(EASE, plus - minus));
+    };
+    const B = this.box;
+    const [bx0, bx1, bz0, bz1] = B.bed;
+    for (let b = 0; b < this.count; b++) {
+      const o = b * 6;
+      let dx = axis(o);
+      let dy = axis(o + 2);
+      let dz = axis(o + 4);
+      if (dx === 0 && dy === 0 && dz === 0) continue;
+      // never eased into the glass or down into the bed: only as far as the room it has that way
+      for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+        const x = this.p[k * 3];
+        const y = this.p[k * 3 + 1];
+        const z = this.p[k * 3 + 2];
+        const r = this.r[k];
+        if (dx > 0) dx = Math.min(dx, Math.max(0, bx1 - r - x));
+        if (dx < 0) dx = Math.max(dx, Math.min(0, bx0 + r - x));
+        if (dz > 0) dz = Math.min(dz, Math.max(0, bz1 - r - z));
+        if (dz < 0 && y > B.bedY) dz = Math.max(dz, Math.min(0, bz0 + r - z));
+        if (dy < 0 && y > B.bedY) dy = Math.max(dy, Math.min(0, B.bedY + r - y));
+      }
+      if (dx === 0 && dy === 0 && dz === 0) continue;
+      this.pose[b * 7] += dx;
+      this.pose[b * 7 + 1] += dy;
+      this.pose[b * 7 + 2] += dz;
+      for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+        this.p[k * 3] += dx;
+        this.p[k * 3 + 1] += dy;
+        this.p[k * 3 + 2] += dz;
+      }
+    }
+  }
+
+  /** Body b's centre of mass now, into out[o..o+2]. */
+  private centre(b: number, out: Float64Array, o: number) {
+    let x = 0;
+    let y = 0;
+    let z = 0;
+    for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+      x += this.p[k * 3] * this.w[k];
+      y += this.p[k * 3 + 1] * this.w[k];
+      z += this.p[k * 3 + 2] * this.w[k];
+    }
+    out[o] = x;
+    out[o + 1] = y;
+    out[o + 2] = z;
+  }
+
+  /**
+   * The prizes against each other, back to their shapes, then against the machine: the glass,
+   * the floor and the guard have the last word, so the pile can't press a prize into them.
+   */
+  private solvePile() {
+    const N = this.start[this.count];
+    this.collidePairs();
+    for (let b = 0; b < this.count; b++) if (!this.sleeping[b] && !this.gone[b] && b !== this.held) this.match(b);
+    for (let k = 0; k < N; k++) {
+      const b = this.body[k];
+      if (!this.sleeping[b] && !this.gone[b] && b !== this.held) this.collideStatic(k);
+    }
+  }
+
+  /**
+   * Move particle k out by (nx, ny, nz) * depth, with friction against a still surface (plush on
+   * plush grips like that too: friction only as strong as the push this solve gives). In the
+   * easing pass, only noted for its body (easeOut). In the solve, the overlap this substep's
+   * motion made, and at most CREEP_OUT of what it had before beyond SLOP (`had`; -1: work it out
+   * against a still surface), the rest left for the easing pass.
+   */
+  private push(k: number, nx: number, ny: number, nz: number, depth: number, mu: number, had = -1) {
     const o = k * 3;
     const { p, prev } = this;
+    if (this.easing) {
+      // touching the machine at all blocks easing into it, however little it presses
+      depth = this.easingWall ? Math.max(1e-9, depth - SLOP) : depth - SLOP;
+      if (depth <= 0) return;
+      const e = this.easingWall ? this.easeWall : this.ease;
+      const eb = this.body[k] * 6;
+      const ax = nx * depth;
+      const ay = ny * depth;
+      const az = nz * depth;
+      if (ax > 0) e[eb] = Math.max(e[eb], ax);
+      else e[eb + 1] = Math.max(e[eb + 1], -ax);
+      if (ay > 0) e[eb + 2] = Math.max(e[eb + 2], ay);
+      else e[eb + 3] = Math.max(e[eb + 3], -ay);
+      if (az > 0) e[eb + 4] = Math.max(e[eb + 4], az);
+      else e[eb + 5] = Math.max(e[eb + 5], -az);
+      return;
+    }
+    if (had < 0) had = depth + (p[o] - prev[o]) * nx + (p[o + 1] - prev[o + 1]) * ny + (p[o + 2] - prev[o + 2]) * nz;
+    had = Math.max(0, Math.min(depth, had));
+    const creep = Math.min(Math.max(0, had - SLOP), CREEP_OUT);
+    depth = depth - had + creep;
+    if (depth <= 0) return;
+    if (creep > 0) {
+      // what it moves the body's centre by, once shape matching shares it out
+      const cb = this.body[k] * 3;
+      const wk = this.w[k] * creep;
+      this.crept[cb] += nx * wk;
+      this.crept[cb + 1] += ny * wk;
+      this.crept[cb + 2] += nz * wk;
+    }
     p[o] += nx * depth;
     p[o + 1] += ny * depth;
     p[o + 2] += nz * depth;
@@ -482,8 +729,17 @@ export class PrizeWorld {
       this.push(k, dx / d, dy / d, dz / d, r - d, mu);
       return;
     }
-    // the centre is inside: out the nearest face
-    const opts: [number, number, number, number][] = [
+    // the centre is inside: out the face it came in through (a fast fall can carry it past a thin wall's middle in one substep), else the nearest
+    const q = this.prev;
+    const ox = q[o], oy = q[o + 1], oz = q[o + 2];
+    const came: [number, number, number, number][] = [];
+    if (ox < x0) came.push([px - x0 + r, -1, 0, 0]);
+    if (ox > x1) came.push([x1 - px + r, 1, 0, 0]);
+    if (oy < y0) came.push([py - y0 + r, 0, -1, 0]);
+    if (oy > y1) came.push([y1 - py + r, 0, 1, 0]);
+    if (oz < z0) came.push([pz - z0 + r, 0, 0, -1]);
+    if (oz > z1) came.push([z1 - pz + r, 0, 0, 1]);
+    const opts: [number, number, number, number][] = came.length ? came : [
       [px - x0 + r, -1, 0, 0],
       [x1 - px + r, 1, 0, 0],
       [py - y0 + r, 0, -1, 0],
@@ -586,8 +842,11 @@ export class PrizeWorld {
             }
             const sum = ka + kb;
             if (sum === 0) continue;
-            if (ka) this.push(i, nx, ny, nz, (pen * ka) / sum, MU_PLUSH);
-            if (kb) this.push(j, -nx, -ny, -nz, (pen * kb) / sum, MU_PLUSH);
+            // how much they overlapped before this substep moved them: that is the easing pass's to undo, gently
+            const { prev } = this;
+            const had = rs - Math.hypot(prev[io] - prev[jo], prev[io + 1] - prev[jo + 1], prev[io + 2] - prev[jo + 2]);
+            if (ka) this.push(i, nx, ny, nz, (pen * ka) / sum, MU_PLUSH, (had * ka) / sum);
+            if (kb) this.push(j, -nx, -ny, -nz, (pen * kb) / sum, MU_PLUSH, (had * kb) / sum);
           }
       }
     }
@@ -598,6 +857,8 @@ export class PrizeWorld {
     const { p, r, body } = this;
     const N = this.start[this.count];
     const c = this.tmp;
+    const L = this.loose;
+    if (measure && L >= 0) for (let k = this.start[L]; k < this.start[L + 1]; k++) this.clawHad[k] = 0;
     for (let ci = 0; ci < this.claw.length; ci++) {
       const cap = this.claw[ci];
       if (cap.r <= 0) continue;
@@ -622,9 +883,18 @@ export class PrizeWorld {
         if (d2 >= rs * rs || d2 < 1e-14) continue;
         const d = Math.sqrt(d2);
         const pen = rs - d;
+        if (b === L) {
+          // what the claw just let go of: out through the prongs; the head eases it out of the overlap it had, and isn't sensed
+          if (ci > 0) continue;
+          if (measure) {
+            this.clawHad[k] = Math.max(this.clawHad[k], pen);
+          } else this.push(k, dx / d, dy / d, dz / d, pen, MU_PLUSH, this.clawHad[k]);
+          continue;
+        }
         if (!measure) {
           if (this.sleeping[b]) this.wake(b);
-          this.push(k, dx / d, dy / d, dz / d, pen, MU_PLUSH);
+          // the claw moves slowly, so its push is all this substep's
+          this.push(k, dx / d, dy / d, dz / d, pen, MU_PLUSH, 0);
           continue;
         }
         if (pen > this.clawPress) {
@@ -635,6 +905,50 @@ export class PrizeWorld {
           this.capPress[ci] = pen;
           this.capBody[ci] = b;
         }
+      }
+    }
+    if (measure && L >= 0 && (this.sleeping[L] || !this.claw.length || this.pose[L * 7 + 1] < this.claw[0].ay - 0.3)) this.loose = -1;
+  }
+
+  /**
+   * The held body against the glass and the chute's guard: held, it is moved by the claw, not
+   * pushed about, but the glass still stops it, so it slides over in the prongs (the whole body,
+   * as rigid as it's held) rather than passing through.
+   */
+  private confineHeld() {
+    const b = this.held;
+    const B = this.box;
+    const { p, r } = this;
+    const [bx0, bx1, bz0, bz1] = B.bed;
+    const [, cx1, , cz1] = B.chute;
+    const gy1 = B.bedY + B.guardH;
+    for (let pass = 0; pass < 3; pass++) {
+      // the most each way any sphere must move: +x, -x, +y, +z, -z
+      let px = 0, nx = 0, py = 0, pz = 0, nz = 0;
+      for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+        const o = k * 3;
+        const x = p[o], y = p[o + 1], z = p[o + 2], rk = r[k];
+        px = Math.max(px, bx0 + rk - x);
+        nx = Math.max(nx, x - (bx1 - rk));
+        pz = Math.max(pz, bz0 + rk - z);
+        nz = Math.max(nz, z - (bz1 - rk));
+        // the guard's walls stand up round the chute: over them, or beside them
+        if (y - rk < gy1) {
+          const inX = x < cx1 + rk;
+          const inZ = z < cz1 + rk;
+          if (inX && inZ && (x > cx1 - rk || z > cz1 - rk)) py = Math.max(py, gy1 + rk - y);
+        }
+      }
+      if (!(px || nx || py || pz || nz)) return;
+      const dx = px - nx, dy = py, dz = pz - nz;
+      const o = b * 7;
+      this.pose[o] += dx;
+      this.pose[o + 1] += dy;
+      this.pose[o + 2] += dz;
+      for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+        p[k * 3] += dx;
+        p[k * 3 + 1] += dy;
+        p[k * 3 + 2] += dz;
       }
     }
   }
