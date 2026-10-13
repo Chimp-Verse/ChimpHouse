@@ -1,6 +1,12 @@
 # Game Room overhaul plan
 
-Status: in progress, started 2026-10-13. Run by an orchestrator agent, with one worker agent per machine working in parallel. There is no reviewer agent: each worker checks its own work, and the user decides afterwards what needs a review.
+Status: done, 2026-10-13 07:30. All five machines are rebuilt, playable and merged into `game-room-overhaul`. Each machine's own test passes on the combined branch, single-page and two-visitor (`SHARED=1`). It was run by an orchestrator agent with one worker agent per machine working in parallel. There was no reviewer agent: each worker checked its own work, and the user decides what needs a review.
+
+Fixed along the way, for the whole house rather than one machine:
+
+- The room server declared every visitor gone every 3 s under Vite 8.
+- Clicks and aim were picked in render pixels instead of CSS pixels, so they landed beside the pointer on Retina screens and at other qualities.
+- The Game Room had 12 lights against its 8-light cap, and now has 8.
 
 Every machine in the ChimpVibe Game Room is static and looks basic. This overhaul rebuilds each one as a realistic, polished machine that a visitor can walk up to and use. The arcade cabinets and the TV are out of scope.
 
