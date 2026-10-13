@@ -491,6 +491,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       setScore: (red: number, blue: number) => airHockey.setScore(red, blue),
       /** what the table's sounds have played, and whether its air is on */
       sounds: () => airHockey.sounds(),
+      /** each of its sounds rendered offline: peak and loudness */
+      soundLevels: () => airHockey.soundLevels(),
       /** both ends free and the game stopped, for everyone in the room */
       reset: () => airHockey.reset(),
       /** the pure physics and robot, to test on their own */

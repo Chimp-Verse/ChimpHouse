@@ -382,6 +382,10 @@ if (mode === "play" && !SHARED) {
   check((snd.played.mallet ?? 0) > 0 && (snd.played.rail ?? 0) > 0, "the puck sounds on the mallets and the rails", JSON.stringify(snd.played));
   check((snd.played.goal ?? 0) >= 2 && (snd.played.win ?? 0) >= 1 && (snd.played.start ?? 0) >= 2, "goals drop and sound the horn, a won match its fanfare, a new match its jingle", JSON.stringify(snd.played));
   check(snd.air, "the air table hisses while a match is on");
+  const lv = await page.evaluate(() => window.__chimp.airHockey.soundLevels());
+  console.log(Object.entries(lv).map(([k, v]) => `${k} peak ${v.peak.toFixed(2)} rms ${v.rms.toFixed(3)}`).join(" · "));
+  check(Object.values(lv).every((v) => v.peak > 0.02 && v.peak < 1), "every sound renders audible and unclipped", Object.entries(lv).map(([k, v]) => `${k} ${v.peak.toFixed(2)}`).join(", "));
+  check(lv["hard mallet"].peak > lv["soft mallet"].peak * 2, "a hard hit sounds louder than a soft one", `${lv["soft mallet"].peak.toFixed(2)} vs ${lv["hard mallet"].peak.toFixed(2)}`);
   const info = await page.evaluate(() => window.__chimp.info());
   console.log(`at the table: ${info.fps} fps, ${info.drawCalls} draw calls`);
   await page.evaluate(() => window.__chimp.airHockey.leave());

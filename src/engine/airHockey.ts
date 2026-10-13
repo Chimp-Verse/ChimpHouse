@@ -789,6 +789,23 @@ export class AirHockey {
     return { played: { ...this.sound.played }, air: this.sound.airOn, running: this.sound.running };
   }
 
+  /** Each of the table's sounds rendered offline and measured: its peak and loudness (RMS). */
+  async soundLevels(): Promise<Record<string, { peak: number; rms: number }>> {
+    const out: Record<string, { peak: number; rms: number }> = {};
+    const kinds: [string, (s: AirHockeySound) => void, number][] = [
+      ["soft mallet", (s) => s.hit("mallet", 0.8), 0.4],
+      ["hard mallet", (s) => s.hit("mallet", 9), 0.4],
+      ["rail", (s) => s.hit("rail", 6), 0.4],
+      ["post", (s) => s.hit("post", 6), 0.4],
+      ["goal", (s) => s.goal(), 1.6],
+      ["start", (s) => s.start(), 0.8],
+      ["win", (s) => s.win(), 1.8],
+      ["air", (s) => s.air(1), 2],
+    ];
+    for (const [name, play, secs] of kinds) out[name] = await AirHockeySound.sample(play, secs);
+    return out;
+  }
+
   /** Free both ends and stop the game, for everyone in the room (tests start from it). */
   reset(): void {
     for (const i of [0, 1]) this.publishSeat[i](noSeat());

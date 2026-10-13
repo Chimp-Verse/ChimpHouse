@@ -20,7 +20,7 @@ const NEAR = 1.6;
 const ROLLOFF = 1.3;
 
 export class AirHockeySound {
-  private ctx: AudioContext | null = null;
+  private ctx: BaseAudioContext | null = null;
   private master: GainNode | null = null;
   private panner: PannerNode | null = null;
   private white: AudioBuffer | null = null;
@@ -43,7 +43,8 @@ export class AirHockeySound {
     this.played[kind] = (this.played[kind] ?? 0) + 1;
   }
 
-  constructor() {
+  constructor(wakeOnInput = true) {
+    if (!wakeOnInput) return;
     const wake = () => this.unlock();
     addEventListener("pointerdown", wake, { capture: true });
     addEventListener("keydown", wake, { capture: true });
@@ -52,16 +53,40 @@ export class AirHockeySound {
   /** Start the sound (or wake it): on the visitor's first key press or click. */
   unlock(): void {
     if (this.ctx) {
-      if (this.ctx.state === "suspended") void this.ctx.resume();
+      if (this.ctx.state === "suspended" && this.ctx instanceof AudioContext) void this.ctx.resume();
       return;
     }
     try {
       const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      this.ctx = new AC();
+      this.build(new AC());
     } catch {
       return;
     }
-    const c = this.ctx;
+  }
+
+  /**
+   * Render sounds offline and measure them, for the tests (a headless browser can't listen):
+   * `play` makes the sounds on a fresh set, heard from the table itself; returns the peak and the
+   * loudness (RMS) of what came out over `secs` seconds.
+   */
+  static async sample(play: (s: AirHockeySound) => void, secs = 2): Promise<{ peak: number; rms: number }> {
+    const rate = 22050;
+    const off = new OfflineAudioContext(1, Math.round(rate * secs), rate);
+    const s = new AirHockeySound(false);
+    s.build(off);
+    play(s);
+    const out = (await off.startRendering()).getChannelData(0);
+    let peak = 0;
+    let sum = 0;
+    for (const v of out) {
+      peak = Math.max(peak, Math.abs(v));
+      sum += v * v;
+    }
+    return { peak, rms: Math.sqrt(sum / out.length) };
+  }
+
+  private build(c: BaseAudioContext): void {
+    this.ctx = c;
     const comp = c.createDynamicsCompressor();
     comp.threshold.value = -14;
     comp.knee.value = 8;
