@@ -375,9 +375,22 @@ if (mode === "play" && !SHARED) {
   });
   check(re.phase !== "over" && re.score[0] + re.score[1] === 0 && re.match === over.d.match + 1, "Rematch starts a new match at 0-0", JSON.stringify({ phase: re.phase, score: re.score, match: re.match }));
 
+  // the sounds (a headless browser can't listen, so this reads what played)
+  await sleep(1500);
+  const snd = await page.evaluate(() => window.__chimp.airHockey.sounds());
+  check(snd.running, "the table's sound is on after the visitor's key press", JSON.stringify(snd));
+  check((snd.played.mallet ?? 0) > 0 && (snd.played.rail ?? 0) > 0, "the puck sounds on the mallets and the rails", JSON.stringify(snd.played));
+  check((snd.played.goal ?? 0) >= 2 && (snd.played.win ?? 0) >= 1 && (snd.played.start ?? 0) >= 2, "goals drop and sound the horn, a won match its fanfare, a new match its jingle", JSON.stringify(snd.played));
+  check(snd.air, "the air table hisses while a match is on");
   const info = await page.evaluate(() => window.__chimp.info());
   console.log(`at the table: ${info.fps} fps, ${info.drawCalls} draw calls`);
   await page.evaluate(() => window.__chimp.airHockey.leave());
+  // walking away: the table falls quiet, its air off once nobody plays and out of earshot
+  await sleep(1200);
+  await page.evaluate(() => window.__chimp.goTo("entry"));
+  await sleep(800);
+  const away = await page.evaluate(() => window.__chimp.airHockey.sounds());
+  check(!away.air, "after leaving and walking away, the air table is quiet", JSON.stringify(away));
   await page.close();
 }
 

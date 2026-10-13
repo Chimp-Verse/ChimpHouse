@@ -89,6 +89,7 @@ The Game Room's air hockey table, in the middle of the floor, plays like an arca
 - Walk up to either end and look at the table: **E** plays at that end (red at the west end, blue at the east). The camera stands behind your end looking down the table, and the mouse is free.
 - Your mallet follows the mouse cursor across your half of the table, sweeping after it at a hand's speed, so a quick swipe strikes the puck hard. It can't cross the centre line.
 - On your own, an invisible robot plays the other end. When a second visitor walks up to its end, they take it over and a new match starts between you.
+- The table sounds like one, made in the browser (`src/engine/airHockeySound.ts`) and heard from where it stands: the puck clacks off the mallets and bangs off the rails as hard as it was hit, a goal drops and rattles down the return and sounds the horn, the air hisses while a match is on, and a jingle starts each match and a fanfare ends it. It fades as you walk away.
 - After a goal the puck drops into the pocket and comes back out on the side that was scored on. When the match is won, **Rematch** starts another (against a visitor, once you both ask), or **Leave**. **Esc** or **Leave** walks on at any time.
 
 ## Playing foosball

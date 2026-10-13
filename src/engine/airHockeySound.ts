@@ -1,132 +1,337 @@
-// The air hockey table's sounds, made with the Web Audio API as the lift's are: the
-// sharp clack of a mallet on the puck, the duller knock of the puck on a rail, the
-// clunk of the puck dropping into a goal with the scoreboard's buzzer, and the
-// blower's soft rush while a game is on. They play to the player at the table and
-// to anyone standing near it, louder the harder the blow, quieter further away.
-// Browsers allow sound only after a key press or click; until then it is silent.
+// The air hockey table's sounds, made with the Web Audio API rather than recordings, as the
+// lift's are (engine/liftSound.ts): the sharp clack of the puck on a mallet, the duller bang
+// of it on a rail and the ping of a goal post, each as loud as the puck was fast; the puck
+// dropping into a goal and rattling down to its return, and the scoreboard's horn; the air
+// table's hiss and its blower's hum while a match is on; and a short jingle as a match
+// starts and a fanfare when one is won.
+//
+// It all comes from the table, placed in 3D (a Web Audio panner): it falls away as the
+// visitor walks off and comes from the table's side of them, through a little reverb (the
+// Game Room) and a compressor that keeps it full without clipping. The sound starts at the
+// visitor's first key press or click, since browsers only allow sound after one. Without
+// Web Audio the table plays silently.
+
+/** A point or direction in the house (x, y, z). */
+type Vec = [number, number, number];
+
+/** Loudness at the table, and how it falls away: full within NEAR metres, then a little under half as loud for each doubling. */
+const FULL_VOLUME = 0.85;
+const NEAR = 1.6;
+const ROLLOFF = 1.3;
 
 export class AirHockeySound {
   private ctx: AudioContext | null = null;
-  private out: GainNode | null = null;
-  private noise: AudioBuffer | null = null;
-  private blower: { src: AudioBufferSourceNode; gain: GainNode } | null = null;
-  private unlocked = false;
+  private master: GainNode | null = null;
+  private panner: PannerNode | null = null;
+  private white: AudioBuffer | null = null;
+  private brown: AudioBuffer | null = null;
+  private blower: { sources: AudioScheduledSourceNode[]; gain: GainNode } | null = null;
+  /** how many of each sound have played, for the tests (they can't listen) */
+  readonly played: Record<string, number> = {};
+
+  /** Whether the air table's hiss is on. */
+  get airOn(): boolean {
+    return !!this.blower;
+  }
+
+  /** Whether the sound has started (after the visitor's first key press or click). */
+  get running(): boolean {
+    return this.ctx?.state === "running";
+  }
+
+  private count(kind: string): void {
+    this.played[kind] = (this.played[kind] ?? 0) + 1;
+  }
 
   constructor() {
-    const unlock = () => {
-      this.unlocked = true;
-      if (this.ctx?.state === "suspended") void this.ctx.resume();
-    };
-    addEventListener("pointerdown", unlock, { capture: true });
-    addEventListener("keydown", unlock, { capture: true });
+    const wake = () => this.unlock();
+    addEventListener("pointerdown", wake, { capture: true });
+    addEventListener("keydown", wake, { capture: true });
   }
 
-  private audio(): AudioContext | null {
-    if (!this.unlocked) return null;
-    if (!this.ctx) {
-      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AC) return null;
+  /** Start the sound (or wake it): on the visitor's first key press or click. */
+  unlock(): void {
+    if (this.ctx) {
+      if (this.ctx.state === "suspended") void this.ctx.resume();
+      return;
+    }
+    try {
+      const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.ctx = new AC();
-      this.out = this.ctx.createGain();
-      this.out.gain.value = 0.8;
-      const comp = this.ctx.createDynamicsCompressor();
-      this.out.connect(comp).connect(this.ctx.destination);
-      const n = this.ctx.sampleRate;
-      this.noise = this.ctx.createBuffer(1, n, n);
-      const d = this.noise.getChannelData(0);
-      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    } catch {
+      return;
     }
-    return this.ctx;
+    const c = this.ctx;
+    const comp = c.createDynamicsCompressor();
+    comp.threshold.value = -14;
+    comp.knee.value = 8;
+    comp.ratio.value = 4;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.15;
+    comp.connect(c.destination);
+    this.master = c.createGain();
+    this.master.gain.value = FULL_VOLUME;
+    // the table, placed where it is (Babylon's z is flipped for Web Audio's right-handed space)
+    const p = c.createPanner();
+    p.panningModel = "equalpower";
+    p.distanceModel = "exponential";
+    p.refDistance = NEAR;
+    p.rolloffFactor = ROLLOFF;
+    p.maxDistance = 40;
+    this.panner = p;
+    this.master.connect(p).connect(comp);
+    const verb = c.createConvolver();
+    verb.buffer = this.impulse(0.8);
+    const wet = c.createGain();
+    wet.gain.value = 0.16;
+    p.connect(verb).connect(wet).connect(comp);
+    this.white = this.noiseBuffer(false);
+    this.brown = this.noiseBuffer(true);
   }
 
-  /** A short filtered burst: the body of every knock. */
-  private knock(freq: number, q: number, decay: number, level: number, tone = 0): void {
-    const ctx = this.audio();
-    if (!ctx || !this.out || !this.noise || level < 0.003) return;
-    const t = ctx.currentTime;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(level, t);
-    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
-    const src = ctx.createBufferSource();
-    src.buffer = this.noise;
-    src.playbackRate.value = 0.8 + Math.random() * 0.4;
-    const f = ctx.createBiquadFilter();
-    f.type = "bandpass";
-    f.frequency.value = freq * (0.92 + Math.random() * 0.16);
-    f.Q.value = q;
-    src.connect(f).connect(g).connect(this.out);
-    src.start(t, Math.random() * 0.5, decay + 0.05);
-    if (tone) {
-      const o = ctx.createOscillator();
-      o.frequency.value = tone;
-      const og = ctx.createGain();
-      og.gain.setValueAtTime(level * 0.5, t);
-      og.gain.exponentialRampToValueAtTime(0.0001, t + decay * 0.8);
-      o.connect(og).connect(this.out);
-      o.start(t);
-      o.stop(t + decay);
+  /** Where the visitor hears the table from: their ear and which way they face (forward and up), and the table's playfield. */
+  listen(ear: Vec, forward: Vec, up: Vec, table: Vec): void {
+    if (!this.ctx || !this.panner) return;
+    const now = this.ctx.currentTime;
+    const l = this.ctx.listener;
+    const set = (param: AudioParam | undefined, v: number) => param?.setTargetAtTime(v, now, 0.03);
+    set(this.panner.positionX, table[0]);
+    set(this.panner.positionY, table[1]);
+    set(this.panner.positionZ, -table[2]);
+    if (l.positionX) {
+      set(l.positionX, ear[0]);
+      set(l.positionY, ear[1]);
+      set(l.positionZ, -ear[2]);
+      set(l.forwardX, forward[0]);
+      set(l.forwardY, forward[1]);
+      set(l.forwardZ, -forward[2]);
+      set(l.upX, up[0]);
+      set(l.upY, up[1]);
+      set(l.upZ, -up[2]);
+    } else {
+      // older Safari: the listener's setters
+      l.setPosition(ear[0], ear[1], -ear[2]);
+      l.setOrientation(forward[0], forward[1], -forward[2], up[0], up[1], -up[2]);
     }
   }
 
-  /** A blow of `speed` m/s, heard from `distance` m away. */
-  hit(kind: "mallet" | "rail" | "post", speed: number, distance: number): void {
-    const k = Math.min(1, speed / 6) / (1 + Math.max(0, distance - 1.5) * 0.6);
-    if (kind === "mallet") this.knock(2600, 3, 0.06, 0.9 * k, 1500);
-    else if (kind === "rail") this.knock(900, 2.2, 0.09, 0.7 * k, 320);
-    else this.knock(1600, 4, 0.07, 0.8 * k, 820);
+  /** The puck struck something at `speed` m/s: a mallet's clack, a rail's bang, a goal post's ping. */
+  hit(kind: "mallet" | "rail" | "post", speed: number): void {
+    if (!this.ctx || speed < 0.08) return;
+    this.count(kind);
+    // as loud as the blow was hard, a soft tap barely there
+    const k = Math.min(1, Math.pow(speed / 7, 0.8));
+    const vary = 0.94 + Math.random() * 0.12;
+    if (kind === "mallet") {
+      // hard plastic on plastic: a bright click with a short hollow knock under it
+      this.noise(this.white, 0.025, 0.9 * k, 3200 * vary, 1.4, "bandpass");
+      this.tone(1650 * vary, 0.045, 0.32 * k, "triangle", 0, 0.7);
+      this.tone(520 * vary, 0.06, 0.22 * k, "sine", 0, 0.8);
+    } else if (kind === "rail") {
+      // the puck's edge on the rail's rubber and the wooden cabinet behind it: a duller bang
+      this.noise(this.white, 0.04, 0.55 * k, 1300 * vary, 1.0, "bandpass");
+      this.noise(this.brown, 0.09, 0.8 * k, 260 * vary, 0.9, "lowpass");
+      this.tone(170 * vary, 0.12, 0.3 * k, "sine", 0, 0.6);
+    } else {
+      // a goal post's corner: a sharper ping
+      this.noise(this.white, 0.02, 0.7 * k, 2400 * vary, 3, "bandpass");
+      this.tone(980 * vary, 0.16, 0.25 * k, "sine", 0, 0.96);
+      this.tone(1960 * vary, 0.08, 0.08 * k, "sine", 0, 0.96);
+    }
   }
 
-  /** The puck drops into a goal, and the scoreboard buzzes. */
-  goal(distance: number): void {
-    const ctx = this.audio();
-    if (!ctx || !this.out) return;
-    const k = 1 / (1 + Math.max(0, distance - 1.5) * 0.6);
-    this.knock(380, 1.5, 0.22, 0.9 * k, 140);
-    const t = ctx.currentTime + 0.12;
-    for (const [f, d] of [
-      [196, 0.0],
-      [98, 0.0],
-    ]) {
-      const o = ctx.createOscillator();
-      o.type = "square";
+  /** A goal: the puck drops into the pocket and rattles down the return chute, then the scoreboard's horn. */
+  goal(): void {
+    if (!this.ctx || !this.master) return;
+    this.count("goal");
+    // the drop: a hollow clunk in the pocket
+    this.noise(this.brown, 0.12, 0.9, 340, 1.2, "lowpass");
+    this.tone(140, 0.22, 0.45, "sine", 0, 0.5);
+    // the rattle down the chute: knocks closing up and dying away
+    let t = 0.1;
+    for (let i = 0; i < 6; i++) {
+      t += 0.075 * Math.pow(0.82, i);
+      this.noise(this.white, 0.02, 0.32 * Math.pow(0.78, i), 1500 + Math.random() * 500, 2, "bandpass", t);
+      this.tone(600 + Math.random() * 120, 0.04, 0.1 * Math.pow(0.78, i), "triangle", t, 0.8);
+    }
+    this.horn(0.35, 0.85);
+  }
+
+  /** The scoreboard's horn: a brassy chord with a little waver, `len` seconds long. */
+  private horn(at: number, len: number): void {
+    const c = this.ctx;
+    if (!c || !this.master) return;
+    const t0 = c.currentTime + at;
+    const out = c.createGain();
+    out.gain.setValueAtTime(0.0001, t0);
+    out.gain.exponentialRampToValueAtTime(0.16, t0 + 0.04);
+    out.gain.setValueAtTime(0.16, t0 + len - 0.12);
+    out.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+    const lp = c.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = 1800;
+    lp.Q.value = 2;
+    lp.connect(out).connect(this.master);
+    const lfo = c.createOscillator();
+    lfo.frequency.value = 6;
+    const depth = c.createGain();
+    depth.gain.value = 3;
+    lfo.connect(depth);
+    for (const f of [233, 294, 349]) {
+      const o = c.createOscillator();
+      o.type = "sawtooth";
       o.frequency.value = f;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t + d);
-      g.gain.linearRampToValueAtTime(0.09 * k, t + d + 0.02);
-      g.gain.setValueAtTime(0.09 * k, t + 0.62);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 1400;
-      o.connect(lp).connect(g).connect(this.out);
-      o.start(t + d);
-      o.stop(t + 0.8);
+      depth.connect(o.frequency);
+      o.connect(lp);
+      o.start(t0);
+      o.stop(t0 + len + 0.05);
+    }
+    lfo.start(t0);
+    lfo.stop(t0 + len + 0.05);
+  }
+
+  /** A match starts: a quick rising chirp from the scoreboard. */
+  start(): void {
+    if (this.ctx) this.count("start");
+    [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.11, 0.14, "square", i * 0.085, 1, 2400));
+  }
+
+  /** A match is won: a short fanfare from the scoreboard. */
+  win(): void {
+    if (this.ctx) this.count("win");
+    const notes: [number, number, number][] = [
+      [523, 0.0, 0.12],
+      [659, 0.12, 0.12],
+      [784, 0.24, 0.12],
+      [1047, 0.36, 0.28],
+      [784, 0.66, 0.12],
+      [1047, 0.8, 0.6],
+    ];
+    for (const [f, at, len] of notes) {
+      this.tone(f, len, 0.13, "square", at, 1, 2600);
+      this.tone(f / 2, len, 0.08, "triangle", at, 1);
     }
   }
 
-  /** The blower's rush, at a loudness of 0 (off) to 1 (at the table). */
+  /** The air table's hiss and its blower's hum while a match is on, at a loudness of 0 (off) to 1. */
   air(level: number): void {
-    if (level <= 0.001 && !this.blower) return;
-    const ctx = this.audio();
-    if (!ctx || !this.out || !this.noise) return;
-    if (!this.blower) {
-      const src = ctx.createBufferSource();
-      src.buffer = this.noise;
-      src.loop = true;
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 420;
-      const gain = ctx.createGain();
+    const c = this.ctx;
+    if (!c || !this.master || !this.white || !this.brown) return;
+    if (level > 0.001 && !this.blower) {
+      const gain = c.createGain();
       gain.gain.value = 0;
-      src.connect(lp).connect(gain).connect(this.out);
-      src.start();
-      this.blower = { src, gain };
+      gain.connect(this.master);
+      // the hiss of air through the playfield's holes
+      const hiss = c.createBufferSource();
+      hiss.buffer = this.white;
+      hiss.loop = true;
+      const hp = c.createBiquadFilter();
+      hp.type = "bandpass";
+      hp.frequency.value = 5200;
+      hp.Q.value = 0.6;
+      const hissGain = c.createGain();
+      hissGain.gain.value = 0.05;
+      hiss.connect(hp).connect(hissGain).connect(gain);
+      // the blower under the table: a low hum with its motor's whine
+      const hum = c.createBufferSource();
+      hum.buffer = this.brown;
+      hum.loop = true;
+      const lp = c.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.value = 180;
+      const humGain = c.createGain();
+      humGain.gain.value = 0.18;
+      hum.connect(lp).connect(humGain).connect(gain);
+      const whine = c.createOscillator();
+      whine.frequency.value = 118;
+      const whineGain = c.createGain();
+      whineGain.gain.value = 0.012;
+      whine.connect(whineGain).connect(gain);
+      for (const s of [hiss, hum, whine]) s.start();
+      this.blower = { sources: [hiss, hum, whine], gain };
     }
-    this.blower.gain.gain.setTargetAtTime(level * 0.05, ctx.currentTime, 0.3);
+    if (!this.blower) return;
+    // the blower spins up and down rather than snapping on and off
+    this.blower.gain.gain.setTargetAtTime(level, c.currentTime, level > 0.001 ? 0.35 : 0.6);
     if (level <= 0.001) {
       const b = this.blower;
       this.blower = null;
-      b.src.stop(ctx.currentTime + 1.5);
+      for (const s of b.sources) s.stop(c.currentTime + 3);
     }
+  }
+
+  // ---------------------------------------------------------------- building blocks
+
+  /** A tone with a quick attack and a decay (`hold` keeps it near full for that share of its length). */
+  private tone(freq: number, len: number, level: number, type: OscillatorType, at = 0, hold = 0, lowpass = 0): void {
+    const c = this.ctx;
+    if (!c || !this.master || level < 0.002) return;
+    const t0 = c.currentTime + at;
+    const o = c.createOscillator();
+    o.type = type;
+    o.frequency.value = freq;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(level, t0 + 0.004);
+    if (hold > 0) g.gain.setValueAtTime(level, t0 + len * hold * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+    let node: AudioNode = o;
+    if (lowpass) {
+      const f = c.createBiquadFilter();
+      f.type = "lowpass";
+      f.frequency.value = lowpass;
+      node = node.connect(f);
+    }
+    node.connect(g).connect(this.master);
+    o.start(t0);
+    o.stop(t0 + len + 0.02);
+  }
+
+  /** A burst of filtered noise. */
+  private noise(buf: AudioBuffer | null, len: number, level: number, freq: number, q: number, type: BiquadFilterType, at = 0): void {
+    const c = this.ctx;
+    if (!c || !this.master || !buf || level < 0.002) return;
+    const t0 = c.currentTime + at;
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    const f = c.createBiquadFilter();
+    f.type = type;
+    f.frequency.value = freq;
+    f.Q.value = q;
+    const g = c.createGain();
+    g.gain.setValueAtTime(level, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + len);
+    src.connect(f).connect(g).connect(this.master);
+    src.start(t0, Math.random() * (buf.duration - len - 0.05));
+    src.stop(t0 + len + 0.02);
+  }
+
+  /** Two seconds of white noise, or brown (deep, rumbling) noise. */
+  private noiseBuffer(brown: boolean): AudioBuffer {
+    const c = this.ctx!;
+    const n = c.sampleRate * 2;
+    const b = c.createBuffer(1, n, c.sampleRate);
+    const d = b.getChannelData(0);
+    let last = 0;
+    for (let i = 0; i < n; i++) {
+      const w = Math.random() * 2 - 1;
+      if (brown) {
+        last = (last + 0.02 * w) / 1.02;
+        d[i] = last * 3.5;
+      } else d[i] = w;
+    }
+    return b;
+  }
+
+  /** A short room reverb's impulse: decaying noise, `secs` long. */
+  private impulse(secs: number): AudioBuffer {
+    const c = this.ctx!;
+    const n = Math.floor(c.sampleRate * secs);
+    const b = c.createBuffer(2, n, c.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = b.getChannelData(ch);
+      for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 3);
+    }
+    return b;
   }
 }

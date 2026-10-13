@@ -115,6 +115,8 @@ const GLIDE_IN = 0.9;
 const GLIDE_OUT = 0.8;
 
 const noSeat = (): Seat => ({ by: null, name: "", at: 0 });
+const FORWARD = Vector3.Forward();
+const UP = Vector3.Up();
 
 /** The playfield's bounds in the table's space, read from its mesh. */
 function readPlayfield(table: TransformNode, surface: Mesh): Playfield {
@@ -185,6 +187,10 @@ export class AirHockey {
   private identity = Matrix.Identity();
   private v = new Vector3();
   private airLevel = 0;
+  /** the match as the sounds last heard it: a change is a moment to sound */
+  private heard: { match: number; goals: number; phase: Phase } | null = null;
+  /** where the visitor hears from, reused each frame */
+  private ear = { at: [0, 0, 0] as [number, number, number], forward: [0, 0, 1] as [number, number, number], up: [0, 1, 0] as [number, number, number], table: [0, 0, 0] as [number, number, number] };
   private lastFrame = performance.now();
   private hudKey = "";
 
@@ -413,6 +419,7 @@ export class AirHockey {
     const near = this.myEnd !== null || Math.hypot(cam.x - c.x, cam.y - c.y, cam.z - c.z) < NEAR;
     if (!near) {
       this.setAir(0);
+      this.heard = null;
       return;
     }
     const now = room.now();
@@ -450,18 +457,16 @@ export class AirHockey {
     else this.followGame(now);
     sim.air = this.game.phase !== "idle" && players.some((p) => !!p);
     step(sim, dt);
-    // the sounds of what the puck struck
-    const dist = this.myEnd !== null ? 1.2 : Math.hypot(cam.x - c.x, cam.z - c.z);
+    // the sounds: heard from the table, what the puck struck, the match's moments, the air while it's on
+    this.listen();
     for (let k = 0; k < sim.nEvents; k++) {
       const e = sim.events[k];
-      if (e.kind === "goal") {
-        if (!running) this.sound.goal(dist);
-        continue;
-      }
+      if (e.kind === "goal") continue;
       if (e.kind === "mallet" && this.myEnd !== null && e.mallet === this.myEnd - 1) this.ownHit = this.clock;
-      this.sound.hit(e.kind, e.strength, dist);
+      this.sound.hit(e.kind, e.strength);
     }
-    this.setAir(sim.air ? 1 / (1 + Math.max(0, dist - 1.5) * 0.8) : 0);
+    this.matchSounds();
+    this.setAir(sim.air ? 1 : 0);
 
     // this player's mallet, for the others
     if (this.myEnd !== null) {
@@ -501,7 +506,6 @@ export class AirHockey {
       score[sim.scored === 1 ? 1 : 0]++;
       const w = winner(score);
       g = { ...g, score, scored: sim.scored, scoredAt: now, phase: w ? "over" : "goal", winner: w };
-      this.sound.goal(this.myEnd !== null ? 1.2 : 4);
       this.gameSent = 0;
     } else if (g.phase === "goal" && now - g.scoredAt > GOAL_PAUSE * 1000) {
       // the player scored on puts the puck back on their side, from their puck return
@@ -606,9 +610,47 @@ export class AirHockey {
   }
 
   private setAir(level: number): void {
-    if (Math.abs(level - this.airLevel) < 0.03 && (level > 0 || this.airLevel === 0)) return;
+    if (level === this.airLevel) return;
     this.airLevel = level;
     this.sound.air(level);
+  }
+
+  /** Hear the table from the camera: the sound comes from the playfield, and falls away with distance. */
+  private listen(): void {
+    const cam = this.fly.camera;
+    const f = this.field!;
+    const e = this.ear;
+    cam.getDirectionToRef(FORWARD, this.v);
+    e.forward[0] = this.v.x;
+    e.forward[1] = this.v.y;
+    e.forward[2] = this.v.z;
+    cam.getDirectionToRef(UP, this.v);
+    e.up[0] = this.v.x;
+    e.up[1] = this.v.y;
+    e.up[2] = this.v.z;
+    cam.position.toArray(e.at);
+    Vector3.TransformCoordinatesFromFloatsToRef(f.cx, f.y + 0.05, f.cz, this.world, this.v).toArray(e.table);
+    this.sound.listen(e.at, e.forward, e.up, e.table);
+  }
+
+  /**
+   * The match's moments, from the game as every page has it, so everyone near hears them once:
+   * a new match's jingle, a goal's drop and horn, and the winner's fanfare.
+   */
+  private matchSounds(): void {
+    const g = this.game;
+    const goals = g.score[0] + g.score[1];
+    const was = this.heard;
+    this.heard = { match: g.match, goals, phase: g.phase };
+    if (!was) return;
+    if (g.match !== was.match) {
+      if (g.phase === "play") this.sound.start();
+      return;
+    }
+    if (goals > was.goals && (g.phase === "goal" || g.phase === "over")) {
+      this.sound.goal();
+      if (g.phase === "over") setTimeout(() => this.sound.win(), 1300);
+    }
   }
 
   // ---------------------------------------------------------------- drawing
@@ -740,6 +782,11 @@ export class AirHockey {
     sim.puck.vx = vx;
     sim.puck.vz = vz;
     this.gameSent = 0;
+  }
+
+  /** What the table's sounds have played (headless tests can't listen), and whether the air is on. */
+  sounds(): { played: Record<string, number>; air: boolean; running: boolean } {
+    return { played: { ...this.sound.played }, air: this.sound.airOn, running: this.sound.running };
   }
 
   /** Free both ends and stop the game, for everyone in the room (tests start from it). */
