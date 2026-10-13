@@ -734,9 +734,8 @@ kbd {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.pinball-high li.none {
+.pinball-none {
   color: var(--muted);
-  display: list-item;
 }
 .pinball-keys td {
   padding: 2px 4px 2px 0;

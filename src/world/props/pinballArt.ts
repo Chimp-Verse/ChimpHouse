@@ -353,7 +353,7 @@ export function playfieldCanvas(def: TableDef): HTMLCanvasElement {
     c.stroke();
   }
   // a chrome ring round each insert, and its label
-  for (const ins of def.inserts) insertRing(c, ins);
+  for (const ins of def.inserts) if (!ins.h) insertRing(c, ins);
   c.textAlign = "center";
   c.textBaseline = "middle";
   for (const ins of def.inserts) {
@@ -451,7 +451,8 @@ export function lampAtlas(def: TableDef): { canvas: HTMLCanvasElement; rows: num
   c.clearRect(0, 0, canvas.width, canvas.height);
   const cell = (i: number, lit: boolean) => [(i % LAMP_COLS) * LAMP_CELL + LAMP_CELL / 2, (Math.floor(i / LAMP_COLS) + (lit ? 0 : rows)) * LAMP_CELL + LAMP_CELL / 2];
   def.inserts.forEach((ins, i) => {
-    for (const lit of [true, false]) {
+    // a lamp on a plastic (a slingshot's) is clear when unlit
+    for (const lit of ins.h ? [true] : [true, false]) {
       const [x, y] = cell(i, lit);
       c.save();
       c.translate(x, y);

@@ -140,6 +140,8 @@ export interface Insert {
   label?: string;
   /** where the label goes, relative to the insert */
   labelAt?: V2;
+  /** a lamp above the playfield (on a slingshot's plastic), its height */
+  h?: number;
 }
 
 export interface Theme {
@@ -280,9 +282,12 @@ function lower(theme: Theme): Pick<TableDef, "walls" | "posts" | "slings" | "fli
   };
 }
 
-/** The inserts both tables have: shoot again, the lane lamps. */
-function lowerInserts(): Insert[] {
+/** The inserts both tables have: shoot again, the lane lamps, and a lamp on each slingshot's plastic that flashes as it fires. */
+function lowerInserts(theme: Theme): Insert[] {
+  const sling = (id: string, c: V2): Insert => ({ lamp: id, at: c, shape: "oval", size: 0.03, rot: 0, color: theme.accent, h: 0.0475 });
   return [
+    sling("slingL", [-0.16, 0.32]),
+    sling("slingR", mx([-0.16, 0.32])),
     { lamp: "shootAgain", at: [PF.cx, 0.215], shape: "oval", size: 0.03, color: "#ff3b3b", label: "SHOOT AGAIN", labelAt: [0, -0.024] },
     { lamp: "outlaneL", at: [-0.2405, 0.255], shape: "circle", size: 0.016, color: "#ffffff" },
     { lamp: "inlaneL", at: [-0.191, 0.3], shape: "circle", size: 0.016, color: "#ffffff" },
@@ -391,7 +396,7 @@ export function jungleQuest(): TableDef {
     ],
     kickbacks: [{ id: "kickback", at: [-0.2405, 0.205], v: [0.0, 2.9], lamp: "kickback" }],
     inserts: [
-      ...lowerInserts(),
+      ...lowerInserts(theme),
       { lamp: "kickback", at: [-0.2405, 0.17], shape: "tri", size: 0.022, color: "#ffcf3a", label: "KICK", labelAt: [0, -0.025] },
       // the shots: arrows pointing at them
       { lamp: "rampArrow", at: [-0.118, 0.47], shape: "arrow", size: 0.03, rot: 0.47, color: "#ffcf3a", label: "TEMPLE RAMP", labelAt: [0.0, -0.032] },
@@ -502,7 +507,7 @@ export function bananaBlitz(): TableDef {
     ramps: [],
     kickbacks: [],
     inserts: [
-      ...lowerInserts(),
+      ...lowerInserts(theme),
       { lamp: "spinArrow", at: [0.142, 0.425], shape: "arrow", size: 0.03, rot: -0.12, color: "#38e8ff", label: "SPIN", labelAt: [-0.002, -0.032] },
       { lamp: "mouthArrow", at: [0.022, 0.6], shape: "arrow", size: 0.034, rot: -0.05, color: "#ff3b8f", label: "MONKEY MOUTH", labelAt: [0, -0.036] },
       { lamp: "lock", at: [0.022, 0.665], shape: "rect", size: 0.022, color: "#ffd23a", label: "LOCK", labelAt: [0.04, 0.0] },

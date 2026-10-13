@@ -30,9 +30,18 @@ export function PinballOverlay({ s, onLeave, onStart }: { s: PreviewState; onLea
             </button>
           )}
           <div className="section">High scores</div>
-          <ol className="pinball-high">
-            {p.high.length ? p.high.map((h, i) => <li key={i}><span>{h.name}</span><b>{h.score.toLocaleString("en-US")}</b></li>) : <li className="none">None yet: be the first</li>}
-          </ol>
+          {p.high.length ? (
+            <ol className="pinball-high">
+              {p.high.map((h, i) => (
+                <li key={i}>
+                  <span>{h.name}</span>
+                  <b>{h.score.toLocaleString("en-US")}</b>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <div className="pinball-none">None yet: be the first</div>
+          )}
         </>
       )}
       <div className="section">Keys</div>
@@ -41,6 +50,7 @@ export function PinballOverlay({ s, onLeave, onStart }: { s: PreviewState; onLea
           <tr><td><kbd>Shift</kbd> <kbd>Z</kbd> · <kbd>Shift</kbd> <kbd>/</kbd></td><td>Left · right flippers</td></tr>
           <tr><td><kbd>Space</kbd> or <kbd>↓</kbd></td><td>Hold to pull the plunger, let go to launch</td></tr>
           <tr><td><kbd>X</kbd> <kbd>.</kbd> <kbd>←</kbd> <kbd>→</kbd> <kbd>↑</kbd></td><td>Nudge (too much tilts)</td></tr>
+          <tr><td><kbd>C</kbd></td><td>Player's view / view from above</td></tr>
           <tr><td><kbd>Enter</kbd></td><td>New game</td></tr>
         </tbody>
       </table>
