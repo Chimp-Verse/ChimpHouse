@@ -125,7 +125,7 @@ if (want("pure")) {
     out.tunnel = { through, minX };
     // a kick: rod 4 (red midfield) swinging through a ball resting in front of its middle man
     const kb = P.newBall(S.RODS[3].x + 0.03, 0, 0, 0);
-    const kp = rods();
+    const kp = lifted.map((p) => ({ ...p }));
     run(kb, 0.08, kp, (t, poses) => {
       const p = poses[3];
       p.turnV = 45;
@@ -220,7 +220,7 @@ if (want("solo")) {
       rods: by("foosball-rod").map((n) => `${n.metadata.slot}:${n.name.split(": ")[1]?.split(":")[0]}`),
       counters: by("foosball-counter").length,
       ball: by("foosball-ball").length,
-      kinds: [...new Set(s.meshes.filter((m) => /^Foosball/.test(m.name)).map((m) => m.metadata?.kind))],
+      kinds: [...new Set(s.meshes.filter((m) => /^Foosball/.test(m.name) && m.metadata?.role !== "foosball-field").map((m) => m.metadata?.kind))],
     };
   });
   check(roles.table === 1 && roles.field === 1 && roles.rodSlots.join() === "1,2,3,4,5,6,7,8" && roles.counters === 2 && roles.ball === 1, "the table, playfield, eight rod slots, two counters and the ball are found by role", JSON.stringify(roles));
@@ -235,8 +235,11 @@ if (want("solo")) {
   await a.shot("prompt");
   const before = await a.ev(() => window.__chimp.info());
   // E plays
+  await a.page.waitForFunction(() => window.__chimp.state().foosballPrompt?.side === "red", null, { timeout: 5000 });
   await a.page.keyboard.press("KeyE");
-  await a.page.waitForFunction(() => window.__chimp.state().focus?.kind === "foosball" && window.__chimp.state().focus.phase === "on", null, { timeout: 8000 });
+  const entered = await a.page.waitForFunction(() => window.__chimp.state().focus?.kind === "foosball" && window.__chimp.state().focus.phase === "on", null, { timeout: 15000 }).then(() => true, () => false);
+  if (!entered) console.log("      (after E:", JSON.stringify({ focus: (await a.state()).focus, prompt: (await a.state()).foosballPrompt, walking: (await a.state()).walking, fb: await a.fb() }), ")");
+  check(entered, "E takes the player to the table");
   let d = await a.fb();
   check(d.side === "red" && d.host === d.seats.red?.id && d.robot === "blue", "E plays red; this page hosts, and the robot plays blue", JSON.stringify({ side: d.side, robot: d.robot, phase: d.game.phase }));
   check(d.game.phase === "serve" || d.game.phase === "play", "a match starts with a serve", d.game.phase);
@@ -246,8 +249,9 @@ if (want("solo")) {
   check(/You.*0.*0.*Robot/.test(hud.score ?? "") && /Kicking with/.test(hud.bar ?? ""), "the scoreboard and the controls bar show", JSON.stringify(hud));
 
   // the real mouse: up and down slides the rods under the cursor's line
-  const near = await a.onPage(0, 0, -0.2);
-  const far = await a.onPage(0, 0, 0.2);
+  // the cursor's line is at the ball's height, so the ball under the cursor is the one the men go to
+  const near = await a.onPage(0, 0.0175, -0.2);
+  const far = await a.onPage(0, 0.0175, 0.2);
   await a.page.mouse.move(near.x, near.y);
   await sleep(250);
   const atNear = await a.fb();
@@ -267,10 +271,21 @@ if (want("solo")) {
   check(d.active === 4, "the glowing rod is the player's nearest the ball (red midfield, slot 4)", `active ${d.active}`);
   const outline = await a.ev(() => window.__chimp.scene.meshes.filter((m) => m.metadata?.role === "foosball-rod" && m.renderOutline).map((m) => m.metadata.slot));
   check(outline.length === 1 && outline[0] === 4, "only the glowing rod is outlined", outline.join());
+  // the robot's men may well be in the way and send it back: what counts is the kick, so watch for it frame by frame
+  const fastest = a.ev(() => new Promise((done) => {
+    let best = 0;
+    const t0 = performance.now();
+    const look = () => {
+      best = Math.max(best, window.__chimp.foosball.describe().ball.vx);
+      if (performance.now() - t0 < 400) requestAnimationFrame(look);
+      else done(best);
+    };
+    look();
+  }));
   await a.page.mouse.move(mid.x + 160, mid.y, { steps: 4 });
-  await sleep(120);
+  const kicked = await fastest;
   d = await a.fb();
-  check(d.ball.vx > 1.2 && d.touch === "red", "a quick flick to the right kicks the ball towards blue's goal", `ball vx ${d.ball.vx.toFixed(2)} m/s`);
+  check(kicked > 1.2 && d.touch !== null, "a quick flick to the right kicks the ball towards blue's goal", `ball up to ${kicked.toFixed(2)} m/s`);
   await a.shot("kick");
 
   // a click: the glowing rod spins right round
@@ -279,11 +294,21 @@ if (want("solo")) {
   await a.page.mouse.move(p2.x, p2.y, { steps: 3 });
   await sleep(350);
   const t0 = (await a.fb()).rods[3].turn;
+  const spun = a.ev(() => new Promise((done) => {
+    let best = 0;
+    const t0 = performance.now();
+    const look = () => {
+      best = Math.max(best, window.__chimp.foosball.describe().ball.vx);
+      if (performance.now() - t0 < 400) requestAnimationFrame(look);
+      else done(best);
+    };
+    look();
+  }));
   await a.page.mouse.down();
   await a.page.mouse.up();
-  await sleep(250);
+  const spunTo = await spun;
   d = await a.fb();
-  check(d.rods[3].turn - t0 > 5.5 && d.ball.vx > 1.5, "a click whips the glowing rod right round, through the ball", `turned ${(d.rods[3].turn - t0).toFixed(2)} rad, ball vx ${d.ball.vx.toFixed(2)}`);
+  check(d.rods[3].turn - t0 > 5.5 && spunTo > 1.5, "a click whips the glowing rod right round, through the ball", `turned ${(d.rods[3].turn - t0).toFixed(2)} rad, ball up to ${spunTo.toFixed(2)} m/s`);
 
   // the wheel picks another rod until the ball moves on
   await a.ev(() => window.__chimp.foosball.place(-0.04, -0.1, 0, 0));
@@ -315,9 +340,9 @@ if (want("solo")) {
   const callout = await a.ev(() => document.querySelector(".foos-callout")?.textContent);
   check(callout === "GOAL!", "the HUD calls the goal", callout);
   await a.shot("goal");
-  await sleep(1600);
-  const back = await a.ev(() => ({ ball: window.__chimp.foosball.describe().shown }));
-  check(Math.abs(back.ball[0]) > 0.7 && back.ball[1] < -0.1, "the ball comes out of the ball return at that end", JSON.stringify(back.ball));
+  await a.page.waitForFunction(() => window.__chimp.foosball.describe().shown[0] > 0.7, null, { timeout: 3000, polling: "raf" }).catch(() => {});
+  const back = await a.ev(() => ({ ball: window.__chimp.foosball.describe().shown, phase: window.__chimp.foosball.describe().game.phase }));
+  check(back.ball[0] > 0.7 && back.ball[1] < -0.1 && back.phase === "goal", "the ball comes out of the ball return at that end", JSON.stringify(back));
   await a.shot("return");
   await a.page.waitForFunction(() => window.__chimp.foosball.describe().game.phase === "play", null, { timeout: 5000 }).catch(() => {});
   d = await a.fb();

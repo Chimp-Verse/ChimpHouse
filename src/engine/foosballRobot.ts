@@ -15,8 +15,12 @@
 import { BallState, RodPose, slideFor } from "./foosballPhysics";
 import { ATTACK, BALL_R, FIELD, GOAL, MAN, RODS, Team, manZ } from "../world/props/foosballSpec";
 
-/** How good the robot is: its reaction (s), its hands' top speeds (m/s sliding, rad/s turning), how far off its blocks are (m). */
-export const ROBOT = { reaction: 0.11, slideSpeed: 1.25, turnSpeed: 50, error: 0.014 };
+/**
+ * How good the robot is: its reaction (s), its hands' top speeds (m/s sliding, rad/s turning),
+ * how far off its blocks are (m), how long it takes over a ball at its feet before striking (s,
+ * least and most), and how often it angles a shot from its attack rod.
+ */
+export const ROBOT = { reaction: 0.12, slideSpeed: 1.25, turnSpeed: 42, error: 0.014, settle: [0.12, 0.45], angled: 0.35 };
 
 /** The robot's targets for one rod: a slide, and a turn as the team sees it (+ swings the toes towards the goal it attacks). */
 export interface RodTarget {
@@ -32,6 +36,9 @@ interface RodMind {
   strike: number;
   aim: number;
   slide: number;
+  /** when the ball came to this rod's feet, and how long the robot takes over it before striking (s) */
+  readyAt: number;
+  wait: number;
 }
 
 export interface RobotMind {
@@ -45,7 +52,7 @@ export interface RobotMind {
 
 export function newRobot(team: Team): RobotMind {
   const rods = RODS.map((r, i) => (r.team === team ? i : -1)).filter((i) => i >= 0);
-  return { team, rods, minds: rods.map(() => ({ man: 0, error: 0, strike: -1, aim: 0, slide: 0 })), seen: { x: 0, z: 0, vx: 0, vz: 0 }, seenAt: -1 };
+  return { team, rods, minds: rods.map(() => ({ man: 0, error: 0, strike: -1, aim: 0, slide: 0, readyAt: -1, wait: 0 })), seen: { x: 0, z: 0, vx: 0, vz: 0 }, seenAt: -1 };
 }
 
 /** Where the ball will cross x = `x` across the table, bouncing off the side walls, and how soon (s); null if it isn't coming. */
@@ -106,10 +113,18 @@ export function robotPlay(mind: RobotMind, ball: BallState, poses: RodPose[], to
     const near = ahead > 0.012 && ahead < 0.05 && Math.hypot(b.vx, b.vz) < 1.6;
     const pick = slideFor(i, b.z, m.man);
     const manAt = manZ(rod, pick.man) + pose.slide;
-    if (near && Math.abs(b.z - manAt) < MAN.halfWidth + BALL_R * 0.4) {
+    const ready = near && Math.abs(b.z - manAt) < MAN.halfWidth + BALL_R * 0.4;
+    if (!ready) m.readyAt = -1;
+    else if (m.readyAt < 0) {
+      // the ball has come to its feet: it takes a moment over it, as a person would
+      m.readyAt = now;
+      m.wait = ROBOT.settle[0] + rand() * (ROBOT.settle[1] - ROBOT.settle[0]);
+    }
+    if (ready && now - m.readyAt >= m.wait) {
       m.strike = now;
-      // aim: the goal's mouth for the attack, anywhere forward for the rest
-      const towards = rod.name === "attack" ? (rand() < 0.5 ? 0 : (rand() < 0.5 ? -1 : 1) * (MAN.halfWidth + 0.004)) : 0;
+      m.readyAt = -1;
+      // aim: the goal's mouth for the attack, now and then off the foot's middle to angle it; anywhere forward for the rest
+      const towards = rod.name === "attack" && rand() < ROBOT.angled ? (rand() < 0.5 ? -1 : 1) * (MAN.halfWidth + 0.004) : 0;
       m.aim = towards;
       m.slide = slideFor(i, b.z - towards, pick.man).slide;
       return { slide: m.slide, forward: -0.55 };

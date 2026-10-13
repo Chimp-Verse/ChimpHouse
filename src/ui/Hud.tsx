@@ -105,7 +105,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet or the foosball table, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}

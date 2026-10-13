@@ -172,7 +172,7 @@ export class Foosball {
       const n = (node.metadata as SlotMeta).slot;
       const rod = buildFoosballRod(mats, node, n);
       rod.men.outlineColor = Color3.FromHexString("#ffe27a");
-      rod.men.outlineWidth = 0.0022;
+      rod.men.outlineWidth = 0.0034;
       this.rods[n - 1] = rod;
       meshes.push(...rod.meshes);
     }
@@ -470,7 +470,8 @@ export class Foosball {
     this.showNight(s.night);
     if (this.side === null) this.offerPrompt();
     const playing = this.side !== null;
-    const live = this.game.phase !== "idle";
+    // a game is only live while someone sits at the table (one left by a closed page isn't)
+    const live = this.game.phase !== "idle" && this.host !== "";
     if (!playing && !(live && this.watching())) return;
     if (dt <= 0) return;
     const now = room.now();

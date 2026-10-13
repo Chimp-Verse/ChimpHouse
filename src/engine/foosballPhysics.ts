@@ -50,6 +50,8 @@ export const PHYS = {
   manBounce: 0.5,
   /** grip between a man's foot and the ball he presses down on */
   manGrip: 0.35,
+  /** how much of a rod's slide a struck ball takes with it: sliding as you kick angles the shot */
+  manScuff: 0.3,
   /** the fastest a ball can go (m/s): a hard shot */
   maxSpeed: 8.5,
   /** the corner ramps: the size of their legs (m), and the pull down them (m/s²) */
@@ -171,6 +173,8 @@ function hitMen(ball: BallState, i: number, pose: RodPose, events: PhysicsEvent[
       const j = -(1 + PHYS.manBounce) * vn * nh;
       ball.vx += j * hx;
       ball.vz += j * hz;
+      // the foot's slide across the table scuffs the ball sideways
+      ball.vz += (uz - ball.vz) * PHYS.manScuff * Math.abs(hx);
       // and grip: pressed down, the ball is dragged along with the foot
       const grip = PHYS.manGrip * Math.max(0, -ny);
       const tx = ball.vx - ux;
