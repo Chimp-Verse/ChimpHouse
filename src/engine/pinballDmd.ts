@@ -23,6 +23,7 @@ export class Dmd {
   private tex: DynamicTexture;
   private rgb: [number, number, number];
   private last = "";
+  private levels = new Uint8Array(DMD_W * DMD_H);
 
   constructor(mats: Materials, screen: Mesh, key: string, color: string) {
     const scene: Scene = mats.scene;
@@ -80,7 +81,7 @@ export class Dmd {
   present(): void {
     const src = this.ctx.getImageData(0, 0, DMD_W, DMD_H).data;
     let sig = "";
-    const levels = new Uint8Array(DMD_W * DMD_H);
+    const levels = this.levels;
     for (let i = 0; i < DMD_W * DMD_H; i++) {
       const v = Math.max(src[i * 4], src[i * 4 + 1], src[i * 4 + 2]);
       levels[i] = v < 40 ? 0 : v < 110 ? 1 : v < 190 ? 2 : 3;

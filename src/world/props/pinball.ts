@@ -639,7 +639,7 @@ function buildLamps(mats: Materials, def: TableDef, own: (m: Mesh, mat: string) 
   };
   const cells: number[] = [];
   def.inserts.forEach((ins, k) => {
-    quad(ins.lamp, ins.at[0], ins.at[1], 0.0008, ins.size / (0.86 * (ins.shape === "arrow" ? 0.72 : 1)), ins.rot ?? 0);
+    quad(ins.lamp, ins.at[0], ins.at[1], ins.h ?? 0.0008, ins.size / (0.86 * (ins.shape === "arrow" ? 0.72 : 1)), ins.rot ?? 0);
     cells.push(k);
   });
   def.bumpers.forEach((b, k) => {

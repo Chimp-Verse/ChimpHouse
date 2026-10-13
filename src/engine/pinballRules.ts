@@ -208,6 +208,7 @@ export class Game {
     if (e.type === "bumper") this.cue("bumper");
     else if (e.type === "sling") {
       this.cue("sling");
+      this.flash(e.id, 0.1);
       this.add(110);
     } else if (e.type === "flip") this.cue("post");
     else if (e.type === "wall" || e.type === "post") {

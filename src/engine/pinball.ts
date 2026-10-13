@@ -15,7 +15,7 @@
 // Shared through the room (engine/room.ts): who is playing each machine, so
 // one visitor plays it at a time, and each machine's high scores.
 
-import { Mesh, Scene, TransformNode, Vector3 } from "@babylonjs/core";
+import { Mesh, PBRMaterial, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { PinballParts, buildPinballParts } from "../world/props/pinball";
@@ -38,10 +38,15 @@ const REACH = 1.3;
 const LOOK = Math.cos((50 * Math.PI) / 180);
 const GLIDE_IN = 0.9;
 const GLIDE_OUT = 0.7;
-/** The player's eye and where they look, in the playfield's frame (x across, y out of it, z up it), and the view's height (fov). */
-const EYE = new Vector3(0, 0.78, -0.3);
-const AIM = new Vector3(0, 0, 0.65);
-const FOV = 1.0;
+/**
+ * The play views: where the eye is and where it looks, in the playfield's frame (x across, y out
+ * of it, z up it), and the view's height (fov). First a standing player's, with the display in
+ * view; then one from above the playfield, easier to read the whole table from (C switches).
+ */
+const VIEWS = [
+  { eye: new Vector3(0, 0.78, -0.3), aim: new Vector3(0, 0, 0.65), fov: 1.0 },
+  { eye: new Vector3(0, 1.05, 0.12), aim: new Vector3(0, 0, 0.56), fov: 0.95 },
+];
 const HIGH_KEY = (id: string) => `chimphouse.pinball.${id}.high.v1`;
 
 export type HighScore = { name: string; score: number };
@@ -71,6 +76,11 @@ export class Pinball {
   private playing: Machine | null = null;
   private fovBefore = 1;
   private keys = new Set<string>();
+  /** which play view (VIEWS) */
+  private view = 0;
+  /** the playfields' materials, whose own glow (the lamps under them) shows more at night */
+  private fields: PBRMaterial[] = [];
+  private night: boolean | null = null;
 
   constructor(
     private scene: Scene,
@@ -104,6 +114,8 @@ export class Pinball {
         if (merged.length !== h.length || merged.some((e, i) => e.score !== h[i]?.score)) queueMicrotask(() => m.setHigh(merged));
       });
       this.machines.push(m);
+      const field = mats.get(`pin${n}:field`);
+      if (field instanceof PBRMaterial) this.fields.push(field);
     }
     room.onGone((id) => {
       for (const m of this.machines) if (m.player?.id === id) m.setPlayer(null);
@@ -120,6 +132,11 @@ export class Pinball {
 
   /** Each frame: the game being played, attract mode on the machines near the camera, and the prompt. */
   update(dt: number): void {
+    const night = store.get().night;
+    if (night !== this.night) {
+      this.night = night;
+      for (const f of this.fields) f.emissiveIntensity = night ? 0.62 : 0.32;
+    }
     const cam = this.fly.camera.position;
     for (const m of this.machines) {
       if (m === this.playing) this.play(m, dt);
@@ -203,11 +220,20 @@ export class Pinball {
 
   /** The camera at the front of the machine, looking down its playfield with the display in view. */
   pose(m: Machine): Pose {
+    const v = VIEWS[this.view];
     const wm = m.node.computeWorldMatrix(true);
-    const eye = Vector3.TransformCoordinates(EYE, wm);
-    const aim = Vector3.TransformCoordinates(AIM, wm);
+    const eye = Vector3.TransformCoordinates(v.eye, wm);
+    const aim = Vector3.TransformCoordinates(v.aim, wm);
     const d = aim.subtract(eye);
-    return { x: eye.x, y: eye.y, z: eye.z, yaw: Math.atan2(d.x, d.z), pitch: -Math.atan2(d.y, Math.hypot(d.x, d.z)), fov: FOV };
+    return { x: eye.x, y: eye.y, z: eye.z, yaw: Math.atan2(d.x, d.z), pitch: -Math.atan2(d.y, Math.hypot(d.x, d.z)), fov: v.fov };
+  }
+
+  /** Switch between the player's view and the view from above. */
+  switchView(): void {
+    const m = this.playing;
+    if (!m || store.get().focus?.phase !== "on") return;
+    this.view = (this.view + 1) % VIEWS.length;
+    void this.fly.glide(this.pose(m), 0.35);
   }
 
   /** The machine the walker can play: standing at its front and looking at it. */
@@ -240,14 +266,15 @@ export class Pinball {
     const f = store.get().focus;
     if (!m || f?.kind !== "pinball" || isTyping(e)) return;
     const k = e.code;
-    const known = ["ShiftLeft", "ShiftRight", "KeyZ", "Slash", "Space", "ArrowDown", "KeyX", "Period", "ArrowLeft", "ArrowRight", "ArrowUp", "Enter", "NumpadEnter", "Digit1", "Escape"];
+    const known = ["ShiftLeft", "ShiftRight", "KeyZ", "Slash", "Space", "ArrowDown", "KeyX", "Period", "ArrowLeft", "ArrowRight", "ArrowUp", "Enter", "NumpadEnter", "Digit1", "Escape", "KeyC"];
     if (!known.includes(k)) return;
     e.preventDefault();
     e.stopPropagation();
     if (f.phase !== "on") return;
     if (down && e.repeat) return;
-    if (k === "Escape") {
-      if (down) void this.leave();
+    if (k === "Escape" || k === "KeyC") {
+      if (down && k === "Escape") void this.leave();
+      else if (down) this.switchView();
       return;
     }
     if (down) this.keys.add(k);
@@ -310,7 +337,7 @@ export class Pinball {
       state: g.state,
       score: g.score,
       ball: g.ball,
-      status: g.status,
+      status: g.rules.status() || (g.bonusX > 1 ? `Bonus ${g.bonusX}X` : g.saving ? "Ball save" : ""),
       high: m.high,
       pull: m.table.plunger.pull / PF.plungerPull,
       tilted: g.tilted,

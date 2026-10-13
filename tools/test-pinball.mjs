@@ -1,7 +1,7 @@
 // The pinball machines in a real browser against the running preview (npm run dev).
-//   node tools/test-pinball.mjs [look | lab]      SHARED=1 node tools/test-pinball.mjs
+//   node tools/test-pinball.mjs [look | lab | hud]      SHARED=1 node tools/test-pinball.mjs
 // "look" only takes the screenshots of the machines (from a walker's eye, close up,
-// the backboxes, at night); "lab" only runs the physics and rules checks, in Node
+// the backboxes, at night); "hud" shows the panel beside a machine being played; "lab" only runs the physics and rules checks, in Node
 // without a browser. SHARED=1 runs only the two-visitor check (one player per
 // machine, the high scores shared): a second copy of the house, so it's opt-in. Screenshots: captures/pinball-*.png. Exits non-zero when a check fails.
 import { chromium } from "playwright";
@@ -75,7 +75,7 @@ const look = (eye, target, fov = 0.9) =>
 
 // the browser is closed however the checks end
 try {
-await page.goto(`${URL}/?capture=1&view=entry${SHARED ? "&quality=low" : ""}`, { timeout: 300000 });
+await page.goto(`${URL}/?${mode === "hud" ? "" : "capture=1&"}view=entry${SHARED ? "&quality=low" : ""}`, { timeout: 300000 });
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await sleep(500);
 
@@ -89,7 +89,8 @@ const found = await ev(() => {
 check(found.machines.every((c) => c === 1) && found.dmd.every((c) => c === 1), "each machine's playfield and display carry their roles", JSON.stringify(found));
 check(found.flippers[0] === 2 && found.flippers[1] === 3, "Jungle Quest has two flippers, Banana Blitz three", JSON.stringify(found.flippers));
 
-if (!SHARED) await looks();
+if (mode === "hud") await hud();
+else if (!SHARED) await looks();
 
 /** Screenshots: the machines from a walker's eye, as their players see them, the backboxes, the side, at night. */
 async function looks() {
@@ -134,7 +135,7 @@ async function looks() {
 }
 
 if (SHARED) await shared();
-else if (mode !== "look") {
+else if (mode !== "look" && mode !== "hud") {
   await physics();
   await rules();
   await play();
@@ -635,4 +636,36 @@ async function shared() {
   await waitFor(() => !window.__chimp.pinball.machines()[0].player, null, 30000).catch(() => {});
   const after = await ev(() => window.__chimp.pinball.machines()[0].player);
   check(ok && taken?.name === "Bonzo" && !after, "a visitor who closes their page frees the machine", JSON.stringify({ ok, taken, after }));
+}
+
+// ------------------------------------------------ the panel beside the machine while playing (the HUD, hidden in capture mode)
+async function hud() {
+  const M = await machine(1);
+  await look([M.stand[0], M.floor + 1.55, M.stand[2]], [M.mid[0], M.floor + 0.9, M.mid[2]], 1.0);
+  await ev(() => window.__chimp.setWalking(true));
+  await frames(10);
+  await shot("hud-prompt");
+  await page.keyboard.press("KeyE");
+  await waitFor(() => window.__chimp.state().focus?.phase === "on", null, 15000);
+  await page.keyboard.down("Space");
+  await sleep(500);
+  await shot("hud-plunger");
+  await page.keyboard.up("Space");
+  await sleep(1500);
+  await shot("hud-play");
+  // the view from above, and back
+  const before = await ev(() => window.__chimp.pose());
+  await page.keyboard.press("KeyC");
+  await sleep(900);
+  const above = await ev(() => window.__chimp.pose());
+  await shot("hud-above");
+  await page.keyboard.press("KeyC");
+  await sleep(900);
+  const back = await ev(() => window.__chimp.pose());
+  check(above.y > before.y + 0.1 && Math.abs(back.y - before.y) < 0.01, "C switches to the view from above and back", `eye ${before.y.toFixed(2)} → ${above.y.toFixed(2)} → ${back.y.toFixed(2)} m`);
+  const shown = await page.evaluate(() => !!document.querySelector(".pinball-panel") && !!document.querySelector(".pinball-leave"));
+  check(shown, "the panel with the score, high scores, keys and Leave shows beside the machine");
+  await page.click(".pinball-leave");
+  await waitFor(() => !window.__chimp.state().focus, null, 10000);
+  check(true, "Leave walks on");
 }

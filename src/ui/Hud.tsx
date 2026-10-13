@@ -254,7 +254,7 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
             <tr><td>E (at the claw machine)</td><td>Play the Chimp Claw: W A S D or arrows steer the claw, Space drops it (and plays again), Esc leaves</td></tr>
-            <tr><td>E (at a pinball machine)</td><td>Play it: Shift or Z and / flip, hold Space or ↓ to pull the plunger, X . and the arrows nudge, Enter starts a new game, Esc leaves</td></tr>
+            <tr><td>E (at a pinball machine)</td><td>Play it: Shift or Z and / flip, hold Space or ↓ to pull the plunger, X . and the arrows nudge, C switches to the view from above and back, Enter starts a new game, Esc leaves</td></tr>
             <tr><td>E (at the air hockey table)</td><td>Play air hockey: your mallet follows the mouse; against the robot, or a visitor at the other end; Esc leaves</td></tr>
             <tr><td>E (walking, foosball table)</td><td>Play foosball from the side you're at: against the robot, or the visitor across the table</td></tr>
             <tr><td>Foosball: mouse up / down</td><td>Your men follow the cursor across the table</td></tr>
