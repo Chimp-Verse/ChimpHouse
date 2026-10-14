@@ -51,9 +51,11 @@ export interface ClawHud {
   phase: string;
   /** seconds left to steer */
   timer: number;
-  /** the prizes behind the pickup door */
+  /** the prizes this play has won (they wait behind the pickup door) */
   won: string[];
   message: string;
+  /** the view the player sees the machine from (engine/clawMachine.ts CLAW_VIEWS) */
+  view: string;
 }
 
 /** A pinball game being played, for the panel beside the machine (engine/pinball.ts). */
@@ -155,6 +157,10 @@ export interface PreviewState {
   clawBusy: string | null;
   /** the claw machine's play, while this visitor plays it */
   claw: ClawHud | null;
+  /** a won plush within reach (behind the pickup door, or on the floor): E picks it up (engine/clawPlush.ts) */
+  plushPrompt: { label: string; sub: string } | null;
+  /** the plush this visitor carries, by name, and whether they are turning it to look at it */
+  plushHeld: { name: string; turning: boolean } | null;
   /** walking up to a pinball machine: E plays it (or who is playing it) */
   pinballPrompt: { slot: number; name: string; busy: string | null } | null;
   /** the pinball game being played, while one is */
@@ -214,6 +220,8 @@ class Store {
     clawPrompt: false,
     clawBusy: null,
     claw: null,
+    plushPrompt: null,
+    plushHeld: null,
     pinballPrompt: null,
     pinball: null,
     airHockeyPrompt: null,

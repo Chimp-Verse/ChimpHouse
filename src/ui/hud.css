@@ -1306,3 +1306,81 @@ kbd {
     opacity: 0;
   }
 }
+
+/* ------------------------------------------------ a won plush carried (ui/PlushHud.tsx) */
+.panel.plush {
+  width: 260px;
+  border-color: rgba(255, 79, 163, 0.45);
+}
+
+.panel.plush.turning {
+  border-color: rgba(111, 247, 198, 0.6);
+}
+
+.plush-name {
+  margin: 0 2px;
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: #ffd23f;
+}
+
+.plush-keys {
+  margin: 4px 2px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* the claw's views while playing */
+.claw-views {
+  display: flex;
+  gap: 4px;
+}
+
+.claw-hud .claw-views button {
+  padding: 5px 11px;
+  font-weight: 600;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.claw-hud .claw-views button.on {
+  background: #ffd23f;
+  color: #2a0b45;
+  border-color: #ffd23f;
+}
+
+.claw-view-hint {
+  position: absolute;
+  left: 50%;
+  top: 66px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid rgba(255, 210, 63, 0.5);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 22;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .claw-hud {
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .claw-hud .claw-keys {
+    display: none;
+  }
+  .claw-hud button {
+    padding: 5px 10px;
+  }
+  .claw-hud .claw-views button {
+    padding: 4px 7px;
+  }
+}

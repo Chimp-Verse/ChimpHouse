@@ -4,6 +4,7 @@ import { store } from "../engine/store";
 import { VIEWPOINTS, findView } from "../world/viewpoints";
 import { ClawMachineHud } from "./ClawMachineHud";
 import { PinballOverlay } from "./PinballOverlay";
+import { PlushPanel, PlushPrompt } from "./PlushHud";
 import { AirHockeyOverlay } from "./AirHockeyOverlay";
 import { FoosballPanel } from "./FoosballPanel";
 import { PlayOverlay } from "./PlayOverlay";
@@ -37,6 +38,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       <div className="left-stack">
         <StatusPanel s={s} />
         {holding && <RemotePanel ctl={ctl} s={s} />}
+        <PlushPanel s={s} claw={ctl.claw} />
       </div>
 
       <div className="panel views">
@@ -113,7 +115,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote, pick up a plush or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -196,7 +198,8 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           <span>{s.pinballPrompt.busy ? "one player at a time" : "pinball, 3 balls"}</span>
         </div>
       )}
-      {s.walking && s.snackPrompt && (
+      <PlushPrompt s={s} />
+      {s.walking && s.snackPrompt && !s.plushPrompt && (
         <div className="play-prompt low">
           <kbd>E</kbd>
           {s.snackPrompt.label}
@@ -253,7 +256,8 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
-            <tr><td>E (at the claw machine)</td><td>Play the Chimp Claw: W A S D or arrows steer the claw, Space drops it (and plays again), Esc leaves</td></tr>
+            <tr><td>E (at the claw machine)</td><td>Play the Chimp Claw: W A S D or arrows steer the claw (the way the view looks), Space drops it (and plays again), V or 1–4 change the view (panel, close up, left, right), Esc leaves</td></tr>
+            <tr><td>E (at the claw's pickup door)</td><td>Pick up the plush you won; hold T and move the mouse to turn it and look at it, Q puts it down on the floor, E picks it up again</td></tr>
             <tr><td>E (at a pinball machine)</td><td>Play it: Shift or Z and / flip, hold Space or ↓ to pull the plunger, X . and the arrows nudge, C switches to the view from above and back, Enter starts a new game, Esc leaves</td></tr>
             <tr><td>E (at the air hockey table)</td><td>Play air hockey: your mallet follows the mouse; against the robot, or a visitor at the other end; Esc leaves</td></tr>
             <tr><td>E (walking, foosball table)</td><td>Play foosball from the side you're at: against the robot, or the visitor across the table</td></tr>

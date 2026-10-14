@@ -37,6 +37,8 @@ export class FlyCamera {
   walker: Walker | null = null;
   /** Called on a canvas click before the mouse is captured; returning true keeps it free (the click was used). */
   onClick: ((e: MouseEvent) => boolean) | null = null;
+  /** While this returns true the mouse is used for something else (turning a carried plush), and doesn't turn the view. */
+  mouseTaken: (() => boolean) | null = null;
 
   constructor(
     private scene: Scene,
@@ -107,7 +109,7 @@ export class FlyCamera {
   }
 
   private look(dx: number, dy: number) {
-    if (!this.enabled || this.orthoState) return;
+    if (!this.enabled || this.orthoState || this.mouseTaken?.()) return;
     this.transition = null;
     const sens = 0.0022;
     this.yaw += dx * sens;

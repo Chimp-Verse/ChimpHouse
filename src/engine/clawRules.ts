@@ -546,8 +546,9 @@ export class ClawGame {
     const w = this.world;
     const R = this.rig;
     for (let b = 0; b < w.count; b++) {
-      // one that came to rest jammed in the shaft, out of sight in the cabinet, goes on down to the bin
-      if (this.counted.has(b) && !w.isGone(b) && w.isAsleep(b) && w.pose[b * 7 + 1] > R.binY + 0.2 && w.pose[b * 7 + 1] < R.bedY - 0.05) {
+      // one that came to rest jammed in the shaft, out of sight in the cabinet, goes on down to the (empty) bin;
+      // one resting on the prizes already waiting there stays where it lies
+      if (this.counted.has(b) && !w.isGone(b) && w.isAsleep(b) && w.pose[b * 7 + 1] > R.binY + 0.2 && w.pose[b * 7 + 1] < R.bedY - 0.05 && !this.binHolds(b)) {
         const q = w.pose.subarray(b * 7 + 3, b * 7 + 7);
         w.place(b, (R.chute[0] + R.chute[1]) / 2, R.binY + 0.16, (R.chute[2] + R.chute[3]) / 2, [q[0], q[1], q[2], q[3]]);
       }
@@ -558,6 +559,13 @@ export class ClawGame {
         this.events.push({ kind: "won", prize: b });
       }
     }
+  }
+
+  /** Whether the bin holds a prize other than b. */
+  private binHolds(b: number): boolean {
+    const w = this.world;
+    for (let o = 0; o < w.count; o++) if (o !== b && !w.isGone(o) && w.pose[o * 7 + 1] < this.rig.binY + 0.27) return true;
+    return false;
   }
 
   /** Whether any prize is in the chute's mouth, not yet down it or off it. */
@@ -583,6 +591,12 @@ export class ClawGame {
       this.counted.delete(b);
     }
     return taken;
+  }
+
+  /** One prize taken out of the bin (picked up by a visitor): out of play until restocked. */
+  takeOne(b: number): void {
+    this.world.remove(b);
+    this.counted.delete(b);
   }
 }
 

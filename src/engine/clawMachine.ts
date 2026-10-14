@@ -9,10 +9,13 @@
 // Walking up to the deck and looking at the machine offers it (store.clawPrompt);
 // E plays: the camera glides to a player's view into the glass box (engine/focus.ts),
 // the keys steer the claw (WASD or the arrows), Space or Enter drops it and plays
-// again afterwards, and Esc or Leave walks away. A prize won drops down the chute
-// and comes to rest behind the pickup door, which swings open; it is taken (and put
-// back in the machine by the attendant a little later) when the next play starts or
-// the player leaves.
+// again afterwards, and Esc or Leave walks away. V (or 1–4) changes the view: the
+// panel, a close look in from the front, either side; the keys steer the way the
+// view looks. A prize won drops down the chute and comes to rest behind the pickup
+// door, which swings open; it waits there until someone looks at the door and picks
+// it up with E (engine/clawPlush.ts carries it from there), and the attendant puts
+// another in the machine a little later. A bin with more than BIN_KEEP waiting has
+// its oldest set out on the floor in front of the door.
 //
 // Nothing runs per frame unless the pile is moving, the claw is, or someone is playing.
 
@@ -21,7 +24,8 @@ import { MeshMeta, SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { ClawSpec, PRIZE_NAMES, PrizeKind, plushMat, prizeGeo } from "../world/props/clawMachine";
 import { ROLE, find } from "../world/roles";
-import { PrizeWorld, restock, seeded, stockPile } from "./clawPhysics";
+import { CHUTE_DOWN, PrizeWorld, restock, seeded, stockPile } from "./clawPhysics";
+import { Plush, PlushCarry } from "./clawPlush";
 import { ClawGame, ClawInput, ClawPose, PRONG_OPEN, PRONG_SHUT, bestChimp, simulatePlays, steerTo } from "./clawRules";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus } from "./focus";
@@ -47,6 +51,24 @@ const FRAME: [number, number, number][] = [
   [-0.3, 1.71, -0.29], [0.31, 1.71, 0.3], [-0.3, 1.71, 0.3], [0.31, 1.71, -0.29],
 ];
 const WATCH_BEHIND = 0.12;
+/** the most prizes that wait behind the pickup door: one more, and the oldest is set out on the floor in front of it */
+const BIN_KEEP = 3;
+/** how far from the eye (m) the pickup door can be looked at to pick a prize up, and how near the line of sight must pass its middle (rad) */
+const DOOR_REACH = 2.0;
+const DOOR_AIM = 0.36;
+/** changing view while playing (s) */
+const GLIDE_VIEW = 0.6;
+
+/** The views of the machine while playing it: V steps through them, 1–4 picks one. */
+export const CLAW_VIEWS = [
+  { id: "panel", name: "Panel", short: "Panel" },
+  { id: "close", name: "Close up", short: "Close" },
+  { id: "left", name: "Left side", short: "Left" },
+  { id: "right", name: "Right side", short: "Right" },
+] as const;
+export type ClawView = (typeof CLAW_VIEWS)[number]["id"];
+/** what the close and side views must hold (machine-local): the bed's corners and the gantry's travel at the top */
+const BOX = FRAME.slice(4);
 
 /** Who is playing the machine: one visitor at a time. */
 interface ClawUse {
@@ -120,6 +142,16 @@ export class ClawMachine {
   private pileOwed = false;
   /** when this page's play (or a restock) last went on (clock s) */
   private busyAt = 0;
+  /** won plushes out of the machine: carried, put down, picked up again */
+  readonly plush: PlushCarry;
+  /** the prizes waiting behind the pickup door, oldest first */
+  private binOrder: number[] = [];
+  /** prizes taken from the pickup door here, and where they lay: a pile sent before the taking reached its sender keeps them out */
+  private taken = new Map<number, number[]>();
+  /** what E would pick up at the pickup door, if anything */
+  private doorOffer: { label: string; sub: string } | null = null;
+  /** the view of the machine while playing it */
+  view: ClawView = "panel";
 
   constructor(
     private scene: Scene,
@@ -127,6 +159,8 @@ export class ClawMachine {
     lighting: Lighting,
     private fly: FlyCamera,
     private focus: ScreenFocus,
+    /** shows a short message */
+    flash: (msg: string) => void = () => undefined,
   ) {
     const need = <T>(n: T | null, what: string): T => {
       if (!n) throw new Error(`The claw machine has no ${what}`);
@@ -203,6 +237,7 @@ export class ClawMachine {
     room.onGone((id) => {
       if (this.holder.by === id) this.publishUse({ by: null, name: "" });
     });
+    this.plush = new PlushCarry(scene, mats, lighting, fly, S, sm, (p) => this.takenOut(p), flash);
 
     // the controls, only while this machine is being played
     const playing = () => store.get().focus?.kind === "claw" && store.get().focus?.phase === "on";
@@ -218,6 +253,10 @@ export class ClawMachine {
       if (CONTROL_KEYS.has(e.code)) e.preventDefault();
       this.keys.add(e.code);
       if ((e.code === "Space" || e.code === "Enter") && !e.repeat) this.pressDrop();
+      const n = CLAW_VIEWS.findIndex((v) => v.id === this.view);
+      if (e.code === "KeyV" && !e.repeat) this.setView(CLAW_VIEWS[(n + (e.shiftKey ? CLAW_VIEWS.length - 1 : 1)) % CLAW_VIEWS.length].id);
+      const digit = /^Digit([1-4])$/.exec(e.code);
+      if (digit && !e.repeat) this.setView(CLAW_VIEWS[Number(digit[1]) - 1].id);
     });
     window.addEventListener("keyup", (e) => {
       this.keys.delete(e.code);
@@ -243,10 +282,9 @@ export class ClawMachine {
     this.dropHeld = false;
   }
 
-  /** A new play: whatever is behind the pickup door is taken first. */
+  /** A new play (a prize behind the pickup door waits there to be picked up). */
   play(): boolean {
     if (this.game.busy) return false;
-    this.takePrizes();
     this.aimStill = 0;
     const ok = this.game.start();
     // the press that started it isn't also the drop
@@ -259,8 +297,12 @@ export class ClawMachine {
   /** The joystick and drop button as the keys hold them. */
   private input(out: ClawInput): ClawInput {
     const k = this.keys;
-    out.x = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
-    out.z = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+    // the keys steer the way the view looks: up the screen is away from the eye, right is its right
+    const sx = (k.has("KeyD") || k.has("ArrowRight") ? 1 : 0) - (k.has("KeyA") || k.has("ArrowLeft") ? 1 : 0);
+    const sz = (k.has("KeyW") || k.has("ArrowUp") ? 1 : 0) - (k.has("KeyS") || k.has("ArrowDown") ? 1 : 0);
+    const [fx, fz] = this.viewAxis();
+    out.x = sz * fx + sx * fz;
+    out.z = sz * fz - sx * fx;
     out.drop = this.dropHeld || this.dropTapped;
     this.dropTapped = false;
     if (this.aim && this.game.phase === "aim") {
@@ -284,8 +326,6 @@ export class ClawMachine {
   private aimStill = 0;
   private sound = new ClawSound();
   private lastCable = 0;
-  /** how long a prize has waited behind the pickup door with nobody playing */
-  private binWait = 0;
   get aimed(): boolean {
     return !!this.aim && this.game.phase === "aim" && this.aimStill > 0.5;
   }
@@ -364,6 +404,8 @@ export class ClawMachine {
     w.hold(-1);
     stockPile(w, seeded(7), true);
     this.restocks.length = 0;
+    this.binOrder.length = 0;
+    this.taken.clear();
     this.game.reset();
     Object.assign(this.pose, { x: S.home[0], z: S.home[1], cable: S.cableUp, swingX: 0, swingZ: 0, open: [0.45, 0.45, 0.45], joyX: 0, joyZ: 0, button: 0, door: 0 });
     this.syncPrizes();
@@ -385,6 +427,7 @@ export class ClawMachine {
     this.fovBefore = this.fly.camera.fov;
     store.set({ clawPrompt: false });
     this.sound.unlock();
+    this.view = "panel";
     const ok = await this.focus.enter({ kind: "claw" }, this.parts.display, () => this.playPose(), GLIDE_IN);
     if (ok && !this.game.busy) this.play();
     return ok;
@@ -413,10 +456,17 @@ export class ClawMachine {
     const w = this.world;
     if (p.poses.length !== w.count * 7) return;
     for (let b = 0; b < w.count; b++) {
-      if (p.gone.includes(b)) w.remove(b);
-      else w.setPose(b, p.poses, b * 7, true);
+      const was = this.taken.get(b);
+      // taken from the pickup door here, and the sender didn't know yet: still out
+      if (was && Math.hypot(p.poses[b * 7] - was[0], p.poses[b * 7 + 1] - was[1], p.poses[b * 7 + 2] - was[2]) < 0.02) w.remove(b);
+      else if (p.gone.includes(b)) w.remove(b);
+      else {
+        this.taken.delete(b);
+        w.setPose(b, p.poses, b * 7, true);
+      }
     }
-    this.restocks.length = 0;
+    // the prizes this page is to put back that are still out in theirs
+    this.restocks = this.restocks.filter((r) => w.isGone(r.b));
     this.syncPrizes();
     this.dirty = true;
   }
@@ -440,49 +490,147 @@ export class ClawMachine {
       pose = { x: ft.x, y: walker.eyeY, z: ft.z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(look.y - walker.eyeY, Math.hypot(dx, dz)), fov: this.fovBefore };
     }
     await this.focus.leave(pose, GLIDE_OUT);
-    if (!this.game.busy) this.takePrizes();
     this.aim = null;
     this.publishHud();
   }
 
+  /** The view this play is seen from: glides there (V, 1–4 or the HUD's buttons). */
+  setView(v: ClawView): void {
+    const f = store.get().focus;
+    if (f?.kind !== "claw" || f.phase !== "on" || v === this.view) return;
+    this.view = v;
+    this.publishHud();
+    void this.fly.glide(this.playPose(), GLIDE_VIEW);
+  }
+
   /**
-   * The player's view: standing at the deck, looking down past the joystick and drop button
-   * into the glass box, with the whole bed, the chute and the claw at the top in view. Backed
-   * off along one line until every key point fits the frame, the fov widening on a narrow window.
+   * Where the player's eye is for the view chosen:
+   * - panel: standing at the deck, looking down past the joystick and drop button into the glass
+   *   box, with the whole bed, the chute and the claw at the top in view;
+   * - close up: nearer and lower, looking in through the front glass at the bed and the claw;
+   * - the sides: round to the machine's left or right, looking in through its side glass; as far
+   *   round as the room allows (the line from the eye to the machine clear of what stands beside it).
+   * Each is backed off along its line until its key points fit the frame, clear of the HUD's bars,
+   * the fov widening on a narrow window.
    */
   playPose(): Pose {
     const engine = this.scene.getEngine();
     const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
-    const fov = Math.min(1.45, Math.max(1.0, 2 * Math.atan(Math.tan(0.5) * (0.85 / aspect))));
-    const t = Math.tan(fov / 2);
-    // clear of the HUD's bars, top and bottom (about 70 px each), and a little in from the sides
-    const bar = 140 / Math.max(300, engine.getRenderHeight() * engine.getHardwareScalingLevel());
-    const lo = -t * (1 - bar);
-    const hi = t * (1 - bar);
-    const C = new Vector3(0, 1.28, -0.12);
-    const back = new Vector3(0, Math.sin(0.38), -Math.cos(0.38)); // low enough to see the claw at the top under the glass header
-    const right = new Vector3(1, 0, 0);
-    const up = Vector3.Cross(right, back.negate()).negate();
-    let eye = C.add(back.scale(1.6));
-    for (let d = 0.6; d < 3; d += 0.01) {
-      const e = C.add(back.scale(d));
-      const fits = FRAME.every(([x, y, z]) => {
-        const q = new Vector3(x - e.x, y - e.y, z - e.z);
-        const depth = -Vector3.Dot(q, back);
-        const v = Vector3.Dot(q, up) / depth;
-        return depth > 0 && v > lo && v < hi && Math.abs(Vector3.Dot(q, right) / depth) < t * aspect * 0.94;
-      });
-      if (fits) {
-        eye = e;
-        break;
-      }
-    }
     const wm = this.root.computeWorldMatrix(true);
+    const v = this.view;
+    let fov = Math.min(1.45, Math.max(1.0, 2 * Math.atan(Math.tan(0.5) * (0.85 / aspect))));
+    let C: Vector3;
+    let eye: Vector3;
+    if (v === "panel") {
+      C = new Vector3(0, 1.28, -0.12);
+      // low enough to see the claw at the top under the glass header
+      eye = this.fit(C, 0, 0.38, FRAME, fov, aspect, 0.94);
+    } else if (v === "close") {
+      fov = Math.min(1.3, Math.max(0.86, 2 * Math.atan(Math.tan(0.43) * (1.1 / aspect))));
+      C = new Vector3(0, 1.3, 0.02);
+      eye = this.fit(C, 0, 0.42, BOX, fov, aspect, 0.98);
+    } else {
+      C = new Vector3(0, 1.3, 0);
+      // wider, so the eye can be nearer and get further round between the machine and what stands beside it
+      fov = Math.min(1.4, Math.max(1.2, fov));
+      const side = v === "left" ? -1 : 1;
+      // from straight off the side round toward the front, until the eye sees the machine clear of what stands
+      // beside it (from higher up, looking down over it, if that gets further round)
+      eye = this.fit(C, side * 0.5, 0.4, BOX, fov, aspect, 0.98);
+      search: for (let a = Math.PI / 2; a > 0.5; a -= 0.087)
+        for (const pitch of [0.4, 0.6, 0.8]) {
+          const e = this.fit(C, side * a, pitch, BOX, fov, aspect, 0.98);
+          if (this.clearSight(C, e, wm)) {
+            eye = e;
+            break search;
+          }
+        }
+    }
     const w = Vector3.TransformCoordinates(eye, wm);
     const at = Vector3.TransformCoordinates(C, wm);
     const dx = at.x - w.x;
     const dz = at.z - w.z;
     return { x: w.x, y: w.y, z: w.z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at.y - w.y, Math.hypot(dx, dz)), fov };
+  }
+
+  /**
+   * The eye (machine frame) looking at C from `yaw` round from the front (+ toward the machine's
+   * right) and `pitch` above, as near as it can be with every point of `pts` in the frame: clear
+   * of the HUD's bars top and bottom (about 70 px each) and `side` of the half-width across.
+   */
+  private fit(C: Vector3, yaw: number, pitch: number, pts: number[][], fov: number, aspect: number, side: number): Vector3 {
+    const engine = this.scene.getEngine();
+    const t = Math.tan(fov / 2);
+    const bar = 140 / Math.max(300, engine.getRenderHeight() * engine.getHardwareScalingLevel());
+    const lo = -t * (1 - bar);
+    const hi = t * (1 - bar);
+    const back = new Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch));
+    const fwd = back.negate();
+    const right = Vector3.Cross(Vector3.Up(), fwd).normalize();
+    const up = Vector3.Cross(fwd, right);
+    for (let d = 0.5; d < 3.2; d += 0.01) {
+      const e = C.add(back.scale(d));
+      const fits = pts.every(([x, y, z]) => {
+        const q = new Vector3(x - e.x, y - e.y, z - e.z);
+        const depth = Vector3.Dot(q, fwd);
+        const v = Vector3.Dot(q, up) / depth;
+        return depth > 0 && v > lo && v < hi && Math.abs(Vector3.Dot(q, right) / depth) < t * aspect * side;
+      });
+      if (fits) return e;
+    }
+    return C.add(back.scale(1.6));
+  }
+
+  /**
+   * Whether the eye (machine frame) sees the machine with nothing else in the way: clear lines to
+   * C and the view's key points, and room round the eye (lines from C to points a little off it
+   * every way), so nothing beside the machine stands right by the eye either. The glass box's own
+   * glass and corner posts (merged into the room's meshes, so known by where they are) are looked
+   * through; its header, marquee and deck are in the way like anything else.
+   */
+  private clearSight(C: Vector3, eye: Vector3, wm: Matrix): boolean {
+    const inv = wm.clone().invert();
+    const S = this.spec;
+    const ours = (p: Vector3) => {
+      const l = Vector3.TransformCoordinates(p, inv);
+      return l.x > S.bed[0] - 0.07 && l.x < S.bed[1] + 0.07 && l.z > S.bed[2] - 0.07 && l.z < S.bed[3] + 0.08 && l.y > S.bedY - 0.1 && l.y < S.bridgeY + 0.09;
+    };
+    const free = (a: Vector3, b: Vector3, past = 0) => {
+      const d = b.subtract(a);
+      const len = d.length();
+      const hits = this.scene.multiPickWithRay(new Ray(a, d.normalize(), len + past), (m) => m.isPickable && m.isEnabled() && m.isVisible) ?? [];
+      return hits.every((h) => !h.pickedPoint || ours(h.pickedPoint));
+    };
+    const w = (p: Vector3) => Vector3.TransformCoordinates(p, wm);
+    const e = w(eye);
+    if (!free(w(C), e, 0.3)) return false;
+    const fwd = C.subtract(eye).normalize();
+    const right = Vector3.Cross(Vector3.Up(), fwd).normalize();
+    const up = Vector3.Cross(fwd, right);
+    for (const o of [right, right.negate(), up, up.negate()]) if (!free(w(C), w(eye.add(o.scale(0.2))))) return false;
+    return BOX.every(([x, y, z]) => free(e, w(new Vector3(x, y, z))));
+  }
+
+  /** The way the view looks into the machine, flat and squared to its sides (machine frame): the keys steer along it. */
+  private viewAxis(): [number, number] {
+    const inv = this.root.computeWorldMatrix(true).clone().invert();
+    const f = Vector3.TransformNormal(this.fly.camera.getDirection(Vector3.Forward()), inv);
+    if (Math.abs(f.x) > Math.abs(f.z)) return [Math.sign(f.x), 0];
+    return [0, f.z < 0 ? -1 : 1];
+  }
+
+  /** For tests: the share of the view's key points in the frame as the camera is now (1: all of them). */
+  inView(): number {
+    const pts = this.view === "panel" ? FRAME : BOX;
+    const wm = this.root.computeWorldMatrix(true);
+    const cam = this.fly.camera;
+    const vp = cam.getViewMatrix(true).multiply(cam.getProjectionMatrix(true));
+    let n = 0;
+    for (const [x, y, z] of pts) {
+      const p = Vector3.TransformCoordinates(Vector3.TransformCoordinates(new Vector3(x, y, z), wm), vp);
+      if (Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 && p.z > 0) n++;
+    }
+    return n / pts.length;
   }
 
   /**
@@ -509,23 +657,108 @@ export class ClawMachine {
     return p.x > b[0] - e && p.x < b[1] + e && p.y > b[2] - e && p.y < b[3] + e && p.z > b[4] - e && p.z < b[5] + e;
   }
 
-  /** Prizes behind the pickup door are taken, and go back in the machine a little later. */
-  private takePrizes() {
-    for (const b of this.game.take()) this.restocks.push({ b, at: this.clock + RESTOCK_AFTER });
+  /** The prizes waiting behind the pickup door, oldest first: down the chute (in the bin, on those in it, or on their way). */
+  private waiting(): number[] {
+    const w = this.world;
+    const down = new Set<number>();
+    for (let b = 0; b < w.count; b++) if (!w.isGone(b) && b !== w.held && w.pose[b * 7 + 1] < this.spec.bedY - CHUTE_DOWN) down.add(b);
+    this.binOrder = this.binOrder.filter((b) => down.has(b));
+    for (const b of down) if (!this.binOrder.includes(b)) this.binOrder.push(b);
+    return this.binOrder;
+  }
+
+  /** Those of them come to rest: what can be picked up. */
+  private resting(): number[] {
+    return this.waiting().filter((b) => this.world.isAsleep(b));
+  }
+
+  /** For tests: the prizes waiting behind the pickup door, oldest first. */
+  waitingNow(): number[] {
+    return [...this.waiting()];
+  }
+
+  /** The world matrix of prize b's mesh (as syncPrizes places it, in the root). */
+  private prizeMatrix(b: number): Matrix {
+    const w = this.world;
+    const o = b * 7;
+    const [rx, ry, rz] = w.restCentre(b);
+    const q = new Quaternion(w.pose[o + 3], w.pose[o + 4], w.pose[o + 5], w.pose[o + 6]);
+    return Matrix.Translation(-rx, -ry, -rz)
+      .multiply(Matrix.FromQuaternionToRef(q, new Matrix()))
+      .multiply(Matrix.Translation(w.pose[o], w.pose[o + 1], w.pose[o + 2]))
+      .multiply(this.root.computeWorldMatrix(true));
+  }
+
+  /** Whether the walker is looking at the pickup door from near it, in front of the machine. */
+  private atDoor(): boolean {
+    if (!this.fly.walker) return false;
+    const wm = this.root.computeWorldMatrix(true);
+    const S = this.spec;
+    const door = Vector3.TransformCoordinates(new Vector3((S.chute[0] + S.chute[1]) / 2, S.binY + 0.13, S.doorZ), wm);
+    const eye = this.fly.camera.position;
+    const to = door.subtract(eye);
+    const dist = to.length();
+    if (dist > DOOR_REACH || Vector3.TransformCoordinates(eye, wm.clone().invert()).z > S.doorZ) return false;
+    return Vector3.Dot(to.normalize(), this.fly.camera.getDirection(Vector3.Forward())) > Math.cos(DOOR_AIM);
+  }
+
+  /** E: pick up the prize waiting behind the pickup door (the oldest), or the plush on the floor looked at. */
+  pickUp(): boolean {
+    if (!this.doorOffer) return this.plush.pickUp();
+    const b = this.resting()[0];
+    if (b === undefined) return false;
+    if (this.plush.holding) return this.plush.pickUp();
+    const o = b * 7;
+    return this.plush.takeFromDoor(this.world.kinds[b], this.prizeMatrix(b), { b, at: [this.world.pose[o], this.world.pose[o + 1], this.world.pose[o + 2]] });
+  }
+
+  /**
+   * A plush has been taken from the pickup door, here or on another page: that prize leaves the
+   * machine here too (when it is still where it lay), and the page that runs the machine (whoever
+   * plays it, or the visitor who took it while nobody does) has the attendant put it back later.
+   */
+  private takenOut(p: Plush): void {
+    const f = p.from;
+    if (!f) return;
+    const w = this.world;
+    const b = f.b;
+    if (b < 0 || b >= w.count || w.isGone(b)) return;
+    const o = b * 7;
+    if (Math.hypot(w.pose[o] - f.at[0], w.pose[o + 1] - f.at[1], w.pose[o + 2] - f.at[2]) > 0.03) return;
+    this.game.takeOne(b);
+    this.taken.set(b, [...f.at]);
+    if (this.holder.by === VIEWER || (this.holder.by === null && p.by === VIEWER)) this.restocks.push({ b, at: this.clock + RESTOCK_AFTER });
     this.syncPrizes();
+    this.dirty = true;
+  }
+
+  /** More than BIN_KEEP waiting: the oldest is set out on the floor in front of the pickup door (by the page running the machine). */
+  private overflow(): void {
+    const waiting = this.waiting();
+    if (waiting.length <= BIN_KEEP) return;
+    const b = waiting[0];
+    const S = this.spec;
+    const n = this.plush.outCount();
+    const wm = this.root.computeWorldMatrix(true);
+    const spot = Vector3.TransformCoordinates(new Vector3((S.chute[0] + S.chute[1]) / 2 + ((n % 3) - 1) * 0.16, 0, S.doorZ - 0.3 - (Math.floor(n / 3) % 3) * 0.12), wm);
+    // facing out of the machine, as its prizes do
+    const out = Vector3.TransformNormal(new Vector3(0, 0, 1), wm);
+    const o = b * 7;
+    this.plush.setOut(this.world.kinds[b], this.prizeMatrix(b), spot, Math.atan2(out.x, out.z), { b, at: [this.world.pose[o], this.world.pose[o + 1], this.world.pose[o + 2]] });
   }
 
   /** The HUD's view of the play, set when it changes. */
   private publishHud() {
     const g = this.game;
     const mine = store.get().focus?.kind === "claw";
-    const binned = g.inBin();
     const hud: ClawHud | null = mine
       ? {
           phase: g.phase,
           timer: Math.ceil(g.timer),
-          won: binned.map((b) => PRIZE_NAMES[this.world.kinds[b]]),
+          // this play's (earlier wins wait at the door too, but aren't cheered again)
+          won: g.won.map((b) => PRIZE_NAMES[this.world.kinds[b]]),
           message: this.message,
+          view: CLAW_VIEWS.find((v) => v.id === this.view)!.name,
         }
       : null;
     const was = store.get().claw;
@@ -534,41 +767,43 @@ export class ClawMachine {
   private message = "";
 
 
-  /** Each frame: offer the machine to a walker at its deck, run a play, move the pile on while it moves, show it all. */
+  /** Each frame: offer the machine to a walker at its deck (or its prize at the pickup door), run a play, move the pile on while it moves, show it all. */
   update(dt: number): void {
     this.clock += dt;
     const s = store.get();
+    const g = this.game;
+    // the prize behind the pickup door, offered to a walker looking at the door; the machine to one at its deck
+    let door: { label: string; sub: string } | null = null;
+    if (!s.focus && s.walking && this.fly.enabled && this.pose.door > 0.5) {
+      const waiting = this.resting();
+      if (waiting.length && this.atDoor()) door = { label: `Pick up the ${PRIZE_NAMES[this.world.kinds[waiting[0]]]}`, sub: waiting.length > 1 ? `from the pickup door (${waiting.length - 1} more waiting)` : "from the pickup door" };
+    }
+    this.doorOffer = door;
     if (!s.focus) {
-      const at = s.walking && this.fly.enabled && this.atDeck();
+      const at = !door && s.walking && this.fly.enabled && this.atDeck();
       if (at !== s.clawPrompt) store.set({ clawPrompt: at });
       const busy = at ? this.playerName : null;
       if (busy !== s.clawBusy) store.set({ clawBusy: busy });
     }
+    this.plush.update(dt, door);
     // the attendant puts taken prizes back
     for (let i = this.restocks.length - 1; i >= 0; i--)
       if (this.clock >= this.restocks[i].at && !this.inUseByOther) {
         restock(this.world, this.restocks[i].b, this.rnd, this.spec.bedY + 0.42);
+        this.taken.delete(this.restocks[i].b);
         this.restocks.splice(i, 1);
       }
-    const g = this.game;
     const mine = s.focus?.kind === "claw";
     if (this.aim) {
       const near = Math.hypot(this.pose.x - this.aim[0], this.pose.z - this.aim[1]) < 0.008 && g.trolleySpeed < 0.004 && Math.hypot(this.pose.swingX, this.pose.swingZ) < 0.003;
       this.aimStill = near ? this.aimStill + dt : 0;
     }
-    // a prize that reached the pickup door after its winner walked away is taken a little later
-    if (!mine && !g.busy && !this.inUseByOther && g.inBin().some((b) => this.world.isAsleep(b))) {
-      this.binWait += dt;
-      if (this.binWait > 3) {
-        this.binWait = 0;
-        this.takePrizes();
-      }
-    } else this.binWait = 0;
     if (this.inUseByOther) {
       this.watch();
       return;
     }
-    const doorTo = g.inBin().some((b) => this.world.isAsleep(b)) ? 1 : 0;
+    if (this.holder.by === VIEWER) this.overflow();
+    const doorTo = this.resting().length ? 1 : 0;
     if (g.busy || mine || !this.world.settled || this.pose.door !== doorTo || this.pose.button > 0 || Math.abs(this.pose.joyX) + Math.abs(this.pose.joyZ) > 0) {
       g.step(dt, mine ? this.input(this.inp) : IDLE);
       this.pose.door = doorTo > this.pose.door ? Math.min(1, this.pose.door + dt * 2.5) : Math.max(0, this.pose.door - dt * 2.5);
@@ -585,9 +820,11 @@ export class ClawMachine {
       this.paintDisplay(this.displayFor());
     }
     if (mine || s.claw) this.publishHud();
-    // while this page plays, it tells the others where the claw and the moving prizes are; after, the pile, and frees the machine
-    if (this.holder.by === VIEWER) {
-      if (g.busy && this.clock - this.sentAt >= MOTION_EVERY) {
+    // while this page plays, it tells the others where the claw and the moving prizes are; after, the pile, and frees
+    // the machine. A visitor who took a prize while nobody played sends the pile once its replacement is in.
+    if (this.holder.by === VIEWER || this.holder.by === null) {
+      const playing = this.holder.by === VIEWER;
+      if (playing && g.busy && this.clock - this.sentAt >= MOTION_EVERY) {
         this.sentAt = this.clock;
         this.publishMotion(this.motionNow());
       }
@@ -598,10 +835,10 @@ export class ClawMachine {
       // once the pile is at rest, or a little after the play (a prize can go on rocking a hair where it lies)
       if (!g.busy && this.pileOwed && !this.restocks.length && (this.world.settled || this.clock - this.busyAt > PILE_WAIT)) {
         this.pileOwed = false;
-        this.publishMotion(this.motionNow());
+        if (playing) this.publishMotion(this.motionNow());
         this.publishPile(this.pileNow());
       }
-      if (!mine && !g.busy && !this.pileOwed) this.publishUse({ by: null, name: "" });
+      if (playing && !mine && !g.busy && !this.pileOwed) this.publishUse({ by: null, name: "" });
     }
   }
 

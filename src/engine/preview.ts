@@ -97,7 +97,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // the snack machine: its coils and snacks, shown from its shared state (engine/snackState.ts)
   const snacks = new SnackMachine(scene, world.mats, fly, focus, canvas, (msg) => flash(msg));
   // the claw machine: its prizes settle into a pile as the house opens
-  const claw = new ClawMachine(scene, world.mats, lighting, fly, focus);
+  const claw = new ClawMachine(scene, world.mats, lighting, fly, focus, (msg) => flash(msg));
   // the pinball machines: their moving parts, lamps and displays, and playing them
   const pinball = new Pinball(scene, world.mats, lighting, fly, focus, canvas);
   // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
@@ -302,6 +302,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.plushPrompt) claw.pickUp();
+    else if (e.code === "KeyQ" && s.walking && s.plushHeld) claw.plush.putDown();
     else if (e.code === "KeyE" && s.walking && s.clawPrompt && !s.clawBusy) void claw.use();
     else if (e.code === "KeyE" && s.walking && s.pinballPrompt) {
       if (s.pinballPrompt.busy) flash(`${s.pinballPrompt.busy} is playing ${s.pinballPrompt.name}`);
@@ -563,12 +565,32 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       fastTimer: (t: number) => (claw.game.timer = Math.min(claw.game.timer, t)),
       /** hold the joystick and button as given (null gives the keys back) */
       drive: (i: { x: number; z: number; drop: boolean } | null) => (claw.override = i),
+      /** stop steering by itself onto a spot (aimAtBest): the keys steer again */
+      unaim: () => (claw.aim = null),
       simulate: (n: number, strategy: "aim" | "random", strength: number | null) => claw.simulate(n, strategy, strength),
       /** n prizes dropped in on top of one another, deep in each other (the indexes); and how far any prize pokes out through the glass (m) */
       jumble: (n: number) => claw.jumble(n),
       glassOut: () => claw.glassOut(),
       /** a prize of a kind let go over the chute as the claw lets go: off the claw's home by (dx, dz), turned by q (its index, or -1) */
       chuteDrop: (kind: Parameters<typeof claw.chuteDrop>[0], dx: number, dz: number, q: [number, number, number, number]) => claw.chuteDrop(kind, dx, dz, q),
+      /** the views while playing: the one shown, choosing one, and the share of its key points in the frame now */
+      view: () => claw.view,
+      /** a point in the world, in the machine's own frame */
+      toLocal: (p: number[]) => Vector3.TransformCoordinates(Vector3.FromArray(p), claw.root.computeWorldMatrix(true).clone().invert()).asArray(),
+      setView: (v: Parameters<typeof claw.setView>[0]) => claw.setView(v),
+      inView: () => claw.inView(),
+      /** the prizes waiting behind the pickup door, oldest first; E's pick-up there (or off the floor) */
+      waiting: () => claw.waitingNow(),
+      pickUp: () => claw.pickUp(),
+      /** won plushes out of the machine: the room's list and how each shows here, the one in hand; putting it down, holding it up to turn it */
+      plush: {
+        describe: () => claw.plush.describe(),
+        putDown: () => claw.plush.putDown(),
+        setTurning: (on: boolean) => claw.plush.setTurning(on),
+        turn: (dx: number, dy: number) => claw.plush.turn(dx, dy),
+        clear: () => claw.plush.clear(),
+        scatter: (n: number, x: number, y: number, z: number) => claw.plush.scatter(n, x, y, z),
+      },
       /** the machine as it opens, for everyone in the room: a fresh pile, nobody playing (tests start from it) */
       reset: () => claw.reset(),
       /** who is playing, if another visitor is (shared through the room) */
