@@ -23,7 +23,7 @@
 // the chute's rim, and only a good grab on a strong-enough play wins. README
 // ("Playing the claw machine") has the numbers.
 
-import { ClawBox, PRIZES, PrizeWorld, capsule, seeded } from "./clawPhysics";
+import { CHUTE_DOWN, ClawBox, PRIZES, PrizeWorld, capsule, seeded } from "./clawPhysics";
 
 /** The claw's and the controls' places, which the engine shows (machine frame, metres). */
 export interface ClawPose {
@@ -401,7 +401,8 @@ export class ClawGame {
         return;
       case "reset":
         openTo(0.45, 0.5);
-        if (this.t > 1.0 && (this.world.settled || this.t > 5)) {
+        // not over while a prize is still in the chute's mouth: it is on its way in (or off the rim), and decides the play
+        if (this.t > 1.0 && (((this.world.settled || this.t > 5) && !this.inMouth()) || this.t > 12)) {
           this.next("over");
           this.events.push({ kind: "over", won: [...this.won] });
         }
@@ -551,12 +552,19 @@ export class ClawGame {
         w.place(b, (R.chute[0] + R.chute[1]) / 2, R.binY + 0.16, (R.chute[2] + R.chute[3]) / 2, [q[0], q[1], q[2], q[3]]);
       }
       if (w.isGone(b) || this.counted.has(b) || b === w.held) continue;
-      if (w.pose[b * 7 + 1] < this.rig.bedY - 0.08) {
+      if (w.pose[b * 7 + 1] < this.rig.bedY - CHUTE_DOWN) {
         this.counted.add(b);
         if (this.busy) this.won.push(b);
         this.events.push({ kind: "won", prize: b });
       }
     }
+  }
+
+  /** Whether any prize is in the chute's mouth, not yet down it or off it. */
+  inMouth(): boolean {
+    const w = this.world;
+    for (let b = 0; b < w.count; b++) if (!w.isGone(b) && b !== w.held && w.overChute(b)) return true;
+    return false;
   }
 
   /** The prizes waiting behind the pickup door. */

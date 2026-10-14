@@ -76,7 +76,7 @@ const stopProbe = () =>
 // ---- the machine and its pile
 const prizes = await ev(() => window.__chimp.claw.prizes());
 const spec = await ev(() => window.__chimp.claw.spec());
-check(prizes.length >= 18, "the machine is stocked", `${prizes.length} prizes`);
+check(prizes.length >= 27, "the machine is stocked", `${prizes.length} prizes`);
 check(
   prizes.every((p) => p.at[1] > spec.bedY),
   "every prize is in the bed, none in the chute",
@@ -253,6 +253,55 @@ if (won) check(after < before, "the won prize is taken from the pickup door when
 await ev(() => window.__chimp.claw.fastTimer(1.5));
 check(await waitFor(() => window.__chimp.claw.state().phase === "drop", null, 5000), "when the timer runs out the claw drops by itself");
 check(await waitFor(() => window.__chimp.claw.state().phase === "over", null, 30000), "and the play finishes");
+
+// ---- prizes let go over the chute from all over its mouth, turned every way: each falls through and wins
+// (the first is the case seen in play: a pink chimp upside down, off the middle by the front-left glass)
+const chuteCases = [
+  ["pinkChimp", -0.101, -0.085, [-0.4873, -0.2608, -0.787, 0.2742], "pink chimp upside down by the front-left glass"],
+  ["chimp", 0, 0, [0, 0, 0, 1], "chimp upright in the middle"],
+  ["chimp", 0.075, 0.01, [0, 0, 0.7071, 0.7071], "chimp lying along the guard"],
+  ["king", 0, 0, [0.7071, 0, 0, 0.7071], "King lying across the hole"],
+  ["star", 0.07, 0.07, [0.5, 0.5, 0.5, 0.5], "star on edge in the guard's corner"],
+  ["banana", -0.06, 0.07, [0.3, 0.2, 0.6, 0.7], "banana tipped over the back of the guard"],
+];
+const chuteRes = [];
+for (const [kind, dx, dz, q, label] of chuteCases) {
+  const r = await ev(async ([kind, dx, dz, q]) => {
+    const c = window.__chimp.claw;
+    const wait = async (f, ms) => {
+      const t0 = performance.now();
+      while (performance.now() - t0 < ms) {
+        if (f()) return true;
+        await new Promise((res) => setTimeout(res, 30));
+      }
+      return false;
+    };
+    // a play whose claw comes up empty over the chute (the timer drops it there at once); as it opens, the prize is let go
+    c.play();
+    c.fastTimer(0);
+    if (!(await wait(() => c.state().phase === "release", 25000))) return { err: "the play never reached letting go" };
+    const b = c.chuteDrop(kind, dx, dz, q);
+    if (b < 0) return { err: `no ${kind} in the bed` };
+    const bedY = c.spec().bedY;
+    const t0 = performance.now();
+    let down = -1;
+    let out = 0;
+    const over = await wait(() => {
+      if (down < 0 && c.prizes()[b].at[1] < bedY - 0.08) down = (performance.now() - t0) / 1000;
+      out = Math.max(out, c.glassOut());
+      return c.state().phase === "over";
+    }, 25000);
+    const st = c.state();
+    return { b, over, down, out, message: st.message, won: st.inBin.includes(b), mouth: st.inMouth };
+  }, [kind, dx, dz, q]);
+  chuteRes.push(r);
+  console.log(`     let go over the chute, ${label}: ${r.err ?? `${r.down >= 0 ? `down the chute in ${r.down.toFixed(2)} s` : "NOT down the chute"}; "${r.message}"`}`);
+  if (kind === "pinkChimp" && !r.err) await page.screenshot({ path: "captures/claw-chute-drop.png" });
+}
+check(chuteRes.every((r) => !r.err && r.down >= 0 && r.down < 4), "every prize let go over the chute falls through it within a few seconds, none wedged", chuteRes.map((r) => (r.down >= 0 ? r.down.toFixed(1) + " s" : "stuck")).join(", "));
+check(chuteRes.every((r) => r.over && r.won && /You won/.test(r.message)), "and every one of those plays ends as a win, the prize behind the pickup door");
+check(chuteRes.every((r) => r.over && !r.mouth), "no play is called while a prize is still in the chute's mouth");
+check(chuteRes.every((r) => (r.out ?? 1) < 0.01), "and none of them passes through the glass on the way", `${(Math.max(...chuteRes.map((r) => r.out ?? 1)) * 100).toFixed(1)} cm out at most`);
 
 // ---- leaving, and the prize taken and restocked
 await page.keyboard.press("Escape");

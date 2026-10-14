@@ -21,7 +21,7 @@ import { MeshMeta, SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { ClawSpec, PRIZE_NAMES, PrizeKind, plushMat, prizeGeo } from "../world/props/clawMachine";
 import { ROLE, find } from "../world/roles";
-import { PrizeWorld, STOCK, dropIn, restock, seeded } from "./clawPhysics";
+import { PrizeWorld, restock, seeded, stockPile } from "./clawPhysics";
 import { ClawGame, ClawInput, ClawPose, PRONG_OPEN, PRONG_SHUT, bestChimp, simulatePlays, steerTo } from "./clawRules";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus } from "./focus";
@@ -36,6 +36,8 @@ const GLIDE_IN = 0.9;
 const GLIDE_OUT = 0.7;
 /** seconds until a taken prize is put back in the machine */
 const RESTOCK_AFTER = 4;
+/** the longest the pile a play leaves waits to come to rest before it's everyone's, and the machine free (s) */
+const PILE_WAIT = 3;
 /** how often (s) a player's page tells the others where the claw is, and how far behind (s) a watcher shows it, to have a sample either side */
 const MOTION_EVERY = 1 / 16;
 /** what the player's view must hold (machine-local): the joystick and drop button with their labels, the bed's corners, the gantry's travel at the top */
@@ -116,6 +118,8 @@ export class ClawMachine {
   private sentAt = 0;
   /** this page owes the room the pile once it settles (after a play or a restock) */
   private pileOwed = false;
+  /** when this page's play (or a restock) last went on (clock s) */
+  private busyAt = 0;
 
   constructor(
     private scene: Scene,
@@ -153,7 +157,7 @@ export class ClawMachine {
 
     // the prizes: stocked by dropping them in, and settled into a pile before anyone looks
     this.world = new PrizeWorld(S);
-    stockMachine(this.world, S, this.rnd);
+    stockPile(this.world, this.rnd);
     const plush = mats.get(plushMat({ mats }));
     const sm = this.root.metadata as { room: string; roomName: string; level: MeshMeta["level"] };
     for (let b = 0; b < this.world.count; b++) {
@@ -312,7 +316,7 @@ export class ClawMachine {
     return out;
   }
 
-  /** for tests: the furthest any prize pokes out through the glass (m) */
+  /** for tests: the furthest any prize pokes out through the glass (m), where the glass is (from just under the bed up) */
   glassOut(): number {
     const w = this.world;
     const [x0, x1, z0, z1] = this.spec.bed;
@@ -323,11 +327,33 @@ export class ClawMachine {
       w.spheres(b, s);
       for (let i = 0; i < s.length; i += 4) {
         const [x, y, z, r] = [s[i], s[i + 1], s[i + 2], s[i + 3]];
-        // the front glass stands over the bin; below, the bin's own front holds them
-        out = Math.max(out, x0 - (x - r), x + r - x1, z + r - z1, y > this.spec.binY + 0.3 ? z0 - (z - r) : 0);
+        // the glass stands from just under the bed up; below it, down the chute's shaft, a prize is inside the
+        // cabinet, behind its panels, out of sight
+        if (y < this.spec.bedY - 0.04) continue;
+        out = Math.max(out, x0 - (x - r), x + r - x1, z + r - z1, z0 - (z - r));
       }
     }
     return out;
+  }
+
+  /**
+   * for tests: a prize of this kind (one still in the bed) let go over the chute as the claw lets go
+   * of what it carried: (dx, dz) off the claw's home over the chute, turned by q, hanging below the
+   * claw and kept inside the glass and over the guard. Its index, or -1.
+   */
+  chuteDrop(kind: PrizeKind, dx: number, dz: number, q: [number, number, number, number]): number {
+    const w = this.world;
+    const S = this.spec;
+    const binned = new Set(this.game.inBin());
+    const b = w.kinds.findIndex((k, i) => k === kind && !w.isGone(i) && !binned.has(i) && i !== w.held && !w.overChute(i) && w.pose[i * 7 + 1] > S.bedY);
+    if (b < 0) return -1;
+    w.placeClear(b, S.home[0] + dx, S.bedY + 0.42 - w.boundOf(b), S.home[1] + dz, q);
+    // as if just let go by the claw: it drops out of the prongs
+    w.hold(b);
+    w.hold(-1);
+    this.syncPrizes();
+    this.dirty = true;
+    return b;
   }
 
   /** The machine as it opens: every prize back in a freshly stocked pile, the claw home, nobody playing, for everyone (tests start from it). */
@@ -335,20 +361,8 @@ export class ClawMachine {
     if (store.get().focus?.kind === "claw") return;
     const w = this.world;
     const S = this.spec;
-    const rnd = seeded(7);
     w.hold(-1);
-    for (let b = 0; b < w.count; b++) restock(w, b, rnd, S.bedY + 0.12 + Math.floor(b / 6) * 0.16);
-    w.settle(10);
-    for (let pass = 0; pass < 4; pass++) {
-      let moved = false;
-      for (let b = 0; b < w.count; b++)
-        if (w.pose[b * 7 + 1] < S.bedY) {
-          restock(w, b, rnd, S.bedY + 0.45);
-          moved = true;
-        }
-      if (!moved) break;
-      w.settle(6);
-    }
+    stockPile(w, seeded(7), true);
     this.restocks.length = 0;
     this.game.reset();
     Object.assign(this.pose, { x: S.home[0], z: S.home[1], cable: S.cableUp, swingX: 0, swingZ: 0, open: [0.45, 0.45, 0.45], joyX: 0, joyZ: 0, button: 0, door: 0 });
@@ -360,7 +374,7 @@ export class ClawMachine {
 
   /** Plays simulated on fresh copies of this machine's stock (clawRules.ts simulatePlays). */
   simulate(n: number, strategy: "aim" | "random", strength: number | null) {
-    return simulatePlays(this.spec, (w, rnd) => stockMachine(w, this.spec, rnd), n, strategy, strength);
+    return simulatePlays(this.spec, (w, rnd) => stockPile(w, rnd), n, strategy, strength);
   }
 
   /** Walk mode, at the deck: play. Resolves once the camera is at the player's view. */
@@ -577,8 +591,12 @@ export class ClawMachine {
         this.sentAt = this.clock;
         this.publishMotion(this.motionNow());
       }
-      if (g.busy || this.restocks.length) this.pileOwed = true;
-      if (!g.busy && this.pileOwed && this.world.settled && !this.restocks.length) {
+      if (g.busy || this.restocks.length) {
+        this.pileOwed = true;
+        this.busyAt = this.clock;
+      }
+      // once the pile is at rest, or a little after the play (a prize can go on rocking a hair where it lies)
+      if (!g.busy && this.pileOwed && !this.restocks.length && (this.world.settled || this.clock - this.busyAt > PILE_WAIT)) {
         this.pileOwed = false;
         this.publishMotion(this.motionNow());
         this.publishPile(this.pileNow());
@@ -764,22 +782,6 @@ export class ClawMachine {
     c.fillStyle = "#ff3a2a";
     c.fillText(text, w / 2, h / 2 + 2);
     this.displayTex.update(true);
-  }
-}
-
-/** Fill a machine: every prize of the stock dropped in, settled into a pile, any that tumbled into the chute put back elsewhere. */
-function stockMachine(world: PrizeWorld, S: ClawSpec, rnd: () => number) {
-  STOCK.forEach((kind, i) => dropIn(world, kind, rnd, S.bedY + 0.12 + Math.floor(i / 6) * 0.16));
-  world.settle(10);
-  for (let pass = 0; pass < 4; pass++) {
-    let moved = false;
-    for (let b = 0; b < world.count; b++)
-      if (world.pose[b * 7 + 1] < S.bedY) {
-        restock(world, b, rnd, S.bedY + 0.45);
-        moved = true;
-      }
-    if (!moved) break;
-    world.settle(6);
   }
 }
 

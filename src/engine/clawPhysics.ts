@@ -50,9 +50,12 @@ const chimpSpheres = (s: number): [number, number, number, number][] =>
       [0, 0.168, -0.004, 0.058],
       [-0.045, 0.026, -0.078, 0.024],
       [0.045, 0.026, -0.078, 0.024],
-      // the legs' tops, joining them to the body (with a gap there, the guard's thin wall could slip between leg and body)
+      // the legs' tops and middles, joining the feet to the body all the way (with a gap anywhere along a leg, the
+      // guard's thin wall could slip into it, and the chimp hang on the guard by its foot)
       [-0.024, 0.046, -0.04, 0.028],
       [0.024, 0.046, -0.04, 0.028],
+      [-0.035, 0.036, -0.059, 0.026],
+      [0.035, 0.036, -0.059, 0.026],
     ] as [number, number, number, number][]
   ).map(([x, y, z, r]) => [x * s, y * s, z * s, r * s]);
 
@@ -67,6 +70,8 @@ const starSpheres = (): [number, number, number, number][] => {
   for (let i = 0; i < 5; i++) {
     const a = (i / 5) * Math.PI * 2 - Math.PI / 2;
     out.push([Math.cos(a) * 0.072, 0.03, Math.sin(a) * 0.072, 0.024]);
+    // and its middle, so the arm is whole: the guard's thin wall can't slip between an arm's tip and the star
+    out.push([Math.cos(a) * 0.04, 0.03, Math.sin(a) * 0.04, 0.026]);
   }
   return out;
 };
@@ -112,6 +117,22 @@ const EASE = 0.0006;
 const CREEP_OUT = 0.0002;
 /** overlap left under this (m) is let be: a resting pile always presses in a little, and easing it would keep the pile from sleeping */
 const SLOP = 0.0005;
+/** the chute guard's walls' half thickness (m), the radius of the tube along their top; and how steeply that rim tips a prize off it at the least (sideways per up) */
+const GUARD_T = 0.004;
+const RIM_TIP = 0.45;
+/** how far clear of the guard a freshly stocked pile keeps (m) */
+const GUARD_CLEAR = 0.03;
+/** how far below the bed a prize's centre has gone down the chute when it counts as won (m) */
+export const CHUTE_DOWN = 0.08;
+/**
+ * A prize longer than the hole is wide (the king lying across it, its feet on the glass and its neck
+ * hooked on the rim) can't fall in as a rigid body: a plush one squashes past the rim and folds in.
+ * After SAG_T s in the chute's mouth, the guard only keeps it in (it is let past it into the chute,
+ * never back out), and it turns toward fitting at SAG_SPIN rad/s: its longest way toward upright,
+ * its widest way across toward the hole's diagonal.
+ */
+const SAG_T = 0.4;
+const SAG_SPIN = 1.5;
 /** the fastest a prize's centre goes (m/s): across, and up; and falling (down the shaft) */
 const MAX_ACROSS = 1.0;
 const MAX_UP = 0.8;
@@ -191,8 +212,14 @@ export class PrizeWorld {
   private turnStart = new Float64Array(0);
   /** per body: how far the solve's creeping out of old overlap moved its centre this substep (not to become speed) */
   private crept = new Float64Array(0);
+  /** per body: how long it has been in the chute's mouth (overChute); and its longest way, the two spheres furthest apart (-1 for a ball) */
+  private mouthT = new Float64Array(0);
+  private longEnds: number[] = [];
   private acc = 0;
   private tmp = new Float64Array(3);
+  private sagQ = new Float64Array(4);
+  /** per particle: how far sag() turned it this substep (not to become speed) */
+  private sagMove = new Float64Array(0);
   /** the claw's capsules this step: the head, then each prong's two segments */
   readonly claw: Capsule[] = [];
   /** set by each step: how far the claw's capsules are left pressed into prizes once the pile has pushed back (m), and into which (-1 none) */
@@ -265,7 +292,9 @@ export class PrizeWorld {
     this.comStart = grow(this.comStart, 3);
     this.turnStart = grow(this.turnStart, 4);
     this.crept = grow(this.crept, 3);
+    this.mouthT = grow(this.mouthT, 1);
     this.clawHad = grow(this.clawHad, n);
+    this.sagMove = grow(this.sagMove, n * 3);
     this.still = grow(this.still, 1);
     const s8 = new Uint8Array(b + 1);
     s8.set(this.sleeping);
@@ -285,6 +314,18 @@ export class PrizeWorld {
       bound = Math.max(bound, Math.hypot(sx - cx, sy - cy, sz - cz) + sr);
     });
     this.bound[b] = bound;
+    // its longest way: across its two spheres furthest apart, edge to edge
+    let far = 0;
+    let ends = [-1, -1];
+    for (let i = n0; i < n0 + n; i++)
+      for (let j = i + 1; j < n0 + n; j++) {
+        const d = Math.hypot(this.rest[i * 3] - this.rest[j * 3], this.rest[i * 3 + 1] - this.rest[j * 3 + 1], this.rest[i * 3 + 2] - this.rest[j * 3 + 2]);
+        if (d + this.r[i] + this.r[j] > far) {
+          far = d + this.r[i] + this.r[j];
+          ends = [i, j];
+        }
+      }
+    this.longEnds.push(...ends);
     this.place(b, x, y, z, q);
     return b;
   }
@@ -308,6 +349,7 @@ export class PrizeWorld {
       }
     }
     this.gone[b] = 0;
+    this.mouthT[b] = 0;
     this.wake(b);
   }
 
@@ -331,6 +373,14 @@ export class PrizeWorld {
     this.gone[b] = 0;
     this.sleeping[b] = asleep ? 1 : 0;
     this.still[b] = 0;
+  }
+
+  /** Put body b at (x, y, z) turned by q as place() does, then slid clear of the glass and over the guard, as the claw keeps what it holds. */
+  placeClear(b: number, x: number, y: number, z: number, q: [number, number, number, number]): void {
+    this.place(b, x, y, z, q);
+    this.confine(b);
+    const o = b * 7;
+    this.place(b, this.pose[o], this.pose[o + 1], this.pose[o + 2], [this.pose[o + 3], this.pose[o + 4], this.pose[o + 5], this.pose[o + 6]]);
   }
 
   /** Take body b out of play (won and taken), or put it back with place(). */
@@ -359,6 +409,11 @@ export class PrizeWorld {
     if (this.held >= 0) return false;
     for (let b = 0; b < this.count; b++) if (!this.sleeping[b]) return false;
     return true;
+  }
+
+  /** How far body b reaches from its centre (m). */
+  boundOf(b: number): number {
+    return this.bound[b];
   }
 
   /** Body b's spheres, now: [x, y, z, r] each, in a reused array. */
@@ -466,7 +521,8 @@ export class PrizeWorld {
       p[o + 1] += v[o + 1] * H;
       p[o + 2] += v[o + 2] * H;
     }
-    if (this.held >= 0) this.confineHeld();
+    if (this.held >= 0) this.confine(this.held);
+    for (let b = 0; b < this.count; b++) if (this.mouthT[b] > SAG_T && !this.sleeping[b] && !this.gone[b] && b !== this.held) this.sag(b);
     // the claw pushes first, so what the walls and the pile push back with shows as the claw's overlap left at the end
     for (let it = 0; it < ITERS; it++) {
       this.collideClaw(false);
@@ -484,9 +540,10 @@ export class PrizeWorld {
       this.crept[b * 3] = this.crept[b * 3 + 1] = this.crept[b * 3 + 2] = 0;
       for (let k = this.start[b]; k < this.start[b + 1]; k++) {
         const o = k * 3;
-        prev[o] += cx;
-        prev[o + 1] += cy;
-        prev[o + 2] += cz;
+        prev[o] += cx + this.sagMove[o];
+        prev[o + 1] += cy + this.sagMove[o + 1];
+        prev[o + 2] += cz + this.sagMove[o + 2];
+        this.sagMove[o] = this.sagMove[o + 1] = this.sagMove[o + 2] = 0;
         v[o] = (p[o] - prev[o]) / H;
         v[o + 1] = (p[o + 1] - prev[o + 1]) / H;
         v[o + 2] = (p[o + 2] - prev[o + 2]) / H;
@@ -503,7 +560,11 @@ export class PrizeWorld {
       const dot = Math.abs(q[b * 7 + 3] * t0[b * 4] + q[b * 7 + 4] * t0[b * 4 + 1] + q[b * 7 + 5] * t0[b * 4 + 2] + q[b * 7 + 6] * t0[b * 4 + 3]);
       const turned = 2 * Math.acos(Math.min(1, dot)) * this.bound[b];
       const moved = (Math.hypot(c[0] - this.comStart[b * 3], c[1] - this.comStart[b * 3 + 1], c[2] - this.comStart[b * 3 + 2]) + turned) / H;
-      if (moved < SLEEP_V) this.still[b] += H;
+      // never to sleep in the chute's mouth: on until it has fallen in or off
+      const mouth = this.overChute(b);
+      this.mouthT[b] = mouth ? this.mouthT[b] + H : 0;
+      if (mouth) this.still[b] = 0;
+      else if (moved < SLEEP_V) this.still[b] += H;
       else if (moved < CREEP_V) this.still[b] += H * (SLEEP_T / CREEP_T);
       else this.still[b] = 0;
       if (this.still[b] > SLEEP_T) {
@@ -619,6 +680,100 @@ export class PrizeWorld {
         this.p[k * 3 + 2] += dz;
       }
     }
+  }
+
+  /**
+   * Whether body b is in the chute's mouth, not yet down it: its centre over the hole (or on the
+   * guard's rim), above where it counts as down. It never sleeps there, so it can't come to rest
+   * on the rim or across the mouth: it goes on until it has fallen in or off.
+   */
+  overChute(b: number): boolean {
+    const B = this.box;
+    const o = b * 7;
+    const [, cx1, , cz1] = B.chute;
+    const y = this.pose[o + 1];
+    return this.pose[o] < cx1 + GUARD_T && this.pose[o + 2] < cz1 + GUARD_T && y > B.bedY - CHUTE_DOWN && y < B.bedY + B.guardH + this.bound[b];
+  }
+
+  /**
+   * Body b, stuck across the chute's mouth, turned a little toward fitting: its longest way toward
+   * upright, and its widest way across toward the hole's diagonal, about its centre. The turn is
+   * part of the substep's motion, so the glass and the shaft stop it as they stop a fall (it slides
+   * along them), but it gives the body no speed (sagMove): it slips in, it doesn't flip in.
+   */
+  private sag(b: number) {
+    const i = this.longEnds[b * 2];
+    const j = this.longEnds[b * 2 + 1];
+    if (i < 0) return;
+    const { p, r } = this;
+    // which end goes up: one hanging out over the guard (it has to come back over the rim), else the higher
+    const [, cx1, , cz1] = this.box.chute;
+    const out = (k: number) => p[k * 3] > cx1 - GUARD_T || p[k * 3 + 2] > cz1 - GUARD_T;
+    const up = out(i) !== out(j) ? (out(i) ? i : j) : p[i * 3 + 1] >= p[j * 3 + 1] ? i : j;
+    const dn = up === i ? j : i;
+    let ax = p[up * 3] - p[dn * 3];
+    let ay = p[up * 3 + 1] - p[dn * 3 + 1];
+    let az = p[up * 3 + 2] - p[dn * 3 + 2];
+    const al = Math.hypot(ax, ay, az);
+    if (al < 1e-9) return;
+    ax /= al;
+    ay /= al;
+    az /= al;
+    // the tip: about (long way × up), by what is left to upright, at most SAG_SPIN a second
+    let wx = 0;
+    let wy = 0;
+    let wz = 0;
+    const left = Math.acos(Math.max(-1, Math.min(1, ay)));
+    const kl = Math.hypot(az, ax);
+    if (left > 0.05 && kl > 1e-9) {
+      const a = Math.min(left, SAG_SPIN * H) / kl;
+      wx = -az * a;
+      wz = ax * a;
+    }
+    // and the turn about the upright: its widest way across toward the hole's diagonal, where it has the most room
+    let wide = 0;
+    let dx = 0;
+    let dz = 0;
+    for (let m = this.start[b]; m < this.start[b + 1]; m++)
+      for (let n = m + 1; n < this.start[b + 1]; n++) {
+        const hx = p[m * 3] - p[n * 3];
+        const hz = p[m * 3 + 2] - p[n * 3 + 2];
+        const h = Math.hypot(hx, hz) + r[m] + r[n];
+        if (h > wide) [wide, dx, dz] = [h, hx, hz];
+      }
+    if (dx || dz) {
+      // its angle across the hole's square, 0..90°: 45° is a diagonal
+      const quarter = Math.PI / 2;
+      const off = (((Math.atan2(dz, dx) % quarter) + quarter) % quarter) - quarter / 2;
+      // a turn by +w about the upright takes a direction's angle by -w
+      if (Math.abs(off) > 0.05) wy = Math.sign(off) * Math.min(Math.abs(off), SAG_SPIN * H);
+    }
+    if (wx === 0 && wy === 0 && wz === 0) return;
+    // about its centre, so both ends come in toward the hole
+    const ang = Math.hypot(wx, wy, wz);
+    const sn = Math.sin(ang / 2) / ang;
+    const q = this.sagQ;
+    q[0] = wx * sn;
+    q[1] = wy * sn;
+    q[2] = wz * sn;
+    q[3] = Math.cos(ang / 2);
+    const t = this.tmp;
+    this.centre(b, t, 0);
+    const cx = t[0];
+    const cy = t[1];
+    const cz = t[2];
+    const m = this.sagMove;
+    for (let k = this.start[b]; k < this.start[b + 1]; k++) {
+      const o = k * 3;
+      rot(q, 0, p[o] - cx, p[o + 1] - cy, p[o + 2] - cz, t, 0);
+      m[o] += cx + t[0] - p[o];
+      m[o + 1] += cy + t[1] - p[o + 1];
+      m[o + 2] += cz + t[2] - p[o + 2];
+      p[o] = cx + t[0];
+      p[o + 1] = cy + t[1];
+      p[o + 2] = cz + t[2];
+    }
+    turn(this.pose, b * 7 + 3, wx, wy, wz);
   }
 
   /** Body b's centre of mass now, into out[o..o+2]. */
@@ -760,8 +915,8 @@ export class PrizeWorld {
     const [, cx1, , cz1] = B.chute;
     const p = this.p;
     const inHole = (x: number, z: number) => x < cx1 && z < cz1;
-    // the glass walls
-    if (p[o] < bx0 + r) this.push(k, 1, 0, 0, bx0 + r - p[o], MU_WALL);
+    // the glass walls; round the chute nothing grips (a prize there slides down it, never hangs on the glass)
+    if (p[o] < bx0 + r) this.push(k, 1, 0, 0, bx0 + r - p[o], p[o + 2] < cz1 + r ? 0 : MU_WALL);
     if (p[o] > bx1 - r) this.push(k, -1, 0, 0, p[o] - (bx1 - r), MU_WALL);
     if (p[o + 2] > bz1 - r) this.push(k, 0, 0, -1, p[o + 2] - (bz1 - r), MU_WALL);
     const y = p[o + 1];
@@ -770,7 +925,7 @@ export class PrizeWorld {
       // the bin behind the pickup door: its floor slopes down to the door, which stands open a little way
       const front = B.doorZ - 0.05;
       if (p[o + 2] < front + r) this.push(k, 0, 0, 1, front + r - p[o + 2], MU_WALL);
-    } else if (p[o + 2] < bz0 + r) this.push(k, 0, 0, 1, bz0 + r - p[o + 2], MU_WALL);
+    } else if (p[o + 2] < bz0 + r) this.push(k, 0, 0, 1, bz0 + r - p[o + 2], p[o] < cx1 + r ? 0 : MU_WALL);
     if (y - r < B.bedY + 0.001 && y > B.bedY - 0.3) {
       if (!inHole(p[o], p[o + 2])) {
         // the bed's floor, out of the hole; at its edge a particle half over the hole rests on the lip
@@ -780,19 +935,70 @@ export class PrizeWorld {
     if (y < B.bedY + 0.005) {
       // inside the shaft and the bin: its walls are the chute's
       if (inHole(p[o] - r * 0.5, p[o + 2] - r * 0.5) || y < B.bedY - 0.01) {
-        if (p[o] > cx1 - r) this.push(k, -1, 0, 0, p[o] - (cx1 - r), MU_WALL);
-        if (p[o + 2] > cz1 - r) this.push(k, 0, 0, -1, p[o + 2] - (cz1 - r), MU_WALL);
+        if (p[o] > cx1 - r) this.push(k, -1, 0, 0, p[o] - (cx1 - r), 0);
+        if (p[o + 2] > cz1 - r) this.push(k, 0, 0, -1, p[o + 2] - (cz1 - r), 0);
       }
       const fy = B.binY + 0.2 * (p[o + 2] - B.doorZ);
       if (p[o + 1] < fy + r) this.push(k, 0, 1, 0, fy + r - p[o + 1], MU_WALL);
     }
-    // the guard round the chute, its two walls and their rim
-    const t = 0.004;
+    // the guard round the chute: its two walls of slick acrylic, and the chrome tube along their top
+    const t = GUARD_T;
     const gy1 = B.bedY + B.guardH;
     if (y - r < gy1 + t) {
-      this.boxOut(k, cx1 - t, cx1 + t, B.bedY - 0.02, gy1, bz0 - 0.03, cz1 + t, MU_WALL);
-      this.boxOut(k, bx0 - 0.03, cx1 + t, B.bedY - 0.02, gy1, cz1 - t, cz1 + t, MU_WALL);
+      if (this.mouthT[this.body[k]] > SAG_T) {
+        // a prize stuck in the chute's mouth a while is folding in over the guard: squashed past it, one way only, into the
+        // chute (eased, as old overlap is), never back out of it, and never through the glass
+        // (only as far as the room it has before the glass: the guard comes last, and must not press it into the glass)
+        const x = p[o];
+        const z = p[o + 2];
+        if (z < cz1 + t + r && x > cx1 - t - r && x < cx1 + t + r) this.push(k, -1, 0, 0, Math.min(x - (cx1 - t - r), x - (bx0 + r)), 0);
+        if (x < cx1 + t + r && z > cz1 - t - r && z < cz1 + t + r) this.push(k, 0, 0, -1, Math.min(z - (cz1 - t - r), z - (bz0 + r)), 0);
+      } else if (y < gy1) {
+        this.boxOut(k, cx1 - t, cx1 + t, B.bedY - 0.02, gy1, bz0 - 0.03, cz1 + t, 0);
+        this.boxOut(k, bx0 - 0.03, cx1 + t, B.bedY - 0.02, gy1, cz1 - t, cz1 + t, 0);
+      } else this.rimOut(k);
     }
+  }
+
+  /**
+   * Particle k on the guard's rim, a tube of radius GUARD_T along the top of its two walls. Nothing
+   * balances on it: it pushes a prize off toward the side its weight is on (into the chute, or back
+   * onto the bed), however squarely it sits on top, and it is slick, so a prize there slides off.
+   */
+  private rimOut(k: number) {
+    const B = this.box;
+    const o = k * 3;
+    const { p } = this;
+    const [bx0, , bz0] = B.bed;
+    const [, cx1, , cz1] = B.chute;
+    const gy1 = B.bedY + B.guardH;
+    const px = p[o];
+    const py = p[o + 1];
+    const pz = p[o + 2];
+    // the nearest point on the tube's line: along the wall at x = cx1, or the one at z = cz1
+    const zOn = Math.max(bz0, Math.min(cz1, pz));
+    const xOn = Math.max(bx0, Math.min(cx1, px));
+    const dA = Math.hypot(px - cx1, py - gy1, pz - zOn);
+    const dB = Math.hypot(px - xOn, py - gy1, pz - cz1);
+    const onX = dA <= dB;
+    const d = onX ? dA : dB;
+    const depth = this.r[k] + GUARD_T - d;
+    if (depth <= 0 || d < 1e-9) return;
+    let nx = (onX ? px - cx1 : px - xOn) / d;
+    const ny = (py - gy1) / d;
+    let nz = (onX ? pz - zOn : pz - cz1) / d;
+    // which side of this wall the body's weight is on: the chute's, if it is over the hole
+    const c = this.body[k] * 7;
+    const hole = this.pose[c] < cx1 && this.pose[c + 2] < cz1;
+    if (onX) {
+      const side = hole || this.pose[c] < cx1 ? -1 : 1;
+      if (nx * side < RIM_TIP * ny) nx = side * RIM_TIP * ny;
+    } else {
+      const side = hole || this.pose[c + 2] < cz1 ? -1 : 1;
+      if (nz * side < RIM_TIP * ny) nz = side * RIM_TIP * ny;
+    }
+    const l = Math.hypot(nx, ny, nz);
+    this.push(k, nx / l, ny / l, nz / l, depth, 0);
   }
 
   private collidePairs() {
@@ -915,8 +1121,7 @@ export class PrizeWorld {
    * pushed about, but the glass still stops it, so it slides over in the prongs (the whole body,
    * as rigid as it's held) rather than passing through.
    */
-  private confineHeld() {
-    const b = this.held;
+  private confine(b: number) {
     const B = this.box;
     const { p, r } = this;
     const [bx0, bx1, bz0, bz1] = B.bed;
@@ -1039,19 +1244,85 @@ export function seeded(seed: number): () => number {
   };
 }
 
-/** What a full machine holds: kinds in stocking order. */
-export const STOCK: PrizeKind[] = ["king", "chimp", "banana", "chimp", "coconut", "star", "chimp", "banana", "pinkChimp", "chimp", "star", "coconut", "chimp", "banana", "chimp", "star", "pinkChimp", "chimp", "banana", "coconut"];
+/** What a full machine holds: kinds in stocking order (27: 9 chimps, 3 pink, 6 bananas, 5 stars, 3 Coco Balls and the King). */
+export const STOCK: PrizeKind[] = [
+  "king", "chimp", "banana", "chimp", "coconut", "star", "chimp", "banana", "pinkChimp", "chimp", "star", "coconut", "chimp", "banana",
+  "chimp", "star", "pinkChimp", "chimp", "banana", "coconut", "star", "banana", "chimp", "pinkChimp", "star", "banana", "chimp",
+];
+
+/**
+ * Fill a machine (`fresh`: its prizes are already added, just put back in): every prize of the
+ * stock dropped in, settled into a pile; any that ended up in the chute or against its guard put
+ * back elsewhere, so the pile starts well clear of the chute.
+ */
+export function stockPile(world: PrizeWorld, rnd: () => number, fresh = false): void {
+  const B = world.box;
+  const y = (i: number) => B.bedY + 0.12 + Math.floor(i / 6) * 0.16;
+  if (fresh) {
+    for (let b = 0; b < world.count; b++) world.remove(b);
+    for (let b = 0; b < world.count; b++) restock(world, b, rnd, y(b));
+  } else STOCK.forEach((kind, i) => dropIn(world, kind, rnd, y(i)));
+  world.settle(10);
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = false;
+    for (let b = 0; b < world.count; b++)
+      if (world.pose[b * 7 + 1] < B.bedY || nearGuard(world, b, GUARD_CLEAR)) {
+        restock(world, b, rnd, B.bedY + 0.45);
+        moved = true;
+      }
+    if (!moved) break;
+    world.settle(6);
+  }
+}
+
+/** Whether any part of prize b is within `gap` (m) of the chute's guard, or over it. */
+function nearGuard(world: PrizeWorld, b: number, gap: number): boolean {
+  const [, cx1, , cz1] = world.box.chute;
+  const s = world.spheres(b, []);
+  for (let i = 0; i < s.length; i += 4) if (s[i] - s[i + 3] < cx1 + gap && s[i + 2] - s[i + 3] < cz1 + gap) return true;
+  return false;
+}
 
 /** Drop a prize in from above the bed at a random spot away from the chute, randomly turned. */
 export function dropIn(world: PrizeWorld, kind: PrizeKind, rnd: () => number, y: number): number {
-  const [x, z, q] = dropSpot(world, rnd);
-  return world.add(kind, x, y, z, q);
+  const b = world.add(kind, 0, y, 0);
+  restock(world, b, rnd, y);
+  return b;
 }
 
-/** Put a prize that was won back in (restocking), dropped from height y. */
+/**
+ * Put prize b in from height y (stocking, or a won one put back) at a random spot: inside the
+ * glass, well clear of the chute's guard, and clear of every prize already in, so it starts
+ * inside none of them (raised a little if the spots at that height are taken).
+ */
 export function restock(world: PrizeWorld, b: number, rnd: () => number, y: number): void {
-  const [x, z, q] = dropSpot(world, rnd);
-  world.place(b, x, y, z, q);
+  for (let i = 0; i < 120; i++) {
+    const [x, z, q] = dropSpot(world, rnd);
+    world.place(b, x, y + Math.floor(i / 30) * 0.08, z, q);
+    if (startsClear(world, b)) return;
+  }
+}
+
+/** Whether prize b, where it was just put, is inside the glass, away from the guard, and in no other prize. */
+function startsClear(world: PrizeWorld, b: number): boolean {
+  const [bx0, bx1, bz0, bz1] = world.box.bed;
+  const mine = world.spheres(b, []);
+  for (let i = 0; i < mine.length; i += 4) {
+    const [x, , z, r] = [mine[i], mine[i + 1], mine[i + 2], mine[i + 3]];
+    if (x - r < bx0 || x + r > bx1 || z - r < bz0 || z + r > bz1) return false;
+  }
+  if (nearGuard(world, b, GUARD_CLEAR + 0.05)) return false;
+  const other: number[] = [];
+  for (let o = 0; o < world.count; o++) {
+    if (o === b || world.isGone(o)) continue;
+    const reach = world.boundOf(b) + world.boundOf(o);
+    if (Math.hypot(world.pose[b * 7] - world.pose[o * 7], world.pose[b * 7 + 1] - world.pose[o * 7 + 1], world.pose[b * 7 + 2] - world.pose[o * 7 + 2]) > reach) continue;
+    world.spheres(o, other);
+    for (let i = 0; i < mine.length; i += 4)
+      for (let j = 0; j < other.length; j += 4)
+        if (Math.hypot(mine[i] - other[j], mine[i + 1] - other[j + 1], mine[i + 2] - other[j + 2]) < mine[i + 3] + other[j + 3]) return false;
+  }
+  return true;
 }
 
 function dropSpot(world: PrizeWorld, rnd: () => number): [number, number, [number, number, number, number]] {

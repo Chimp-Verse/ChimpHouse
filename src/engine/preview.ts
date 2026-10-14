@@ -551,7 +551,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         return Vector3.TransformCoordinates(new Vector3((S.chute[0] + S.chute[1]) / 2, S.binY + 0.13, S.doorZ), claw.root.computeWorldMatrix(true)).asArray();
       },
       /** the play: its phase, timer, grip, the prizes behind the door, the last message, and whether the test's aim is set */
-      state: () => ({ phase: claw.game.phase, timer: claw.game.timer, strength: claw.game.strength, inBin: claw.game.inBin(), message: store.get().claw?.message ?? "", aimed: claw.aimed }),
+      state: () => ({ phase: claw.game.phase, timer: claw.game.timer, strength: claw.game.strength, inBin: claw.game.inBin(), inMouth: claw.game.inMouth(), message: store.get().claw?.message ?? "", aimed: claw.aimed }),
       display: () => (claw.game.phase === "aim" ? "timer" : claw.game.inBin().length ? "WIN!" : claw.game.busy ? "----" : "PLAY"),
       use: () => claw.use(),
       leave: () => claw.leave(),
@@ -567,6 +567,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** n prizes dropped in on top of one another, deep in each other (the indexes); and how far any prize pokes out through the glass (m) */
       jumble: (n: number) => claw.jumble(n),
       glassOut: () => claw.glassOut(),
+      /** a prize of a kind let go over the chute as the claw lets go: off the claw's home by (dx, dz), turned by q (its index, or -1) */
+      chuteDrop: (kind: Parameters<typeof claw.chuteDrop>[0], dx: number, dz: number, q: [number, number, number, number]) => claw.chuteDrop(kind, dx, dz, q),
       /** the machine as it opens, for everyone in the room: a fresh pile, nobody playing (tests start from it) */
       reset: () => claw.reset(),
       /** who is playing, if another visitor is (shared through the room) */
