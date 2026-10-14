@@ -515,6 +515,18 @@ export class ClawMachine {
    */
   playPose(): Pose {
     const engine = this.scene.getEngine();
+    // each view's pose is worked out once per window size (the machine and the room round it stand still)
+    const key = `${this.view} ${engine.getRenderWidth()}x${engine.getRenderHeight()}x${engine.getHardwareScalingLevel()}`;
+    const known = this.poses.get(key);
+    if (known) return { ...known };
+    const pose = this.viewPose();
+    this.poses.set(key, pose);
+    return { ...pose };
+  }
+  private poses = new Map<string, Pose>();
+
+  private viewPose(): Pose {
+    const engine = this.scene.getEngine();
     const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
     const wm = this.root.computeWorldMatrix(true);
     const v = this.view;
@@ -589,17 +601,44 @@ export class ClawMachine {
    * through; its header, marquee and deck are in the way like anything else.
    */
   private clearSight(C: Vector3, eye: Vector3, wm: Matrix): boolean {
+    const tris = this.occluders(wm);
     const inv = wm.clone().invert();
     const S = this.spec;
-    const ours = (p: Vector3) => {
-      const l = Vector3.TransformCoordinates(p, inv);
+    const ours = (x: number, y: number, z: number) => {
+      const l = Vector3.TransformCoordinatesFromFloatsToRef(x, y, z, inv, this.v);
       return l.x > S.bed[0] - 0.07 && l.x < S.bed[1] + 0.07 && l.z > S.bed[2] - 0.07 && l.z < S.bed[3] + 0.08 && l.y > S.bedY - 0.1 && l.y < S.bridgeY + 0.09;
     };
+    // whether the segment a→b (and `past` beyond b) crosses no triangle but the glass box's own (Möller–Trumbore)
     const free = (a: Vector3, b: Vector3, past = 0) => {
       const d = b.subtract(a);
       const len = d.length();
-      const hits = this.scene.multiPickWithRay(new Ray(a, d.normalize(), len + past), (m) => m.isPickable && m.isEnabled() && m.isVisible) ?? [];
-      return hits.every((h) => !h.pickedPoint || ours(h.pickedPoint));
+      d.scaleInPlace(1 / len);
+      const reach = len + past;
+      const [x0, x1] = [Math.min(a.x, a.x + d.x * reach), Math.max(a.x, a.x + d.x * reach)];
+      const [y0, y1] = [Math.min(a.y, a.y + d.y * reach), Math.max(a.y, a.y + d.y * reach)];
+      const [z0, z1] = [Math.min(a.z, a.z + d.z * reach), Math.max(a.z, a.z + d.z * reach)];
+      for (let o = 0; o < tris.length; o += 9) {
+        // its box clear of the segment's: not in the way
+        if (Math.max(tris[o], tris[o + 3], tris[o + 6]) < x0 || Math.min(tris[o], tris[o + 3], tris[o + 6]) > x1) continue;
+        if (Math.max(tris[o + 1], tris[o + 4], tris[o + 7]) < y0 || Math.min(tris[o + 1], tris[o + 4], tris[o + 7]) > y1) continue;
+        if (Math.max(tris[o + 2], tris[o + 5], tris[o + 8]) < z0 || Math.min(tris[o + 2], tris[o + 5], tris[o + 8]) > z1) continue;
+        const e1x = tris[o + 3] - tris[o], e1y = tris[o + 4] - tris[o + 1], e1z = tris[o + 5] - tris[o + 2];
+        const e2x = tris[o + 6] - tris[o], e2y = tris[o + 7] - tris[o + 1], e2z = tris[o + 8] - tris[o + 2];
+        const px = d.y * e2z - d.z * e2y, py = d.z * e2x - d.x * e2z, pz = d.x * e2y - d.y * e2x;
+        const det = e1x * px + e1y * py + e1z * pz;
+        if (Math.abs(det) < 1e-12) continue;
+        const f = 1 / det;
+        const sx = a.x - tris[o], sy = a.y - tris[o + 1], sz = a.z - tris[o + 2];
+        const u = f * (sx * px + sy * py + sz * pz);
+        if (u < 0 || u > 1) continue;
+        const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+        const v = f * (d.x * qx + d.y * qy + d.z * qz);
+        if (v < 0 || u + v > 1) continue;
+        const t = f * (e2x * qx + e2y * qy + e2z * qz);
+        if (t < 0 || t > reach) continue;
+        if (!ours(a.x + d.x * t, a.y + d.y * t, a.z + d.z * t)) return false;
+      }
+      return true;
     };
     const w = (p: Vector3) => Vector3.TransformCoordinates(p, wm);
     const e = w(eye);
@@ -610,6 +649,28 @@ export class ClawMachine {
     for (const o of [right, right.negate(), up, up.negate()]) if (!free(w(C), w(eye.add(o.scale(0.2))))) return false;
     return BOX.every(([x, y, z]) => free(e, w(new Vector3(x, y, z))));
   }
+
+  /**
+   * The solid triangles round the machine (world, 9 numbers each): the walker's collision grid's,
+   * within a few metres, gathered once (again only if the grid is rebuilt, a cabinet come or gone).
+   * Testing the side views' lines of sight against these takes milliseconds; picking against the
+   * whole scene took seconds.
+   */
+  private occluders(wm: Matrix): Float64Array {
+    const cw = this.fly.walker?.world ?? null;
+    if (this.occ && this.occ.world === cw) return this.occ.tris;
+    let tris = new Float64Array(0);
+    if (cw) {
+      const c = wm.getTranslation();
+      const R = 3.2;
+      cw.gather(c.x - R, c.x + R, c.y - 0.5, c.y + 3.5, c.z - R, c.z + R);
+      tris = cw.verts.slice(0, cw.count * 9);
+    }
+    this.occ = { world: cw, tris };
+    return tris;
+  }
+  private occ: { world: unknown; tris: Float64Array } | null = null;
+
 
   /** The way the view looks into the machine, flat and squared to its sides (machine frame): the keys steer along it. */
   private viewAxis(): [number, number] {

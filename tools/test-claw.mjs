@@ -263,16 +263,25 @@ const glideTo = async (key) => {
     const cam = c.scene.activeCamera;
     const track = [];
     let on = true;
-    const tick = () => {
+    // the page's longest frame and longest task (main thread busy over 50 ms) while it changes view
+    let frame = 0;
+    const tasks = [];
+    const obs = new PerformanceObserver((l) => l.getEntries().forEach((e) => tasks.push(e.duration)));
+    obs.observe({ entryTypes: ["longtask"] });
+    const tick = (t) => {
       if (!on) return;
-      track.push([...cam.position.asArray(), performance.now()]);
+      if (track.length) frame = Math.max(frame, t - track[track.length - 1][4]);
+      track.push([...cam.position.asArray(), performance.now(), t]);
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
+    const k0 = performance.now();
     window.dispatchEvent(new KeyboardEvent("keydown", { code: key, key: key.replace("Key", "").replace("Digit", "").toLowerCase() }));
     window.dispatchEvent(new KeyboardEvent("keyup", { code: key }));
+    const press = performance.now() - k0;
     await new Promise((res) => setTimeout(res, 1100));
     on = false;
+    obs.disconnect();
     let step = 0;
     let moving = 0;
     let t0 = Infinity;
@@ -288,7 +297,7 @@ const glideTo = async (key) => {
     }
     const a = track[0];
     const b = track[track.length - 1];
-    return { view: c.claw.view(), step, moving, secs: (t1 - t0) / 1000, frames: track.length, dist: Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), inView: c.claw.inView() };
+    return { view: c.claw.view(), press, frame, task: Math.max(0, ...tasks), step, moving, secs: (t1 - t0) / 1000, frames: track.length, dist: Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]), inView: c.claw.inView() };
   }, key);
   return r;
 };
@@ -317,6 +326,7 @@ for (const key of ["KeyV", "KeyV", "KeyV", "Digit1"]) {
   console.log(`     ${key} → ${r.view}: moved ${r.dist.toFixed(2)} m in ${r.secs.toFixed(2)} s over ${r.moving} frames (${(r.step * 100).toFixed(1)} cm at most in one), machine in frame ${(r.inView * 100).toFixed(0)}%; W moves (${r.w.map((v) => v.toFixed(2)).join(", ")}), D (${r.d.map((v) => v.toFixed(2)).join(", ")})`);
 }
 check(views.map((r) => r.view).join(" ") === "close left right panel", "V steps through the views, 1 picks the panel view", views.map((r) => r.view).join(" → "));
+check(views.every((r) => r.press < 100 && r.task < 150), "no change of view stalls the page, the first of the page's either (the key's work under 100 ms, no task over 150 ms)", views.map((r) => `${r.view}: key ${r.press.toFixed(0)} ms, task ${r.task.toFixed(0)} ms, frame ${r.frame.toFixed(0)} ms`).join("; "));
 check(views.every((r) => r.dist > 0.1 && r.secs > 0.35 && r.moving >= 4 && r.step < r.dist * 0.4), "each change of view glides there, no jump", views.map((r) => `${r.secs.toFixed(2)} s, ${r.moving} frames, ${Math.round((r.step / r.dist) * 100)}% in one at most`).join("; "));
 check(views.every((r) => r.inView === 1), "the machine's bed and the claw's travel are in frame in every view");
 const [vClose, vLeft, vRight, vPanel] = views;
@@ -531,6 +541,17 @@ for (const key of ["Digit2", "Digit3", "Digit4", "Digit1"]) {
   phoneViews.push(r);
   await page.screenshot({ path: `captures/claw-view-phone-${r.view}.png` });
 }
+// the other eight ways between two views (the four above went panel→close→left→right→panel), on the phone-shaped window
+const pairs = [];
+for (const key of ["Digit3", "Digit2", "Digit4", "Digit3", "Digit1", "Digit4", "Digit2", "Digit1"]) {
+  const from = await ev(() => window.__chimp.claw.view());
+  const r = await glideTo(key);
+  pairs.push(`${from}→${r.view} ${Math.max(r.press, r.task).toFixed(0)} ms`);
+  r.ok = r.press < 100 && r.task < 150;
+  pairs.ok = (pairs.ok ?? true) && r.ok;
+}
+check(pairs.ok, "nor any other change between two views, either way", pairs.join(", "));
+check(phoneViews.every((r) => r.press < 100 && r.task < 150), "nor on a phone-shaped window, its views worked out afresh", phoneViews.map((r) => `${r.view}: key ${r.press.toFixed(0)} ms, task ${r.task.toFixed(0)} ms`).join("; "));
 check(phoneViews.every((r) => r.inView === 1), "on a phone-shaped window every view still holds the machine's bed and the claw's travel", phoneViews.map((r) => `${r.view} ${(r.inView * 100).toFixed(0)}%`).join(", "));
 await page.keyboard.press("Escape");
 await waitFor(() => window.__chimp.state().focus === null, null, 5000);
