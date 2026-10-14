@@ -69,6 +69,8 @@ export const CLAW_VIEWS = [
 export type ClawView = (typeof CLAW_VIEWS)[number]["id"];
 /** what the close and side views must hold (machine-local): the bed's corners and the gantry's travel at the top */
 const BOX = FRAME.slice(4);
+/** the close view holds the credit display too, at the back of the deck, clear of the HUD's bar */
+const CLOSE: [number, number, number][] = [...BOX, [-0.09, 0.925, -0.48], [0.07, 0.925, -0.48], [-0.09, 0.97, -0.44], [0.07, 0.97, -0.44]];
 
 /** Who is playing the machine: one visitor at a time. */
 interface ClawUse {
@@ -429,6 +431,8 @@ export class ClawMachine {
     this.sound.unlock();
     this.view = "panel";
     const ok = await this.focus.enter({ kind: "claw" }, this.parts.display, () => this.playPose(), GLIDE_IN);
+    // the other views worked out now, while the camera stands still, so changing to one never waits on it
+    if (ok) for (const v of CLAW_VIEWS) this.playPose(v.id);
     if (ok && !this.game.busy) this.play();
     return ok;
   }
@@ -513,23 +517,22 @@ export class ClawMachine {
    * Each is backed off along its line until its key points fit the frame, clear of the HUD's bars,
    * the fov widening on a narrow window.
    */
-  playPose(): Pose {
+  playPose(view: ClawView = this.view): Pose {
     const engine = this.scene.getEngine();
     // each view's pose is worked out once per window size (the machine and the room round it stand still)
-    const key = `${this.view} ${engine.getRenderWidth()}x${engine.getRenderHeight()}x${engine.getHardwareScalingLevel()}`;
+    const key = `${view} ${engine.getRenderWidth()}x${engine.getRenderHeight()}x${engine.getHardwareScalingLevel()}`;
     const known = this.poses.get(key);
     if (known) return { ...known };
-    const pose = this.viewPose();
+    const pose = this.viewPose(view);
     this.poses.set(key, pose);
     return { ...pose };
   }
   private poses = new Map<string, Pose>();
 
-  private viewPose(): Pose {
+  private viewPose(v: ClawView): Pose {
     const engine = this.scene.getEngine();
     const aspect = engine.getRenderWidth() / Math.max(1, engine.getRenderHeight());
     const wm = this.root.computeWorldMatrix(true);
-    const v = this.view;
     let fov = Math.min(1.45, Math.max(1.0, 2 * Math.atan(Math.tan(0.5) * (0.85 / aspect))));
     let C: Vector3;
     let eye: Vector3;
@@ -540,7 +543,7 @@ export class ClawMachine {
     } else if (v === "close") {
       fov = Math.min(1.3, Math.max(0.86, 2 * Math.atan(Math.tan(0.43) * (1.1 / aspect))));
       C = new Vector3(0, 1.3, 0.02);
-      eye = this.fit(C, 0, 0.42, BOX, fov, aspect, 0.98);
+      eye = this.fit(C, 0, 0.42, CLOSE, fov, aspect, 0.98);
     } else {
       C = new Vector3(0, 1.3, 0);
       // wider, so the eye can be nearer and get further round between the machine and what stands beside it
@@ -580,17 +583,26 @@ export class ClawMachine {
     const fwd = back.negate();
     const right = Vector3.Cross(Vector3.Up(), fwd).normalize();
     const up = Vector3.Cross(fwd, right);
-    for (let d = 0.5; d < 3.2; d += 0.01) {
+    const fits = (d: number) => {
       const e = C.add(back.scale(d));
-      const fits = pts.every(([x, y, z]) => {
+      return pts.every(([x, y, z]) => {
         const q = new Vector3(x - e.x, y - e.y, z - e.z);
         const depth = Vector3.Dot(q, fwd);
         const v = Vector3.Dot(q, up) / depth;
         return depth > 0 && v > lo && v < hi && Math.abs(Vector3.Dot(q, right) / depth) < t * aspect * side;
       });
-      if (fits) return e;
+    };
+    // the nearest that fits, to a centimetre: further back only ever fits better, so halve the gap
+    let near = 0.5;
+    let far = 3.2;
+    if (fits(near)) return C.add(back.scale(near));
+    if (!fits(far)) return C.add(back.scale(1.6));
+    while (far - near > 0.01) {
+      const mid = (near + far) / 2;
+      if (fits(mid)) far = mid;
+      else near = mid;
     }
-    return C.add(back.scale(1.6));
+    return C.add(back.scale(far));
   }
 
   /**
@@ -601,7 +613,7 @@ export class ClawMachine {
    * through; its header, marquee and deck are in the way like anything else.
    */
   private clearSight(C: Vector3, eye: Vector3, wm: Matrix): boolean {
-    const tris = this.occluders(wm);
+    const { tris, box } = this.occluders(wm);
     const inv = wm.clone().invert();
     const S = this.spec;
     const ours = (x: number, y: number, z: number) => {
@@ -617,11 +629,9 @@ export class ClawMachine {
       const [x0, x1] = [Math.min(a.x, a.x + d.x * reach), Math.max(a.x, a.x + d.x * reach)];
       const [y0, y1] = [Math.min(a.y, a.y + d.y * reach), Math.max(a.y, a.y + d.y * reach)];
       const [z0, z1] = [Math.min(a.z, a.z + d.z * reach), Math.max(a.z, a.z + d.z * reach)];
-      for (let o = 0; o < tris.length; o += 9) {
+      for (let o = 0, k = 0; o < tris.length; o += 9, k += 6) {
         // its box clear of the segment's: not in the way
-        if (Math.max(tris[o], tris[o + 3], tris[o + 6]) < x0 || Math.min(tris[o], tris[o + 3], tris[o + 6]) > x1) continue;
-        if (Math.max(tris[o + 1], tris[o + 4], tris[o + 7]) < y0 || Math.min(tris[o + 1], tris[o + 4], tris[o + 7]) > y1) continue;
-        if (Math.max(tris[o + 2], tris[o + 5], tris[o + 8]) < z0 || Math.min(tris[o + 2], tris[o + 5], tris[o + 8]) > z1) continue;
+        if (box[k + 1] < x0 || box[k] > x1 || box[k + 3] < y0 || box[k + 2] > y1 || box[k + 5] < z0 || box[k + 4] > z1) continue;
         const e1x = tris[o + 3] - tris[o], e1y = tris[o + 4] - tris[o + 1], e1z = tris[o + 5] - tris[o + 2];
         const e2x = tris[o + 6] - tris[o], e2y = tris[o + 7] - tris[o + 1], e2z = tris[o + 8] - tris[o + 2];
         const px = d.y * e2z - d.z * e2y, py = d.z * e2x - d.x * e2z, pz = d.x * e2y - d.y * e2x;
@@ -656,20 +666,38 @@ export class ClawMachine {
    * Testing the side views' lines of sight against these takes milliseconds; picking against the
    * whole scene took seconds.
    */
-  private occluders(wm: Matrix): Float64Array {
+  private occluders(wm: Matrix): { tris: Float64Array; box: Float32Array } {
     const cw = this.fly.walker?.world ?? null;
-    if (this.occ && this.occ.world === cw) return this.occ.tris;
-    let tris = new Float64Array(0);
+    if (this.occ && this.occ.world === cw) return this.occ;
+    const keep: number[] = [];
+    const box: number[] = [];
     if (cw) {
       const c = wm.getTranslation();
       const R = 3.2;
-      cw.gather(c.x - R, c.x + R, c.y - 0.5, c.y + 3.5, c.z - R, c.z + R);
-      tris = cw.verts.slice(0, cw.count * 9);
+      // every line of sight runs above the deck: what lies lower (the floor, most of the triangles) is never in the way
+      const low = c.y + this.spec.bedY - 0.15;
+      cw.gather(c.x - R, c.x + R, low, c.y + 3.5, c.z - R, c.z + R);
+      const v = cw.verts;
+      const inv = wm.clone().invert();
+      const S = this.spec;
+      const l = new Vector3();
+      for (let o = 0; o < cw.count * 9; o += 9) {
+        if (Math.max(v[o + 1], v[o + 4], v[o + 7]) < low) continue;
+        // and the glass box's own glass and posts are looked through
+        let inside = true;
+        for (let p = o; p < o + 9 && inside; p += 3) {
+          Vector3.TransformCoordinatesFromFloatsToRef(v[p], v[p + 1], v[p + 2], inv, l);
+          inside = l.x > S.bed[0] - 0.07 && l.x < S.bed[1] + 0.07 && l.z > S.bed[2] - 0.07 && l.z < S.bed[3] + 0.08 && l.y > S.bedY - 0.1 && l.y < S.bridgeY + 0.09;
+        }
+        if (inside) continue;
+        for (let p = o; p < o + 9; p++) keep.push(v[p]);
+        box.push(Math.min(v[o], v[o + 3], v[o + 6]), Math.max(v[o], v[o + 3], v[o + 6]), Math.min(v[o + 1], v[o + 4], v[o + 7]), Math.max(v[o + 1], v[o + 4], v[o + 7]), Math.min(v[o + 2], v[o + 5], v[o + 8]), Math.max(v[o + 2], v[o + 5], v[o + 8]));
+      }
     }
-    this.occ = { world: cw, tris };
-    return tris;
+    this.occ = { world: cw, tris: Float64Array.from(keep), box: Float32Array.from(box) };
+    return this.occ;
   }
-  private occ: { world: unknown; tris: Float64Array } | null = null;
+  private occ: { world: unknown; tris: Float64Array; box: Float32Array } | null = null;
 
 
   /** The way the view looks into the machine, flat and squared to its sides (machine frame): the keys steer along it. */
@@ -682,7 +710,7 @@ export class ClawMachine {
 
   /** For tests: the share of the view's key points in the frame as the camera is now (1: all of them). */
   inView(): number {
-    const pts = this.view === "panel" ? FRAME : BOX;
+    const pts = this.view === "panel" ? FRAME : this.view === "close" ? CLOSE : BOX;
     const wm = this.root.computeWorldMatrix(true);
     const cam = this.fly.camera;
     const vp = cam.getViewMatrix(true).multiply(cam.getProjectionMatrix(true));

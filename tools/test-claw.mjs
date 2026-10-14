@@ -194,7 +194,8 @@ let aimedOnce = false;
 let droppedOnce = false;
 // the prizes over every attempt: fastest (leaving out falls) and furthest through the glass
 const carried = { across: 0, out: 0 };
-for (let attempt = 0; attempt < 6 && !won; attempt++) {
+// a strong aimed grab wins about one play in three (the simulated odds above), so up to ten tries: all ten miss about 2% of the time
+for (let attempt = 0; attempt < 10 && !won; attempt++) {
   await ev(() => window.__chimp.claw.play());
   await ev(() => window.__chimp.claw.aimAtBest());
   const aimed = await waitFor(() => window.__chimp.claw.state().aimed, null, 18000);
@@ -541,12 +542,16 @@ for (const key of ["Digit2", "Digit3", "Digit4", "Digit1"]) {
   phoneViews.push(r);
   await page.screenshot({ path: `captures/claw-view-phone-${r.view}.png` });
 }
-// the other eight ways between two views (the four above went panel→close→left→right→panel), on the phone-shaped window
+// the other eight ways between two views (the four above went panel→close→left→right→panel), on the phone-shaped window,
+// between plays (so the claw dropping by itself when the timer runs out isn't timed with them)
+await ev(() => window.__chimp.claw.fastTimer(0));
+await waitFor(() => window.__chimp.claw.state().phase === "over", null, 40000);
+await page.waitForTimeout(1500);
 const pairs = [];
 for (const key of ["Digit3", "Digit2", "Digit4", "Digit3", "Digit1", "Digit4", "Digit2", "Digit1"]) {
   const from = await ev(() => window.__chimp.claw.view());
   const r = await glideTo(key);
-  pairs.push(`${from}→${r.view} ${Math.max(r.press, r.task).toFixed(0)} ms`);
+  pairs.push(`${from}→${r.view} key ${r.press.toFixed(0)} ms, task ${r.task.toFixed(0)} ms`);
   r.ok = r.press < 100 && r.task < 150;
   pairs.ok = (pairs.ok ?? true) && r.ok;
 }

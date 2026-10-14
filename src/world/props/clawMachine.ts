@@ -547,8 +547,9 @@ export function clawMachine(ctx: WorldCtx, z: Zone, m: Matrix): void {
   const btnZ = 0.012;
   ctx.g(z, "chrome").add(lathe([[0.046, 0], [0.047, 0.006], [0.041, 0.013], [0.036, 0.013]], 32), xf(btnX, 0, btnZ).multiply(deckM), "Claw drop button");
   ctx.g(z, "clawRubber").add(cylinder(0.036, 0.004, 28), xf(btnX, 0.001, btnZ).multiply(deckM), "Claw drop button");
-  // the credit and timer display, in a black housing at the back of the deck
-  const dispAt = xf(-0.01, 0.026, deckD / 2 - 0.03, 0, 1, 1, 1, -0.45);
+  // the credit and timer display, in a black housing at the back of the deck, its face tipped back
+  // to look up at a player standing at the deck (as a real machine's credit display is)
+  const dispAt = xf(-0.01, 0.03, deckD / 2 - 0.045, 0, 1, 1, 1, 0.75);
   ctx.g(z, "black").add(softBox(0.15, 0.06, 0.03, 0.006), dispAt.multiply(deckM), "Claw credit display");
 
   // ---- the root, which the engine finds the machine by; the parts that move hang from it
