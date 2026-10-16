@@ -455,6 +455,12 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
         { kind: "plastic", colour: 1, field: cups, h: 0.0025, tris: 3000 },
         { kind: "cloth", colour: 0, field: cushions, h: 0.0022, tris: 1600, bands: [] },
       ],
+      // the hair under the band and the cushions goes; round them it is pressed down, so the band
+      // sits on the head rather than sinking into a shaggy coat
+      covers: (x, y, z) => {
+        const d = Math.min(band.at(x, y, z), cushions.at(x, y, z), cups.at(x, y, z)) - 0.008;
+        return Math.max(d < 0 ? 1 : 0, 0.8 * (1 - smoothstep(0, 0.022, d)));
+      },
     };
   },
 
