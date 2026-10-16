@@ -15,13 +15,13 @@
 
 import type { Anatomy, PartName } from "./anatomy";
 import { decimate } from "./decimate";
-import { type RawMesh, drape, hitAlong, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, strapProfile, surfaceAlong, sweep, toItemMesh, topAt, torusMesh, tubeProfile, weighOnBody } from "./fit";
+import { type RawMesh, disc, drape, hitAlong, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, strapProfile, surfaceAlong, sweep, toItemMesh, topAt, torusMesh, tubeProfile, weighOnBody } from "./fit";
 import { buildGarment } from "./garments";
 import { meshField, settle } from "./mesher";
 import { type PrintArt, printAspect } from "./wordmark";
 import { Field, Mode, Prim, type V3, add, cross, dot, len, lerp3, norm, scale, smoothstep, sub } from "./sdf";
 
-export type PieceKind = "cloth" | "plastic" | "metal" | "glass" | "light";
+export type PieceKind = "cloth" | "plastic" | "metal" | "glass" | "light" | "dial";
 
 export interface ItemMesh {
   kind: PieceKind;
@@ -43,6 +43,8 @@ export interface ItemMesh {
   /** knitted (ribs rather than a weave), for this piece rather than the whole item; yarn's fuzz */
   knit?: boolean;
   fuzz?: number;
+  /** where its picture is laid (a watch's dial, avatar/materials.ts dialTexture) */
+  uvs?: Float32Array;
 }
 
 export interface ItemModel {
@@ -817,32 +819,84 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
 
   watch(a) {
     const r = a.rig;
+    const g = r.marks.girth;
     const el = r.bones[r.index.leftLowerArm].head;
     const wr = r.bones[r.index.leftHand].head;
+    // up the forearm toward the hand: the watch's 3 o'clock
     const dir = norm(sub(wr, el));
-    const g = r.marks.girth;
-    const at = add(wr, scale(dir, -0.03));
-    // the forearm's own girth there, and a little over it
-    const rad = 0.034 * g + 0.0012;
-    const strap = new Field();
-    strap.add(Prim.torus(at, dir, rad, 0.008, 0, "strap", 0.4));
-    const under = Prim.torus(at, dir, rad, 0.016, 0, "", 0.55);
-    // the case on the back of the wrist, its screen glowing ChimpVibe mint
+    const skin = skinOf(a, ["body", "handL"]);
+    // a little up the forearm from the wrist's joint, the strap round it on its skin
+    const at = add(wr, scale(dir, -0.036));
     const palm = r.marks.hands[0].palm;
-    const outward = scale(palm, -1);
-    const caseC = add(at, scale(outward, rad + 0.006));
-    const box = new Field();
-    box.add(Prim.box(caseC, [0.018, 0.006, 0.021], 0.004, 0, "case", dir, outward));
-    const screen = new Field();
-    screen.add(Prim.box(add(caseC, scale(outward, 0.0062)), [0.0135, 0.0012, 0.0165], 0.002, 0, "screen", dir, outward));
+    const across = norm(sub(palm, scale(dir, dot(palm, dir))));
+    const side = norm(cross(dir, across));
+    const N = 44;
+    const ring = ringOnSkin(skin, at, N, (t) => add(scale(across, Math.cos(t)), scale(side, Math.sin(t))));
+    const WIDTH = 0.018 * Math.pow(g, 0.3);
+    const THICK = 0.003;
+    let path = smoothPath(
+      ring.at.map((p, i) => add(p, scale(ring.normal[i], 0.0012 + THICK / 2))),
+      3,
+      true,
+    );
+    // the case on the back of the wrist (away from the palm), on the strap
+    const back = N / 2;
+    const n = ring.normal[back];
+    const e3 = norm(sub(dir, scale(n, dot(dir, n))));
+    // 12 o'clock: square to 3 and to the face, as it reads from in front
+    const e12 = norm(cross(e3, n));
+    const R = 0.0175;
+    const H = 0.0085;
+    const c = add(path[back], scale(n, THICK / 2 + H / 2 - 0.0005));
+    // the strap runs flat under the case out to its lugs, then bends round the wrist
+    const under = add(c, scale(n, -H / 2 + THICK / 2 + 0.0003));
+    path = path.map((p) => {
+      const t = Math.abs(dot(sub(p, c), e12));
+      const lift = dot(sub(under, p), n);
+      const k = 1 - smoothstep(R + 0.002, R + 0.014, t);
+      return lift > 0 && dot(sub(p, c), n) > -0.03 ? add(p, scale(n, lift * k)) : p;
+    });
+    const strap = rawMesh();
+    const prof = strapProfile(WIDTH, THICK);
+    sweep(strap, path, ring.normal, prof, true, (_i, k) => (prof[k].p[1] < 0 ? 0.5 : 1));
+    const top = add(c, scale(n, H / 2));
+    // a flat cylinder (a rounded cone cut to a slab: a round cone is capped with half-spheres), its top
+    // hollowed for the dial and its edges softened; the bezel round the glass a little proud
+    const slab = (at: V3, half: number) => Prim.box(at, [R * 2, half, R * 2], 0, 0, "slab", e3, n);
+    const kase = new Field();
+    kase.add(Prim.cone(add(c, scale(n, -H)), add(c, scale(n, H)), R, R, 0, "case"));
+    kase.meet(slab(c, H / 2), 0.0014);
+    const recess = new Field();
+    recess.add(Prim.cone(add(c, scale(n, -H)), add(c, scale(n, H * 2)), R - 0.0028, R - 0.0028, 0, "recess"));
+    recess.meet(slab(add(top, scale(n, 0.0072)), 0.01));
+    kase.cut(recess, 0.0004);
+    kase.add(Prim.torus(add(top, scale(n, -0.0004)), n, R - 0.0014, 0.0016, 0, "bezel", 1), 0.0008);
+    // lugs at 12 and 6 holding the strap; the crown at 3
+    for (const s12 of [-1, 1])
+      for (const s3 of [-1, 1]) kase.add(Prim.box(add(add(c, scale(e12, s12 * (R + 0.0022))), add(scale(e3, s3 * 0.0068), scale(n, -0.0016))), [0.0015, 0.0036, 0.0022], 0.0008, 0, "lug", n, e12), 0.0014);
+    kase.add(Prim.cone(add(c, scale(e3, R - 0.001)), add(c, scale(e3, R + 0.0042)), 0.0022, 0.0021, 0, "crown"), 0.0006);
+    // the glass, a shallow dome over the hollow; the dial at the hollow's floor under it
+    const crystal = new Field();
+    crystal.add(Prim.ellipsoid(add(top, scale(n, -0.0006)), [R - 0.0022, 0.0013, R - 0.0022], 0, "crystal", e3, n));
+    const dial = rawMesh();
+    disc(dial, add(top, scale(n, -0.0026)), n, e3, e12, R - 0.0029);
+    // the buckle on the inside of the wrist: a frame across the strap, and its tongue
+    const buckle = rawMesh();
+    const bn = ring.normal[0];
+    torusMesh(buckle, add(path[0], scale(bn, THICK / 2 + 0.0011)), bn, dir, 0.0042, 0.0011, (WIDTH * 0.62) / 0.0042, 18, 7);
     return {
       bone: "leftLowerArm",
       pieces: [
-        { kind: "cloth", colour: 0, field: strap, h: 0.0022, tris: 1600 },
-        { kind: "metal", colour: 1, field: box, h: 0.0015, tris: 900 },
-        { kind: "light", colour: 0, field: screen, h: 0.0012, tris: 300 },
+        { kind: "metal", colour: 1, field: kase, h: 0.0006, tris: 3000 },
+        { kind: "glass", colour: 0, hex: "#e8f4f2", field: crystal, h: 0.0006, tris: 700 },
       ],
-      covers: (x, y, z) => inside(under.d(x, y, z), 0.005),
+      meshes: [toItemMesh(strap, "cloth", 0, "leftLowerArm"), toItemMesh(dial, "dial", 0, "leftLowerArm"), toItemMesh(buckle, "metal", 1, "leftLowerArm")],
+      // the fur under the strap and the case goes; round them, pressed flat so the watch sits on the arm
+      covers: (x, y, z) => {
+        const p: V3 = [x, y, z];
+        const d = Math.min(pathDistance(path, true, p) - WIDTH * 0.55, len(sub(p, c)) - R - 0.004);
+        return Math.max(d < 0 ? 1 : 0, 0.82 * (1 - smoothstep(0, 0.024, d)));
+      },
     };
   },
 };

@@ -53,11 +53,42 @@ export function topAt(field: Field, x: number, z: number, from: number, to: numb
   return to;
 }
 
-/** The skin of the body and head together, for fitting what is worn where they meet (round the neck). */
-export function skinOf(anatomy: Anatomy): Field {
+/** The skin of several of the chimp's parts together (the body and head, for round the neck; the body and a hand, for the wrist). */
+export function skinOf(anatomy: Anatomy, parts: string[] = ["body", "head"]): Field {
   const f = new FieldCtor();
-  for (const name of ["body", "head"]) f.add(anatomy.parts.find((p) => p.name === name)!.field);
+  for (const name of parts) f.add(anatomy.parts.find((p) => p.name === name)!.field);
   return f;
+}
+
+/**
+ * A flat disc facing `n` (a watch's dial), `r` across, with a picture laid on it: the
+ * picture's right toward `right` (3 o'clock), its top toward `top` (12).
+ */
+export function disc(out: RawMesh, c: V3, n: V3, right: V3, top: V3, r: number, rings = 6, segs = 40): void {
+  const base = out.positions.length / 3;
+  out.positions.push(...c);
+  out.normals.push(...n);
+  out.open.push(1);
+  out.uv.push(0.5, 0.5);
+  for (let i = 1; i <= rings; i++)
+    for (let j = 0; j < segs; j++) {
+      const a = (j / segs) * Math.PI * 2;
+      const x = Math.cos(a) * (r * i) / rings;
+      const y = Math.sin(a) * (r * i) / rings;
+      out.positions.push(...add(c, add(scale(right, x), scale(top, y))));
+      out.normals.push(...n);
+      out.open.push(1);
+      out.uv.push(0.5 + x / (2 * r), 0.5 + y / (2 * r));
+    }
+  for (let j = 0; j < segs; j++) out.indices.push(base, base + 1 + j, base + 1 + ((j + 1) % segs));
+  for (let i = 1; i < rings; i++)
+    for (let j = 0; j < segs; j++) {
+      const a0 = base + 1 + (i - 1) * segs + j;
+      const a1 = base + 1 + (i - 1) * segs + ((j + 1) % segs);
+      const b0 = a0 + segs;
+      const b1 = a1 + segs;
+      out.indices.push(a0, b0, a1, a1, b0, b1);
+    }
 }
 
 /** Where a ray from `from` (outside the shape) along `dir` meets its surface; null if it doesn't within `max`. */
@@ -130,10 +161,12 @@ export interface RawMesh {
   /** per vertex, for stitching along an edge (a cap's peak): how far the edge is, and how far along it (metres); none if empty */
   edge: number[];
   along: number[];
+  /** per vertex, where a picture (a watch's dial) is laid on it; none if empty */
+  uv: number[];
 }
 
 export function rawMesh(): RawMesh {
-  return { positions: [], normals: [], indices: [], open: [], edge: [], along: [] };
+  return { positions: [], normals: [], indices: [], open: [], edge: [], along: [], uv: [] };
 }
 
 /**
@@ -398,7 +431,7 @@ export function toItemMesh(raw: RawMesh, kind: ItemMesh["kind"], colour: number,
     cloth[v * 4 + 2] = raw.open[v];
     cloth[v * 4 + 3] = stitched ? 10 + raw.along[v] : 0;
   }
-  return { kind, colour, hex, bone, positions: Float32Array.from(raw.positions), normals: Float32Array.from(raw.normals), indices: Uint32Array.from(raw.indices), cloth };
+  return { kind, colour, hex, bone, positions: Float32Array.from(raw.positions), normals: Float32Array.from(raw.normals), indices: Uint32Array.from(raw.indices), cloth, uvs: raw.uv.length === n * 2 ? Float32Array.from(raw.uv) : undefined };
 }
 
 /**

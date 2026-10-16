@@ -27,7 +27,7 @@ import {
 } from "@babylonjs/core";
 import type { ChimpDna, Slot } from "./dna";
 import type { ItemModel } from "./items";
-import { type ChimpClothPlugin, type ChimpFurPlugin, type ChimpSkinPlugin, clothMaterial, furMaterial, linear, printTexture, skinMaterial } from "./materials";
+import { type ChimpClothPlugin, type ChimpFurPlugin, type ChimpSkinPlugin, clothMaterial, dialTexture, furMaterial, linear, printTexture, skinMaterial } from "./materials";
 import type { ChimpModel } from "./model";
 import type { Rig } from "./rig";
 import type { PartName } from "./anatomy";
@@ -331,6 +331,7 @@ export class Chimp {
           vd.matricesIndices = im.bones!;
           vd.matricesWeights = im.weights!;
         }
+        if (im.uvs) vd.uvs = im.uvs;
         vd.applyToMesh(mesh, false);
         mesh.setVerticesData("chimpCloth", im.cloth, false, 4);
         if (im.bone) {
@@ -374,7 +375,7 @@ export class Chimp {
         // the print: its main ink one of the item's colours, or one that stands out from the cloth; its second always that
         d.cloth.printColour = w.printInk !== undefined && colours[w.printInk] ? linear(colours[w.printInk]) : standOut(main);
         d.cloth.printColour2 = standOut(main);
-      } else d.material.albedoColor = main;
+      } else if (d.kind !== "dial") d.material.albedoColor = main;
     }
   }
 
@@ -402,6 +403,11 @@ export class Chimp {
     if (kind === "metal") {
       m.metallic = 1;
       m.roughness = 0.22;
+    } else if (kind === "dial") {
+      // a watch's face, under its glass
+      m.metallic = 0;
+      m.roughness = 0.45;
+      m.albedoTexture = dialTexture(this.scene);
     } else if (kind === "glass") {
       m.metallic = 0;
       m.roughness = 0.04;

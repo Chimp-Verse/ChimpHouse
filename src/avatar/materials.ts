@@ -558,6 +558,102 @@ export function printTexture(scene: Scene, art: PrintArt = "mark"): DynamicTextu
   return tex;
 }
 
+const dials = new Map<number, DynamicTexture>();
+
+/**
+ * A watch's dial: cream, a minute track and baton hour markers, the ChimpVibe tree in mint
+ * under 12, and the hands at ten past ten (as a watch is shown), the seconds hand in mint.
+ * Its top is 12 and its right 3, as laid on the dial (avatar/fit.ts disc). One per scene.
+ */
+export function dialTexture(scene: Scene): DynamicTexture {
+  const had = dials.get(scene.uid as unknown as number);
+  if (had) return had;
+  const S = 512;
+  const tex = new DynamicTexture("chimpDial", { width: S, height: S }, scene, true);
+  tex.wrapU = Texture.CLAMP_ADDRESSMODE;
+  tex.wrapV = Texture.CLAMP_ADDRESSMODE;
+  const ctx = tex.getContext() as CanvasRenderingContext2D;
+  const c = S / 2;
+  const draw = (tree: HTMLImageElement | null) => {
+    const bg = ctx.createRadialGradient(c, c * 0.8, 0, c, c, c);
+    bg.addColorStop(0, "#f6f2ea");
+    bg.addColorStop(0.85, "#e9e3d7");
+    bg.addColorStop(1, "#cfc7b8");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, S, S);
+    // the minute track, and the hours' batons (12's doubled)
+    ctx.save();
+    ctx.translate(c, c);
+    for (let i = 0; i < 60; i++) {
+      ctx.save();
+      ctx.rotate((i / 60) * Math.PI * 2);
+      ctx.fillStyle = "#2a2c30";
+      if (i % 5 === 0) {
+        const w = S * 0.03;
+        if (i === 0) {
+          ctx.fillRect(-w * 1.15, -S * 0.455, w * 0.8, S * 0.12);
+          ctx.fillRect(w * 0.35, -S * 0.455, w * 0.8, S * 0.12);
+        } else ctx.fillRect(-w / 2, -S * 0.455, w, S * 0.11);
+      } else ctx.fillRect(-S * 0.003, -S * 0.465, S * 0.006, S * 0.03);
+      ctx.restore();
+    }
+    ctx.restore();
+    // the tree under 12, in mint (the mark's mint only, its dark ground left out)
+    if (tree) {
+      const t = document.createElement("canvas");
+      const T = 128;
+      t.width = T;
+      t.height = T;
+      const g = t.getContext("2d")!;
+      g.drawImage(tree, 0, 0, T, T);
+      const d = g.getImageData(0, 0, T, T);
+      for (let i = 0; i < d.data.length; i += 4) {
+        const a = Math.max(0, Math.min(1, (d.data[i + 1] - d.data[i] - 12) / 26)) * (d.data[i + 3] / 255);
+        d.data[i] = 47;
+        d.data[i + 1] = 138;
+        d.data[i + 2] = 98;
+        d.data[i + 3] = Math.round(a * 255);
+      }
+      g.putImageData(d, 0, 0);
+      ctx.drawImage(t, c - S * 0.1, S * 0.17, S * 0.2, S * 0.2);
+    }
+    // the hands, at ten past ten: hour, minute, then the seconds in mint over them, and a cap
+    const hand = (turns: number, len: number, w: number, colour: string, tail = 0) => {
+      ctx.save();
+      ctx.translate(c, c);
+      ctx.rotate(turns * Math.PI * 2);
+      ctx.fillStyle = colour;
+      ctx.beginPath();
+      ctx.moveTo(-w / 2, tail);
+      ctx.lineTo(-w * 0.35, -len * S);
+      ctx.lineTo(0, -len * S - w * 0.6);
+      ctx.lineTo(w * 0.35, -len * S);
+      ctx.lineTo(w / 2, tail);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    };
+    hand((10 + 10 / 60) / 12, 0.24, S * 0.04, "#1d1f22", S * 0.04);
+    hand(10 / 60, 0.36, S * 0.028, "#1d1f22", S * 0.04);
+    hand(37 / 60, 0.4, S * 0.009, "#2f8a62", S * 0.09);
+    ctx.fillStyle = "#1d1f22";
+    ctx.beginPath();
+    ctx.arc(c, c, S * 0.028, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#2f8a62";
+    ctx.beginPath();
+    ctx.arc(c, c, S * 0.014, 0, Math.PI * 2);
+    ctx.fill();
+    tex.update(true);
+  };
+  draw(null);
+  const img = new Image();
+  img.onload = () => draw(img);
+  img.src = "/brand/chimpvibe-mark.svg";
+  dials.set(scene.uid as unknown as number, tex);
+  return tex;
+}
+
 let strands: RawTexture3D | null = null;
 
 /**
