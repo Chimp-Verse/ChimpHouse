@@ -15,11 +15,11 @@
 
 import type { Anatomy, PartName } from "./anatomy";
 import { decimate } from "./decimate";
-import { type RawMesh, drape, hitAlong, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, surfaceAlong, toItemMesh, topAt, torusMesh, weighOnBody } from "./fit";
+import { type RawMesh, drape, hitAlong, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, strapProfile, surfaceAlong, sweep, toItemMesh, topAt, torusMesh, tubeProfile, weighOnBody } from "./fit";
 import { buildGarment } from "./garments";
 import { meshField, settle } from "./mesher";
 import { type PrintArt, printAspect } from "./wordmark";
-import { Field, Mode, Prim, type V3, add, cross, len, lerp3, norm, scale, smoothstep, sub } from "./sdf";
+import { Field, Mode, Prim, type V3, add, cross, dot, len, lerp3, norm, scale, smoothstep, sub } from "./sdf";
 
 export type PieceKind = "cloth" | "plastic" | "metal" | "glass" | "light";
 
@@ -651,46 +651,167 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
 
   backpack(a) {
     const r = a.rig;
-    const up = r.bones[r.index.upperChest].head;
-    const chest = r.bones[r.index.chest].head;
     const g = r.marks.girth;
-    const back = -(r.marks.chestZ + 0.02);
-    // the pack, on the upper back, leaning back a touch
-    const packC = add(lerp3(up, chest, 0.4), [0, 0, back - 0.07 * g]);
-    const pack = new Field();
-    const body = Prim.box(packC, [0.105 * g, 0.135, 0.042], 0.05, 0, "pack", [0, -0.1, -1], [0, 1, -0.1]);
-    pack.add(body);
-    // a rounded top, as a rucksack's is
-    pack.add(Prim.ellipsoid(add(packC, [0, 0.12, -0.005]), [0.13 * g, 0.075, 0.075], 0, "packTop", [0, 0, -1]), 0.04);
-    const packUnder = body.inflate(0.012);
-    // a pocket on its back, and a loop on top to hang it by
-    const pocket = Prim.box(add(packC, [0, -0.055, -0.07]), [0.08 * g, 0.06, 0.016], 0.018, 0, "pocket", [0, 0, -1]);
-    pack.add(pocket, 0.008);
-    pack.add(Prim.torus(add(packC, [0, 0.205, -0.005]), [0, 0, 1], 0.024, 0.0055, 0, "loop", 1), 0.004);
-    const straps = new Field();
-    for (const s of [-1, 1]) {
-      const sh = r.bones[r.index[s < 0 ? "leftUpperArm" : "rightUpperArm"]].head;
-      const topBack = add(packC, [s * 0.07 * g, 0.13, 0.03]);
-      const over = add(sh, [-s * 0.07, 0.07, -0.01]);
-      const front = add(sh, [-s * 0.055, -0.08, 0.13 * g]);
-      const pit = add(sh, [-s * 0.035, -0.16, 0.04]);
-      const under = add(packC, [s * 0.11 * g, -0.12, 0.04]);
-      // a flat strap: tapered capsules from the pack, over the shoulder, down the chest and back under the arm
-      for (const [p, q] of [
-        [topBack, over],
-        [over, front],
-        [front, pit],
-        [pit, under],
-      ] as [V3, V3][])
-        straps.add(Prim.cone(p, q, 0.012, 0.012, 0, "strap"), 0.01);
+    const skin = skinOf(a);
+    const J = (n: string): V3 => r.bones[r.index[n]].head;
+    const U = J("upperChest");
+    const Ch = J("chest");
+    const shX = r.marks.shoulderX;
+    const GAP = 0.007;
+    // the back where the pack rests: its surface down the middle, found from inside the body
+    const backAt = (x: number, y: number): V3 => {
+      const from: V3 = [x, y, Ch[2]];
+      return add(from, scale([0, 0, -1], surfaceAlong(skin, from, [0, 0, -1])));
+    };
+    // on the back below the hump, leaning as the back does
+    const midY = Ch[1] + 0.02;
+    const topB = backAt(0, midY + 0.1);
+    const botB = backAt(0, midY - 0.1);
+    const up = norm(sub(topB, botB));
+    const out = norm(cross(up, [1, 0, 0]));
+    const away: V3 = out[2] < 0 ? out : scale(out, -1);
+    const right = norm(cross(away, up));
+    const HW = 0.105 * g;
+    const HH = 0.13;
+    const HD = 0.052;
+    // the pack: a rounded body, fuller toward its front and top, a pocket low on its front
+    const packAt = (C: V3) => {
+      const P = (x: number, y: number, z: number): V3 => add(C, add(add(scale(right, x), scale(up, y)), scale(away, z)));
+      const f = new Field();
+      f.add(Prim.box(C, [HW, HH, HD], 0.036, 0, "pack", away, up));
+      f.add(Prim.ellipsoid(P(0, 0.02, 0.028), [HW * 0.86, HH * 0.9, HD * 0.75], 0, "front", away, up), 0.05);
+      f.add(Prim.ellipsoid(P(0, HH - 0.03, 0.0), [HW * 0.95, 0.045, HD * 0.95], 0, "crown", away, up), 0.04);
+      const pocket = Prim.box(P(0, -0.06, HD + 0.011), [HW * 0.7, 0.05, 0.019], 0.019, 0, "pocket", away, up);
+      f.add(pocket, 0.008);
+      return { f, pocket, P };
+    };
+    // first against the back's middle, then pushed out until no point of its back half is closer
+    // to the skin than the fur pressed under it (the hump, the shoulder blades)
+    let C = add(lerp3(topB, botB, 0.5), scale(away, GAP + HD));
+    for (let round = 0; round < 3; round++) {
+      const { f } = packAt(C);
+      let push = 0;
+      for (let u = -1; u <= 1.001; u += 0.25)
+        for (let v = -1; v <= 1.001; v += 0.25) {
+          const d = norm(add(add(scale(right, u * HW), scale(up, v * HH)), scale(away, -HD)));
+          const q = add(C, scale(d, surfaceAlong(f, C, d)));
+          push = Math.max(push, GAP - skin.at(q[0], q[1], q[2]));
+        }
+      if (push <= 0.0005) break;
+      C = add(C, scale(away, push));
     }
+    const { f: pack, pocket, P } = packAt(C);
+    const panel = add(C, scale(away, -HD));
+    // its zips: one over the top and down the sides, one along the pocket's top; a pull on each
+    const zips = rawMesh();
+    const zipPath: V3[] = [];
+    for (let k = 0; k <= 28; k++) {
+      const t = -Math.PI * 0.42 + (k / 28) * Math.PI * 0.84;
+      const d = norm(add(scale(right, Math.sin(t)), scale(up, Math.cos(t))));
+      const o = P(0, 0, 0.012);
+      zipPath.push(add(o, scale(d, surfaceAlong(pack, o, d) + 0.0012)));
+    }
+    sweep(zips, zipPath, zipPath.map(() => away), tubeProfile(0.0024, 8), false);
+    const pocketZip: V3[] = [];
+    for (let k = 0; k <= 12; k++) {
+      const x = (-0.62 + (1.24 * k) / 12) * HW;
+      const o = P(x, -0.06 + 0.042, 0.0);
+      pocketZip.push(add(o, scale(away, surfaceAlong(pack, o, away) + 0.0012)));
+    }
+    sweep(zips, pocketZip, pocketZip.map(() => up), tubeProfile(0.0022, 8), false);
+    const pulls = new Field();
+    for (const end of [zipPath[3], zipPath[zipPath.length - 4], pocketZip[2]]) pulls.add(Prim.box(add(end, scale(away, 0.004)), [0.0045, 0.011, 0.0018], 0.0015, 0, "pull", away, up));
+    // the handle on top
+    const handle = new Field();
+    handle.add(Prim.torus(P(0, HH + 0.006, -0.01), away, 0.024, 0.0055, 0, "handle", 1));
+    handle.meet(Prim.box(P(0, HH + 0.006 + 0.5, 0), [1, 0.5, 1], 0, 0, "topHalf", away, up));
+
+    // the straps: from the pack's top, over each shoulder beside the neck, down the chest, round
+    // under the arm and back to the pack's foot; each point laid on the skin, the fur pressed under it
+    const WIDTH = 0.034 * Math.sqrt(g);
+    const THICK = 0.0055;
+    const straps = rawMesh();
+    const strapPaths: V3[][] = [];
+    const buckles = new Field();
+    const chestY = U[1] - 0.06;
+    const chestPts: V3[] = [];
+    for (const s of [-1, 1]) {
+      const ctrl: V3[] = [
+        add(P(s * HW * 0.55, HH * 0.82, -HD), scale(away, -0.01)),
+        [s * shX * 0.55, U[1] + 0.13, U[2] - 0.04],
+        [s * shX * 0.52, U[1] + 0.09, U[2] + 0.1],
+        [s * shX * 0.5, U[1] - 0.04, U[2] + 0.15],
+        [s * shX * 0.62, Ch[1] - 0.04, Ch[2] + 0.1],
+        [s * shX * 0.82, Ch[1] - 0.06, Ch[2] - 0.03],
+        add(P(s * HW * 0.82, -HH * 0.8, -HD), scale(away, -0.01)),
+      ];
+      // a smooth curve through them (Catmull-Rom), dense, each point on the skin and stood off it
+      const dense: V3[] = [];
+      for (let i = 0; i < ctrl.length - 1; i++) {
+        const p0 = ctrl[Math.max(0, i - 1)];
+        const p1 = ctrl[i];
+        const p2 = ctrl[i + 1];
+        const p3 = ctrl[Math.min(ctrl.length - 1, i + 2)];
+        for (let k = 0; k < 10; k++) {
+          const t = k / 10;
+          const t2 = t * t;
+          const t3 = t2 * t;
+          dense.push([0, 1, 2].map((c) => 0.5 * (2 * p1[c] + (-p0[c] + p2[c]) * t + (2 * p0[c] - 5 * p1[c] + 4 * p2[c] - p3[c]) * t2 + (-p0[c] + 3 * p1[c] - 3 * p2[c] + p3[c]) * t3)) as V3);
+        }
+      }
+      dense.push(ctrl[ctrl.length - 1]);
+      const onBody = dense.map((q) => onSkin(skin, q));
+      const normals = onBody.map((q) => normalAt(skin, q));
+      let path = onBody.map((q, i) => add(q, scale(normals[i], GAP * 0.6 + THICK / 2)));
+      path = smoothPath(path, 3, false);
+      // its underside, against the body, sees less light
+      const prof = strapProfile(WIDTH, THICK);
+      sweep(straps, path, normals, prof, false, (_i, k) => (prof[k].p[1] < 0 ? 0.55 : 1));
+      strapPaths.push(path);
+      // a slider on the strap low on the chest, where its length is set
+      const at = Math.round(dense.length * 0.52);
+      const tangent = norm(sub(path[at + 1], path[at - 1]));
+      buckles.add(Prim.box(add(path[at], scale(normals[at], THICK * 0.6)), [WIDTH * 0.62, 0.009, 0.0035], 0.002, 0, "slider", normals[at], tangent));
+      // where the chest strap crosses
+      let best = 0;
+      for (let i = 0; i < path.length; i++) if (Math.abs(path[i][1] - chestY) < Math.abs(path[best][1] - chestY) && path[i][2] > U[2]) best = i;
+      chestPts.push(path[best]);
+    }
+    // the chest strap, across between them, clipped in the middle
+    const across: V3[] = [];
+    for (let k = 0; k <= 16; k++) across.push(onSkin(skin, lerp3(chestPts[0], chestPts[1], k / 16)));
+    const acrossN = across.map((q) => normalAt(skin, q));
+    const chestPath = smoothPath(
+      across.map((q, i) => add(q, scale(acrossN[i], GAP * 0.6 + THICK * 1.4))),
+      2,
+      false,
+    );
+    sweep(straps, chestPath, acrossN, strapProfile(WIDTH * 0.45, THICK * 0.8), false);
+    const mid = chestPath[8];
+    buckles.add(Prim.box(add(mid, scale(acrossN[8], 0.003)), [0.014, 0.009, 0.004], 0.003, 0, "clip", acrossN[8], [0, 1, 0]));
+    strapPaths.push(chestPath);
+
+    const packPts: V3[] = [];
+    for (const u of [-1, -0.5, 0, 0.5, 1]) for (const v of [-1, -0.5, 0, 0.5, 1]) packPts.push(P(u * HW, v * HH, -HD));
     return {
       bone: "upperChest",
       pieces: [
-        { kind: "cloth", colour: 0, field: pack, h: 0.0045, tris: 4800, bands: [pocket] },
-        { kind: "cloth", colour: 1, field: straps, h: 0.004, tris: 2400, bands: [] },
+        { kind: "cloth", colour: 0, field: pack, h: 0.004, tris: 5200, bands: [pocket] },
+        { kind: "cloth", colour: 1, field: handle, h: 0.0018, tris: 700 },
+        { kind: "plastic", colour: 0, hex: "#1d1f22", field: pulls, h: 0.0012, tris: 500 },
+        { kind: "plastic", colour: 0, hex: "#1d1f22", field: buckles, h: 0.0012, tris: 900 },
       ],
-      covers: (x, y, z) => Math.max(inside(packUnder.d(x, y, z), 0.008), inside(straps.at(x, y, z) - 0.012, 0.006)),
+      meshes: [weighOnBody(a, toItemMesh(straps, "cloth", 1, null)), toItemMesh(zips, "plastic", 0, "upperChest", 0, "#2a2c30")],
+      covers: (x, y, z) => {
+        const p: V3 = [x, y, z];
+        // under the pack's back: what lies within its outline, behind the body
+        const rel = sub(p, panel);
+        const inPack = Math.abs(dot(rel, right)) < HW && Math.abs(dot(rel, up)) < HH && dot(rel, away) > -0.05 ? 1 : 0;
+        let d = Infinity;
+        for (const path of strapPaths) d = Math.min(d, pathDistance(path, false, p));
+        const under = Math.max(inPack * 0.9, d < WIDTH * 0.55 ? 1 : 0);
+        return Math.max(under, 0.75 * (1 - smoothstep(WIDTH * 0.55, WIDTH * 0.55 + 0.02, d)));
+      },
     };
   },
 
