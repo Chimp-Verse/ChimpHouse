@@ -15,8 +15,10 @@
 
 import type { Anatomy, PartName } from "./anatomy";
 import { decimate } from "./decimate";
+import { type RawMesh, rawMesh, surfaceAlong, toItemMesh, topAt } from "./fit";
 import { buildGarment } from "./garments";
 import { meshField, settle } from "./mesher";
+import { type PrintArt, printAspect } from "./wordmark";
 import { Field, Mode, Prim, type V3, add, cross, len, lerp3, norm, scale, smoothstep, sub } from "./sdf";
 
 export type PieceKind = "cloth" | "plastic" | "metal" | "glass" | "light";
@@ -34,8 +36,13 @@ export interface ItemMesh {
   indices: Uint32Array;
   bones?: Float32Array;
   weights?: Float32Array;
-  /** per vertex: on a band (the second colour), unused, creases' shade, unused */
+  /** per vertex: on a band (the second colour), how far the edge is (for stitching), creases' shade, how far along the edge (+10; 0 none) */
   cloth: Float32Array;
+  /** a crown's panel seams: the axis they meet on (x, z), how many, their turn; or a knitted hat's ribs round it (avatar/materials.ts) */
+  seams?: [number, number, number, number];
+  /** knitted (ribs rather than a weave), for this piece rather than the whole item; yarn's fuzz */
+  knit?: boolean;
+  fuzz?: number;
 }
 
 export interface ItemModel {
@@ -45,6 +52,9 @@ export interface ItemModel {
   cover: Partial<Record<PartName, Float32Array>>;
   /** a print on it, as the cloth material takes it: centre and half size in rest space (x, y, w, h) */
   print?: [number, number, number, number];
+  /** what the print shows (the tree; the tree over the word), and which of the item's colours is its main ink (none: one that stands out from the cloth) */
+  printArt?: PrintArt;
+  printInk?: number;
   /** knitted (a beanie): ribs rather than a weave */
   knit?: boolean;
 }
@@ -57,16 +67,25 @@ interface Piece {
   field: Field;
   h: number;
   tris: number;
-  /** shapes whose surface is the item's second colour (a cap's brim, a beanie's cuff) */
+  /** shapes whose surface is the item's second colour (a cap's button) */
   bands?: Prim[];
+  /** or a region of it in the second colour: 1 in it (a beanie's cuff) */
+  bandAt?: (x: number, y: number, z: number) => number;
+  /** panel seams (a cap's crown), knitting, fuzz: see ItemMesh */
+  seams?: [number, number, number, number];
+  knit?: boolean;
+  fuzz?: number;
 }
 
 interface Plan {
   bone: string;
   pieces: Piece[];
+  /** pieces made directly as meshes (avatar/fit.ts): a cap's peak, a strap */
+  meshes?: ItemMesh[];
   /** the fur it hides: > 0 inside */
   covers?: (x: number, y: number, z: number) => number;
   print?: [number, number, number, number];
+  printArt?: PrintArt;
   knit?: boolean;
 }
 
@@ -79,8 +98,9 @@ export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartNam
   const meshes: ItemMesh[] = [];
   for (const piece of plan.pieces) {
     const m = meshPiece(piece);
-    if (m) meshes.push({ ...m, kind: piece.kind, colour: piece.colour, hex: piece.hex, bone: plan.bone });
+    if (m) meshes.push({ ...m, kind: piece.kind, colour: piece.colour, hex: piece.hex, bone: plan.bone, seams: piece.seams, knit: piece.knit, fuzz: piece.fuzz });
   }
+  meshes.push(...(plan.meshes ?? []));
   const cover: Partial<Record<PartName, Float32Array>> = {};
   if (plan.covers) {
     for (const [part, pos] of Object.entries(furPositions) as [PartName, Float32Array][]) {
@@ -93,7 +113,7 @@ export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartNam
       if (any) cover[part] = c;
     }
   }
-  return { id, meshes, cover, print: plan.print, knit: plan.knit };
+  return { id, meshes, cover, print: plan.print, printArt: plan.printArt, knit: plan.knit };
 }
 
 /** Mesh a piece: on its grid, simplified, settled on its surface; its bands and creases worked out. */
@@ -114,6 +134,7 @@ function meshPiece(p: Piece): Omit<ItemMesh, "kind" | "colour" | "bone"> | null 
     let band = 0;
     // on a band's surface (not merely inside it)
     for (const b of p.bands ?? []) band = Math.max(band, 1 - smoothstep(0.0015, 0.004, Math.abs(b.d(x, y, z))));
+    if (p.bandAt) band = Math.max(band, p.bandAt(x, y, z));
     cloth[v * 4] = band;
     let occ = 0;
     let w = 1;
@@ -160,67 +181,236 @@ function headFrame(a: Anatomy) {
   return { C, R, hk, m, P: (x: number, y: number, z: number): V3 => add(C, [x * hk, y * hk, z * hk]) };
 }
 
-/** A dome fitted over the skull and its fur, cut level with the brow in front and lower behind. */
-function dome(a: Anatomy, lift: number, front: number, back: number) {
-  const { C, R, P } = headFrame(a);
-  const shell = Prim.ellipsoid(add(C, [0, 0.004, -0.014]), [R[0] + lift, R[1] + lift, R[2] + lift], 0, "crown");
-  // the rim's plane: through `front` above the skull's middle at its front, and `back` behind
-  const f: V3 = P(0, front, 0.1);
-  const b: V3 = P(0, back, -0.1);
-  const along = norm(sub(f, b));
-  const up = norm(cross(along, [1, 0, 0]));
-  const mid = lerp3(f, b, 0.5);
-  const above = Prim.box(add(mid, scale(up, 0.5 * (up[1] > 0 ? 1 : -1))), [1, 0.5, 1], 0, 0, "rim", along, up[1] > 0 ? up : scale(up, -1));
-  return { shell, above, rimPoint: mid, rimUp: up[1] > 0 ? up : scale(up, -1) };
+/** The skull's own shapes (avatar/anatomy.ts), grown by `lift`: what a hat is fitted to, whatever the head's size. */
+function skull(a: Anatomy, lift: number): Field {
+  const head = a.parts.find((p) => p.name === "head")!;
+  const f = new Field();
+  for (const op of head.field.ops)
+    if (op.mode === Mode.Add && op.prim && (op.prim.tag === "cranium" || op.prim.tag === "occiput")) f.add(op.prim.inflate(lift), f.ops.length ? 0.03 : 0);
+  return f;
+}
+
+/**
+ * Where a hat's band goes round the head: `clear` over the top of the brow ridge in
+ * front (found on the head itself, so a heavy brow raises it), and `back` (as a share
+ * of the head's size) from the skull's middle behind, down toward the nape. A plane,
+ * level side to side: its height at any depth, and the half-space above it.
+ */
+function hatBand(a: Anatomy, shell: Field, clear: number, back: number) {
+  const { C, hk } = headFrame(a);
+  const head = a.parts.find((p) => p.name === "head")!.field;
+  // the brow ridge's top: the highest the head comes over the eyes, in front of the skull
+  let brow = -Infinity;
+  for (const x of [-0.045, -0.03, -0.015, 0, 0.015, 0.03, 0.045])
+    for (const z of [0.076, 0.086, 0.096]) brow = Math.max(brow, topAt(head, C[0] + x * hk, C[2] + z * hk, C[1] + 0.14 * hk, C[1] - 0.02 * hk));
+  const yF = brow + clear;
+  const zF = C[2] + surfaceAlong(shell, [C[0], yF, C[2]], [0, 0, 1]);
+  const yB = C[1] + back * hk;
+  const zB = C[2] - 0.02 * hk - surfaceAlong(shell, [C[0], yB, C[2] - 0.02 * hk], [0, 0, -1]);
+  const slope = (yF - yB) / (zF - zB);
+  const y = (z: number) => yB + (z - zB) * slope;
+  const up = norm([0, 1, -slope]);
+  const along = norm([0, slope, 1]);
+  const mid: V3 = [C[0], y((zF + zB) / 2), (zF + zB) / 2];
+  const above = Prim.box(add(mid, scale(up, 0.5)), [1, 0.5, 1], 0, 0, "band", along, up);
+  /** how far over the band's plane a point is (below it: negative) */
+  const over = (yy: number, z: number) => (yy - y(z)) * up[1];
+  return { y, above, over, mid, along, up, front: [C[0], yF, zF] as V3, back: [C[0], yB, zB] as V3, brow };
+}
+
+/**
+ * A cap's peak: a stiff bill out over the brow, as wide as the crown's front. Its inner
+ * edge follows the crown round the band (found on the crown itself); it tilts down a
+ * little, its sides curve down more, as a worn-in cap's do, and its edge is rounded.
+ */
+function capPeak(crown: Field, C: V3, hk: number, bandY: (z: number) => number): RawMesh {
+  const out = rawMesh();
+  const SPAN = 1.22;
+  const N = 27;
+  const L0 = 0.074 * hk;
+  const T = 0.0048;
+  const r = T / 2;
+  const TOP = 7;
+  const EDGE = 6;
+  const loops: { p: V3; n: V3; open: number; e: number }[][] = [];
+  const rims: V3[] = [];
+  for (let i = 0; i < N; i++) {
+    const u = -1 + (2 * i) / (N - 1);
+    const phi = u * SPAN;
+    const d: V3 = [Math.sin(phi), 0, Math.cos(phi)];
+    // the crown's face along d, at the band's height there (which hangs on how far forward that is)
+    let q: V3 = add(C, scale(d, 0.09 * hk));
+    for (let k = 0; k < 3; k++) {
+      const o: V3 = [C[0], bandY(q[2]) + 0.0035, C[2]];
+      q = add(o, scale(d, surfaceAlong(crown, o, d)));
+    }
+    const tilt = 0.13 + 0.5 * u * u;
+    const side: V3 = [Math.cos(phi), 0, -Math.sin(phi)];
+    const f = norm(add(scale(d, Math.cos(tilt)), [0, -Math.sin(tilt), 0]));
+    let n = norm(cross(f, side));
+    if (n[1] < 0) n = scale(n, -1);
+    const L = Math.max(0.005, L0 * Math.pow(Math.max(0, 1 - u * u), 0.55));
+    const at = (v: number, w: number): V3 => add(q, add(scale(f, v), scale(n, w)));
+    const dir = (cv: number, cw: number): V3 => norm(add(scale(f, cv), scale(n, cw)));
+    const loop: { p: V3; n: V3; open: number; e: number }[] = [];
+    // over the top from inside the crown to the edge, round the edge, back under; e is how far in from the edge
+    for (let k = 0; k < TOP; k++) {
+      const v = -0.004 + ((L - r + 0.004) * k) / (TOP - 1);
+      loop.push({ p: at(v, r), n: n, open: 1, e: L - v });
+    }
+    for (let k = 1; k < EDGE; k++) {
+      const ang = Math.PI / 2 - (Math.PI * k) / EDGE;
+      loop.push({ p: at(L - r + r * Math.cos(ang), r * Math.sin(ang)), n: dir(Math.cos(ang), Math.sin(ang)), open: 0.9, e: 0 });
+    }
+    for (let k = TOP - 1; k >= 0; k--) {
+      const v = -0.004 + ((L - r + 0.004) * k) / (TOP - 1);
+      loop.push({ p: at(v, -r), n: scale(n, -1), open: 0.55 + 0.25 * (k / (TOP - 1)), e: L - v });
+    }
+    loops.push(loop);
+    rims.push(at(L, 0));
+  }
+  const m = loops[0].length;
+  let along = 0;
+  loops.forEach((loop, i) => {
+    if (i > 0) along += len(sub(rims[i], rims[i - 1]));
+    for (const v of loop) {
+      out.positions.push(...v.p);
+      out.normals.push(...v.n);
+      out.open.push(v.open);
+      out.edge.push(v.e);
+      out.along.push(along);
+    }
+  });
+  for (let i = 0; i < N - 1; i++)
+    for (let k = 0; k < m; k++) {
+      const k2 = (k + 1) % m;
+      const a0 = i * m + k;
+      const a1 = i * m + k2;
+      const b0 = (i + 1) * m + k;
+      const b1 = (i + 1) * m + k2;
+      out.indices.push(a0, b0, a1, a1, b0, b1);
+    }
+  // the two narrow ends, closed
+  for (const i of [0, N - 1]) {
+    const mid = out.positions.length / 3;
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    for (const v of loops[i]) {
+      cx += v.p[0] / m;
+      cy += v.p[1] / m;
+      cz += v.p[2] / m;
+    }
+    const sideN = i === 0 ? norm(sub(loops[0][0].p, loops[1][0].p)) : norm(sub(loops[N - 1][0].p, loops[N - 2][0].p));
+    out.positions.push(cx, cy, cz);
+    out.normals.push(...sideN);
+    out.open.push(0.8);
+    out.edge.push(0.05);
+    out.along.push(i === 0 ? 0 : along);
+    for (let k = 0; k < m; k++) out.indices.push(mid, i * m + k, i * m + ((k + 1) % m));
+  }
+  return out;
 }
 
 const PLANS: Record<string, (a: Anatomy) => Plan> = {
   cap(a) {
-    const { C, R, hk } = headFrame(a);
-    const { shell, above } = dome(a, 0.013, 0.036, -0.03);
+    const { C, hk } = headFrame(a);
+    // the crown: the skull grown a centimetre (the hair pressed flat under it), above the band
+    const shell = skull(a, 0.011);
+    const band = hatBand(a, shell, 0.012, -0.035);
     const crown = new Field();
     crown.add(shell);
-    crown.meet(above, 0.004);
-    // the brim: a curved peak out over the face from the crown's front, and a button on top
-    const front = C[2] - 0.014 + R[2] + 0.013;
-    const brimC: V3 = [C[0], C[1] + 0.034 * hk, front - 0.012];
-    const brim = Prim.ellipsoid(brimC, [0.08 * hk, 0.0042, 0.084 * hk], 0, "brim", [0, -0.22, 1], [0, 1, 0.22]);
-    const brimF = new Field();
-    brimF.add(brim);
-    // only what stands out in front of the crown
-    brimF.meet(Prim.box([C[0], C[1], front - 0.03 + 0.5], [1, 1, 0.5], 0, 0, "front"), 0.002);
-    crown.add(brimF, 0.006);
-    const button = crown.add(Prim.sphere(add(C, [0, R[1] + 0.017, -0.01]), 0.0075, 0, "button"), 0.003);
-    const under = shell.inflate(0.006);
+    crown.meet(band.above, 0.003);
+    // the snapback behind: an arch cut over a strap 1.4 cm deep
+    const strapTop = band.back[1] + 0.014;
+    const archR = 0.024 * hk;
+    const arch = new Field();
+    arch.add(Prim.cone([C[0], strapTop + archR * 0.3, C[2] - 0.03 * hk], [C[0], strapTop + archR * 0.3, C[2] - 0.3], archR, archR, 0, "arch"));
+    arch.meet(Prim.box([C[0], strapTop + 0.5, C[2]], [1, 0.5, 1], 0, 0, "overStrap"));
+    crown.cut(arch, 0.002);
+    // the button on top, where the six panels meet
+    const top = topAt(crown, C[0], C[2] - 0.012 * hk, C[1] + 0.25, C[1]);
+    const button = crown.add(Prim.sphere([C[0], top + 0.0025, C[2] - 0.012 * hk], 0.0068, 0, "button"), 0.002);
+    // the print on the front panel: low on it, where it faces forward
+    const panel = top - band.front[1];
+    const printH = 0.28 * panel;
+    const peak = capPeak(crown, C, hk, band.y);
+    const under = shell.prims().map((q) => q.inflate(0.01));
+    const inSkull = (x: number, y: number, z: number) => Math.min(...under.map((q) => q.d(x, y, z)));
     return {
       bone: "head",
-      pieces: [{ kind: "cloth", colour: 0, field: crown, h: 0.0022, tris: 5000, bands: [brim, button] }],
-      // the fur under the crown, down to just below its rim
-      covers: (x, y, z) => inside(under.d(x, y, z)) * inside(above.d(x, y, z) - 0.008, 0.006),
-      print: [C[0], C[1] + 0.06 * hk, 0.02 * hk, 0.02 * hk],
+      // six panels, the front one whole (its seams either side of it)
+      pieces: [{ kind: "cloth", colour: 0, field: crown, h: 0.0022, tris: 5200, bands: [button], seams: [C[0], C[2] - 0.012 * hk, 6, Math.PI / 6] }],
+      meshes: [toItemMesh(peak, "cloth", 1, "head", 0)],
+      covers: (x, y, z) => {
+        const over = band.over(y, z);
+        const skullIn = inside(inSkull(x, y, z), 0.004);
+        // none under the crown; pressed flat in the snapback's opening and in a strip below the band
+        const crowned = skullIn * inside(-over, 0.002);
+        const opening = arch.at(x, y, z) < 0.004 ? 1 : 0;
+        const below = skullIn * (1 - smoothstep(0, 0.016, -over)) * 0.6;
+        // the brow under the peak: pressed down so it stays under it
+        const brow = smoothstep(band.brow - 0.03, band.brow - 0.012, y) * smoothstep(band.front[2] - 0.03, band.front[2] - 0.005, z) * (1 - smoothstep(0.055 * hk, 0.08 * hk, Math.abs(x - C[0]))) * (over < 0 ? 0.78 : 0);
+        return Math.max(crowned * (1 - opening), opening * 0.7 * skullIn, below, brow);
+      },
+      print: [C[0], band.front[1] + 0.36 * panel, printH * printAspect("mark"), printH],
+      printArt: "mark",
     };
   },
 
   beanie(a) {
-    const { C, R } = headFrame(a);
-    const { shell, above, rimPoint, rimUp } = dome(a, 0.016, 0.026, -0.05);
+    const { C, hk } = headFrame(a);
+    // knitted, a little looser than a cap and with a little body over the crown; pulled down to just over the brow
+    const shell = skull(a, 0.014);
+    const band = hatBand(a, shell, 0.005, -0.05);
     const f = new Field();
     f.add(shell);
-    f.meet(above, 0.005);
-    // the turned-up cuff: a thicker ring just above the rim
-    const cuffShell = Prim.ellipsoid(add(C, [0, 0.004, -0.014]), [R[0] + 0.024, R[1] + 0.024, R[2] + 0.024], 0, "cuff");
+    f.add(Prim.ellipsoid(add(C, [0, 0.045 * hk, -0.03 * hk]), [0.07 * hk, 0.058 * hk, 0.076 * hk], 0, "slouch"), 0.05);
+    f.meet(band.above, 0.004);
+    // the cuff turned up round the bottom: 2.4 cm deep, standing a little proud
+    const CUFF = 0.024;
     const cuff = new Field();
-    cuff.add(cuffShell);
-    cuff.meet(Prim.box(add(rimPoint, scale(rimUp, 0.02)), [1, 0.02, 1], 0.004, 0, "cuffBand", norm(cross(rimUp, [1, 0, 0])), rimUp), 0.004);
-    f.add(cuff, 0.004);
-    // a bobble on top
-    f.add(Prim.sphere(add(C, [0, R[1] + 0.04, -0.02]), 0.03, 0, "bobble"), 0.01);
-    const under = shell.inflate(0.008);
+    cuff.add(skull(a, 0.021));
+    cuff.meet(Prim.box(add(band.mid, scale(band.up, CUFF / 2)), [1, CUFF / 2, 1], 0.004, 0, "cuff", band.along, band.up));
+    f.add(cuff, 0.003);
+    // the bobble on top: a ball of yarn ends, its own piece (fuzzy, not ribbed)
+    const top = topAt(f, C[0], C[2] - 0.02 * hk, C[1] + 0.25, C[1]);
+    const bob: V3 = [C[0], top + 0.024, C[2] - 0.02 * hk];
+    const bobble = new Field();
+    bobble.add(Prim.sphere(bob, 0.025, 0, "bobble"));
+    for (let i = 0; i < 34; i++) {
+      // tufts all over it (a golden-angle spiral), a little uneven
+      const yy = 1 - (2 * (i + 0.5)) / 34;
+      const rr = Math.sqrt(1 - yy * yy);
+      const th = i * 2.39996;
+      const out = 0.023 + 0.003 * Math.sin(i * 7.31);
+      bobble.add(Prim.sphere(add(bob, scale([rr * Math.cos(th), yy, rr * Math.sin(th)], out)), 0.0068 + 0.0016 * Math.cos(i * 3.7), 0, "tuft"), 0.003);
+    }
+    // its base pulled into the crown
+    bobble.add(Prim.cone(add(bob, [0, -0.012, 0]), [bob[0], top - 0.004, bob[2]], 0.012, 0.009, 0, "tie"), 0.006);
+    const under = shell.prims().map((q) => q.inflate(0.01));
+    const inSkull = (x: number, y: number, z: number) => Math.min(...under.map((q) => q.d(x, y, z)));
     return {
       bone: "head",
-      pieces: [{ kind: "cloth", colour: 0, field: f, h: 0.0028, tris: 5200, bands: [cuffShell] }],
-      covers: (x, y, z) => inside(under.d(x, y, z)) * inside(above.d(x, y, z) - 0.008, 0.006),
-      knit: true,
+      pieces: [
+        {
+          kind: "cloth",
+          colour: 0,
+          field: f,
+          h: 0.0026,
+          tris: 6000,
+          // the cuff in the second colour; ribs round the hat, 84 of them
+          bandAt: (_x, y, z) => 1 - smoothstep(CUFF - 0.002, CUFF + 0.002, band.over(y, z)),
+          seams: [C[0], C[2] - 0.02 * hk, -84, 0],
+          knit: true,
+        },
+        { kind: "cloth", colour: 1, field: bobble, h: 0.0015, tris: 3400, fuzz: 1 },
+      ],
+      covers: (x, y, z) => {
+        const over = band.over(y, z);
+        const skullIn = inside(inSkull(x, y, z), 0.004);
+        return Math.max(skullIn * inside(-over, 0.002), skullIn * (1 - smoothstep(0, 0.016, -over)) * 0.6);
+      },
     };
   },
 

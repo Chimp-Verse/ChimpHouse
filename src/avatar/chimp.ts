@@ -35,6 +35,8 @@ import type { PartName } from "./anatomy";
 /** An item being worn: its meshes, its materials, and the fur it hides. */
 interface Worn {
   id: string;
+  /** which of the item's colours is its print's main ink (none: one that stands out from the cloth) */
+  printInk?: number;
   meshes: Mesh[];
   /** each mesh's material, and what to colour it: the item's colour n, or a colour of its own */
   dressed: { mesh: Mesh; material: PBRMaterial; cloth: ChimpClothPlugin | null; colour: number; hex?: string; kind: string }[];
@@ -318,7 +320,7 @@ export class Chimp {
       this.worn.delete(slot);
     }
     if (item) {
-      const w: Worn = { id: item.id, meshes: [], dressed: [], cover: item.cover };
+      const w: Worn = { id: item.id, printInk: item.printInk, meshes: [], dressed: [], cover: item.cover };
       item.meshes.forEach((im, i) => {
         const mesh = new Mesh(`${this.root.name} ${item.id} ${i}`, this.scene);
         const vd = new VertexData();
@@ -339,6 +341,12 @@ export class Chimp {
           this.prepare(mesh, false);
         } else this.prepare(mesh);
         const { material, cloth } = this.itemMaterial(im.kind, `${this.root.name} ${item.id} ${i}`, item);
+        if (cloth) {
+          if (im.seams) cloth.seams.set(...im.seams);
+          if (im.knit !== undefined) cloth.knit = im.knit ? 1 : 0;
+          cloth.fuzz = im.fuzz ?? 0;
+          if (im.fuzz) cloth.weave = 0;
+        }
         mesh.material = material;
         w.meshes.push(mesh);
         w.dressed.push({ mesh, material, cloth, colour: im.colour, hex: im.hex, kind: im.kind });
@@ -362,6 +370,9 @@ export class Chimp {
       if (d.cloth) {
         d.cloth.main = main;
         d.cloth.band = band;
+        // the print: its main ink one of the item's colours, or one that stands out from the cloth; its second always that
+        d.cloth.printColour = w.printInk !== undefined && colours[w.printInk] ? linear(colours[w.printInk]) : standOut(main);
+        d.cloth.printColour2 = standOut(main);
       } else d.material.albedoColor = main;
     }
   }
@@ -381,7 +392,7 @@ export class Chimp {
       cloth.knit = item.knit ? 1 : 0;
       if (item.print) {
         cloth.printRect.set(...item.print);
-        cloth.print = printTexture(this.scene);
+        cloth.print = printTexture(this.scene, item.printArt);
       }
       return { material, cloth };
     }
@@ -450,6 +461,11 @@ export class Chimp {
     this.eyeTex.dispose();
     this.root.dispose();
   }
+}
+
+/** An ink that stands out from a cloth: charcoal on light cloth, near white on dark. */
+function standOut(c: Color3): Color3 {
+  return linear(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.18 ? "#24272b" : "#e8ecf1");
 }
 
 /**

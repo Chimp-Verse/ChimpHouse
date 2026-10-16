@@ -13,6 +13,7 @@
 // - Both fade with a dither (screen-door), for when the camera comes too close.
 
 import { Color3, Constants, DynamicTexture, MaterialPluginBase, PBRMaterial, RawTexture3D, Scene, Texture, Vector4, type MaterialDefines, type UniformBuffer } from "@babylonjs/core";
+import { type PrintArt, STACKED, drawWord, printAspect } from "./wordmark";
 
 /** The DNA's colours, as the materials want them (linear). */
 export interface ChimpColours {
@@ -226,10 +227,11 @@ export class ChimpFurPlugin extends MaterialPluginBase {
         // out along the normal, combed along the flow more toward the tip (before skinning, so it bends with the body)
         CUSTOM_VERTEX_UPDATE_POSITION: /* glsl */ `#ifdef CHIMPFUR
 vChimpRoot = positionUpdated;
-// under clothes (or a hat, a pack) there is no fur to see
-vChimpFur = vec4(chimpFur.x * (1.0 - chimpCover), chimpFur.yzw);
+// what is worn over the fur (avatar/items.ts cover): up to about 0.8 it presses the fur down,
+// shorter the more (round a strap, under a hat's brim); fully covered (under cloth) there is none
+vChimpFur = vec4(chimpFur.x * (1.0 - smoothstep(0.82, 0.95, chimpCover)), chimpFur.yzw);
 vChimpT = chimpShell;
-float chimpL = chimpLength * chimpFur.y * (1.0 - 0.85 * chimpCover);
+float chimpL = chimpLength * chimpFur.y * (1.0 - 0.92 * smoothstep(0.0, 0.82, chimpCover));
 positionUpdated += (normalUpdated * chimpShell + chimpFlow.xyz * (chimpShell * chimpShell * chimpComb)) * chimpL;
 #endif`,
         // tips droop under their weight, whichever way the body is turned
@@ -281,16 +283,30 @@ finalSpecularScaled *= chimpSpecOcc;
 
 /**
  * Clothes and the things a chimp wears: two colours (the body of the thing, and
- * its bands: cuffs, hems, a cap's brim), a woven or knitted surface laid on from the
- * rest pose's position (so it stays put on the cloth as the chimp moves), and a
- * print (the ChimpVibe tree on a tee's chest) projected from the front.
+ * its bands: cuffs, hems, a cap's button), a woven or knitted surface laid on from the
+ * rest pose's position (so it stays put on the cloth as the chimp moves), a print (the
+ * ChimpVibe tree and word on a tee's chest) projected from the front, and stitching:
+ * the seams between a cap's panels, rows along a peak's edge.
+ *
+ * The mesh's chimpCloth attribute says, per vertex: on a band (x), how far the cloth's
+ * edge is in metres (y: for stitching along it), how open to the light it is (z), and
+ * how far along the edge it is in metres, plus 10 (w: 0 for no stitching along an edge).
  */
 export class ChimpClothPlugin extends MaterialPluginBase {
   main = new Color3(0.1, 0.1, 0.1);
   band = new Color3(0.05, 0.05, 0.05);
+  /** the print's two inks: its main one (the tree, "vibe"), and one that stands out from the cloth ("chimp") */
   printColour = new Color3(0.47, 0.85, 0.67);
+  printColour2 = new Color3(0.9, 0.92, 0.95);
   /** the print's middle and half size (x, y, half width, half height), rest space; a half width of 0 is no print */
   printRect = new Vector4(0, 0, 0, 0);
+  /**
+   * a crown's panel seams: the axis they meet on (x, z, rest space), how many, and their turn; 0 of them is none.
+   * A negative count is a knitted hat's ribs instead: that many round the same axis, meeting at its crown.
+   */
+  seams = new Vector4(0, 0, 0, 0);
+  /** yarn's fuzz (a bobble): 0 smooth, 1 a fine speckle of fibres */
+  fuzz = 0;
   /** the weave's size: repeats per metre, and 0 woven, 1 knitted ribs */
   weave = 260;
   knit = 0;
@@ -324,12 +340,15 @@ export class ChimpClothPlugin extends MaterialPluginBase {
         { name: "chimpMain", size: 3, type: "vec3" },
         { name: "chimpBand", size: 3, type: "vec3" },
         { name: "chimpInk", size: 3, type: "vec3" },
+        { name: "chimpInk2", size: 3, type: "vec3" },
+        { name: "chimpSeams", size: 4, type: "vec4" },
+        { name: "chimpFuzz", size: 1, type: "float" },
         { name: "chimpPrintRect", size: 4, type: "vec4" },
         { name: "chimpWeave", size: 1, type: "float" },
         { name: "chimpKnit", size: 1, type: "float" },
         { name: "chimpClothFade", size: 1, type: "float" },
       ],
-      fragment: "uniform vec3 chimpMain; uniform vec3 chimpBand; uniform vec3 chimpInk; uniform vec4 chimpPrintRect; uniform float chimpWeave; uniform float chimpKnit; uniform float chimpClothFade;",
+      fragment: "uniform vec3 chimpMain; uniform vec3 chimpBand; uniform vec3 chimpInk; uniform vec3 chimpInk2; uniform vec4 chimpSeams; uniform float chimpFuzz; uniform vec4 chimpPrintRect; uniform float chimpWeave; uniform float chimpKnit; uniform float chimpClothFade;",
     };
   }
 
@@ -337,6 +356,9 @@ export class ChimpClothPlugin extends MaterialPluginBase {
     ubo.updateColor3("chimpMain", this.main);
     ubo.updateColor3("chimpBand", this.band);
     ubo.updateColor3("chimpInk", this.printColour);
+    ubo.updateColor3("chimpInk2", this.printColour2);
+    ubo.updateVector4("chimpSeams", this.seams);
+    ubo.updateFloat("chimpFuzz", this.fuzz);
     ubo.updateVector4("chimpPrintRect", this.printRect);
     ubo.updateFloat("chimpWeave", this.weave);
     ubo.updateFloat("chimpKnit", this.knit);
@@ -365,15 +387,47 @@ float chimpSpecOcc = vChimpCloth.z;
   q *= chimpWeave;
   float woven = 0.5 + 0.25 * (sin(q.x * 6.2832) + sin(q.y * 6.2832));
   float ribs = 0.5 + 0.5 * sin(q.x * 6.2832 * 0.32);
+  if (chimpSeams.z < 0.0) {
+    // a knitted hat's ribs run round it, closing in to its crown (and fading there, where they'd crowd)
+    vec2 d = vChimpRest.xz - chimpSeams.xy;
+    ribs = mix(0.5, 0.5 + 0.5 * sin(atan(d.x, d.y) * -chimpSeams.z), smoothstep(0.006, 0.022, length(d)));
+  }
   float knit = max(chimpKnit, smoothstep(0.35, 0.65, band));
   col *= mix(mix(0.9, 1.06, woven), mix(0.78, 1.08, ribs), knit);
-  // the print, square on from the front, where the cloth faces forward
+  // thread: darker than the cloth, or lighter on dark cloth
+  vec3 thread = dot(col, vec3(0.3, 0.59, 0.11)) > 0.05 ? col * 0.5 : mix(col, vec3(0.6), 0.4);
+  // a crown's panel seams: a soft crease where two panels meet, a row of stitches beside it
+  if (chimpSeams.z > 0.0) {
+    vec2 d = vChimpRest.xz - chimpSeams.xy;
+    float per = 6.2831853 / chimpSeams.z;
+    float a = abs(mod(atan(d.x, d.y) + chimpSeams.w + per * 0.5, per) - per * 0.5);
+    float across = a * length(d);
+    float dash = step(0.42, fract((length(d) - vChimpRest.y) / 0.0034));
+    col *= 1.0 - 0.4 * (1.0 - smoothstep(0.0003, 0.0013, across));
+    col = mix(col, thread, (1.0 - smoothstep(0.00022, 0.00055, abs(across - 0.0026))) * dash * step(0.006, length(d)) * 0.85);
+  }
+  // rows of stitches along an edge (a cap's peak): every 4.2 mm in from 3.5 mm, dashed along it
+  if (vChimpCloth.w > 5.0) {
+    float k = (vChimpCloth.y - 0.0035) / 0.0042;
+    float row = abs(fract(k + 0.5) - 0.5) * 0.0042;
+    float rows = (1.0 - smoothstep(0.0002, 0.0005, row)) * step(-0.5, k) * step(k, 4.5);
+    col = mix(col, thread, rows * step(0.4, fract((vChimpCloth.w - 10.0) / 0.0034)) * 0.85);
+  }
+  // the print, square on from the front where the cloth faces forward: seen from in front, the
+  // chimp's right (+x) is on the left; red is its main ink, green the one that stands out
   if (chimpPrintRect.z > 0.0 && vChimpRestN.z > 0.25) {
-    vec2 uv = (vChimpRest.xy - chimpPrintRect.xy) / (2.0 * chimpPrintRect.zw) + 0.5;
+    vec2 uv = vec2(0.5 - (vChimpRest.x - chimpPrintRect.x) / (2.0 * chimpPrintRect.z), 0.5 + (vChimpRest.y - chimpPrintRect.y) / (2.0 * chimpPrintRect.w));
     if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
-      float ink = texture2D(chimpPrint, vec2(uv.x, 1.0 - uv.y)).a;
-      col = mix(col, chimpInk, ink * 0.95);
+      vec4 ink = texture2D(chimpPrint, uv);
+      col = mix(col, chimpInk, ink.r * 0.95);
+      col = mix(col, chimpInk2, ink.g * 0.95);
     }
+  }
+  if (chimpFuzz > 0.0) {
+    // fibres: a fine speckle, darker deep in
+    vec3 f = floor(vChimpRest * 1500.0);
+    float n = fract(sin(dot(f, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    col *= 1.0 + chimpFuzz * (n - 0.6) * 0.7;
   }
   surfaceAlbedo = col * mix(0.45, 1.0, vChimpCloth.z);
 }
@@ -406,40 +460,66 @@ export function clothMaterial(name: string, scene: Scene, o: { rough?: number; s
   return { material: m, cloth: new ChimpClothPlugin(m) };
 }
 
-let ink: DynamicTexture | null = null;
+const prints = new Map<string, DynamicTexture>();
 
 /**
- * The ChimpVibe tree mark as ink for prints: white, with the mark's shape in its
- * alpha (the mint of public/brand/chimpvibe-mark.svg, its dark ground clear).
+ * A print's artwork as ink masks: red where the main ink goes (the tree from
+ * public/brand/chimpvibe-mark.svg, its mint only; "vibe" and the apples), green where
+ * the ink that stands out from the cloth goes ("chimp", as the wordmark sets it in the
+ * light ink). One per scene and artwork.
  */
-export function printTexture(scene: Scene): DynamicTexture {
-  if (ink && ink.getScene() === scene) return ink;
-  const S = 256;
-  const tex = new DynamicTexture("chimpPrint", { width: S, height: S }, scene, true);
-  tex.hasAlpha = true;
+export function printTexture(scene: Scene, art: PrintArt = "mark"): DynamicTexture {
+  const key = `${art}:${scene.uid}`;
+  const had = prints.get(key);
+  if (had) return had;
+  const H = 1024;
+  const W = Math.round(H * printAspect(art));
+  const tex = new DynamicTexture(`chimpPrint ${art}`, { width: W, height: H }, scene, true);
   tex.wrapU = Texture.CLAMP_ADDRESSMODE;
   tex.wrapV = Texture.CLAMP_ADDRESSMODE;
   const img = new Image();
   img.onload = () => {
-    const c = document.createElement("canvas");
-    c.width = S;
-    c.height = S;
-    const g = c.getContext("2d")!;
-    g.drawImage(img, 0, 0, S, S);
-    const d = g.getImageData(0, 0, S, S);
-    for (let i = 0; i < d.data.length; i += 4) {
-      // mint (green well above red) is ink; the ground is not
-      const a = Math.max(0, Math.min(1, (d.data[i + 1] - d.data[i] - 30) / 60));
-      d.data[i] = d.data[i + 1] = d.data[i + 2] = 255;
-      d.data[i + 3] = Math.round(a * 255);
+    const canvas = (w: number, h: number) => {
+      const c = document.createElement("canvas");
+      c.width = w;
+      c.height = h;
+      return c.getContext("2d")!;
+    };
+    // where the tree's square goes, in pixels: the mark's ink fills the artwork; the lockup's box does
+    let k: number;
+    let ox: number;
+    let oy: number;
+    if (art === "mark") {
+      k = H / (0.855 - 0.14);
+      ox = -0.13 * k;
+      oy = -0.14 * k;
+    } else {
+      const b = STACKED.box;
+      k = H / (b.bottom - b.y);
+      ox = -b.x * k;
+      oy = -b.y * k;
     }
-    const ctx = tex.getContext() as CanvasRenderingContext2D;
-    ctx.clearRect(0, 0, S, S);
-    ctx.putImageData(d, 0, 0);
+    const size = art === "mark" ? k : STACKED.size * k;
+    const tree = canvas(W, H);
+    tree.drawImage(img, ox, oy, size, size);
+    const word = canvas(W, H);
+    if (art === "stacked") drawWord(word, ox + STACKED.textX * k, oy + (STACKED.cap + 100) * k, k, "chimpvibe", 5, "#00ff00", "#ff0000");
+    const t = tree.getImageData(0, 0, W, H).data;
+    const w = word.getImageData(0, 0, W, H).data;
+    const out = (tex.getContext() as CanvasRenderingContext2D).createImageData(W, H);
+    for (let i = 0; i < t.length; i += 4) {
+      // mint (green well above red) is the tree; the mark's dark ground is not
+      const mint = Math.max(0, Math.min(1, (t[i + 1] - t[i] - 30) / 60)) * (t[i + 3] / 255);
+      out.data[i] = Math.max(Math.round(mint * 255), (w[i] * w[i + 3]) / 255);
+      out.data[i + 1] = (w[i + 1] * w[i + 3]) / 255;
+      out.data[i + 2] = 0;
+      out.data[i + 3] = 255;
+    }
+    (tex.getContext() as CanvasRenderingContext2D).putImageData(out, 0, 0);
     tex.update(true);
   };
   img.src = "/brand/chimpvibe-mark.svg";
-  ink = tex;
+  prints.set(key, tex);
   return tex;
 }
 

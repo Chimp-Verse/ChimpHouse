@@ -1,6 +1,7 @@
 // The chimp lab (chimp.html): one chimp under light like the house's, a camera that
 // orbits it, and a hook (window.__lab) for tools/chimp-shots.mjs to photograph it
-// from set views. It is where the avatar's look and movement are worked on.
+// from set views. It is where the avatar's look and movement are worked on, and
+// where clothes are tried on every kind of body (tools/wardrobe-shots.mjs).
 
 import {
   ArcRotateCamera,
@@ -18,7 +19,7 @@ import {
 } from "@babylonjs/core";
 import { skyCube } from "../engine/lighting";
 import { PostFx } from "../engine/postfx";
-import { type ChimpDna, defaultDna, randomDna, sanitize } from "../avatar/dna";
+import { type ChimpDna, type ShapeKey, PRESETS, defaultDna, presetDna, randomDna, sanitize } from "../avatar/dna";
 import { buildModel } from "../avatar/model";
 import { Chimp, SHELLS } from "../avatar/chimp";
 import { ChimpAnimator, type Motion } from "../avatar/animator";
@@ -118,6 +119,18 @@ function build(next: ChimpDna) {
   stats = `built in ${Math.round(ms)} ms · skin ${tris} tris · fur carrier ${furTris} tris · ${model.rig.bones.length} bones`;
 }
 
+/** Bodies to try clothes on: the wardrobe's presets, and the ends of the body's and face's settings. */
+const withShape = (shape: Partial<Record<ShapeKey, number>>): ChimpDna => {
+  const d = defaultDna();
+  Object.assign(d.shape, shape);
+  return d;
+};
+const BODIES: Record<string, () => ChimpDna> = {
+  ...Object.fromEntries(PRESETS.map((p) => [p.name, () => presetDna(p.name, {})])),
+  Slim: () => withShape({ height: 1.3, build: 0, belly: 0, arms: 0, legs: 0, head: 0, muzzle: 0, brow: 0, ears: 0, eyes: 0, furLength: 0 }),
+  Big: () => withShape({ height: 1.8, build: 1, belly: 1, arms: 1, legs: 1, head: 1, muzzle: 1, brow: 1, ears: 1, eyes: 1, furLength: 1 }),
+};
+
 /** Where a view looks: a point on the chimp as it stands now (its eyes, its left hand…), or a height on it. */
 const at = (bone: string, dy = 0) => () => {
   const n = chimp!.nodes[bone];
@@ -129,7 +142,23 @@ const eyes = () => {
   return l.add(at("rightEye")()).scale(0.5).add(new Vector3(0, -0.035, 0));
 };
 const middle = () => new Vector3(0, dna.shape.height * 0.48, 0);
+/** the top of the head: between the eyes and the crown */
+const crown = () => eyes().add(new Vector3(0, 0.06 * (dna.shape.height / 1.5), -0.02));
 const VIEWS: Record<string, { alpha: number; beta: number; radius: number; target: () => Vector3 }> = {
+  // close on what a piece of clothing covers: the head, the neck and chest, the torso, the left wrist
+  headFront: { alpha: Math.PI / 2, beta: 1.45, radius: 0.62, target: crown },
+  head3: { alpha: Math.PI / 2 - 0.65, beta: 1.32, radius: 0.66, target: crown },
+  headSide: { alpha: Math.PI, beta: 1.42, radius: 0.66, target: crown },
+  headBack: { alpha: -Math.PI / 2 - 0.5, beta: 1.2, radius: 0.66, target: crown },
+  neckFront: { alpha: Math.PI / 2 + 0.25, beta: 1.42, radius: 0.85, target: at("upperChest", 0.08) },
+  neck3: { alpha: Math.PI / 2 - 0.7, beta: 1.3, radius: 0.85, target: at("upperChest", 0.08) },
+  neckBack: { alpha: -Math.PI / 2 + 0.4, beta: 1.2, radius: 0.85, target: at("upperChest", 0.08) },
+  torsoFront: { alpha: Math.PI / 2, beta: 1.45, radius: 1.55, target: at("chest", 0.02) },
+  torso3: { alpha: Math.PI / 2 - 0.7, beta: 1.35, radius: 1.55, target: at("chest", 0.02) },
+  torsoSide: { alpha: Math.PI, beta: 1.42, radius: 1.55, target: at("chest", 0.02) },
+  torsoBack: { alpha: -Math.PI / 2 + 0.5, beta: 1.3, radius: 1.55, target: at("chest", 0.02) },
+  wristOut: { alpha: Math.PI - 0.35, beta: 1.25, radius: 0.42, target: at("leftHand", 0.02) },
+  wristTop: { alpha: Math.PI / 2 + 0.55, beta: 0.85, radius: 0.42, target: at("leftHand", 0.02) },
   front: { alpha: Math.PI / 2, beta: 1.42, radius: 3.4, target: middle },
   three: { alpha: Math.PI / 2 - 0.62, beta: 1.36, radius: 3.4, target: middle },
   side: { alpha: Math.PI, beta: 1.42, radius: 3.4, target: middle },
@@ -147,7 +176,8 @@ function setView(name: string) {
   camera.setTarget(v.target());
   camera.alpha = v.alpha;
   camera.beta = v.beta;
-  camera.radius = v.radius;
+  // as far off for every height of chimp, so each fills the frame alike
+  camera.radius = v.radius * (dna.shape.height / 1.5);
 }
 
 build(dna);
@@ -210,6 +240,9 @@ function seeded(seed: number): () => number {
   simulate,
   play: (name: string) => ((anim = name), (frozen = false)),
   setDna: (d: unknown) => build(sanitize(d)),
+  /** rebuild as one of BODIES (a preset, Slim or Big), wearing what ?wear= says */
+  setBody: (name: string) => build(BODIES[name]?.() ?? defaultDna()),
+  bodies: () => Object.keys(BODIES),
   dna: () => dna,
   stats: () => stats,
   scene,

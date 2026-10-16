@@ -136,7 +136,9 @@ A Blender groom can be converted to these: its flow as the carrier's flow, its d
 
 - **Worn on a bone** (a cap, glasses): a mesh in rest-pose space, carried by its bone (`head`, `neck`, `upperChest`, `leftLowerArm`).
 - **Fitted** (a tee): skinned to the same skeleton.
-- Each carries `chimpCloth`: on a band (the second colour), crease shade.
+- Each is fitted to the chimp it is made for, from that chimp's own shapes: a hat's crown is its skull grown a centimetre, its band set over the brow ridge found on its head; a strap, a collar or a watch's band follows the skin found along its path (`avatar/fit.ts`). So every item fits every build, belly and head the DNA makes.
+- Each carries `chimpCloth`: on a band (the second colour), how far the edge is and how far along it (for stitching along it, as on a cap's peak), crease shade. A cap's panel seams and a knitted hat's ribs are drawn round its axis (`seams` on the mesh).
+- Over the fur, an item says how much of it it covers: up to about 0.8 the fur is pressed down, shorter the more (round a strap, under a peak); fully covered, under cloth, there is none.
 - Each also needs a mask of the fur it hides. In Blender that's a vertex group on the fur carrier, or a volume the code can test.
 - An item modelled for the default chimp fits others through the skeleton's proportions. Garments whose wearers change shape a lot need shape keys too.
 
