@@ -33,7 +33,7 @@ export const ITEMS: ItemDef[] = [
   { id: "headphones", slot: "head", name: "Headphones", colours: [{ label: "Band", def: "#24272b", swatches: ["#24272b", "#efe4cc", "#78d8aa", ...METAL] }, { label: "Cups", def: "#78d8aa", swatches: ["#78d8aa", "#24272b", "#efe4cc", "#c4552e", "#d8a133"] }] },
   { id: "shades", slot: "eyes", name: "Shades", colours: [{ label: "Frame", def: "#24272b", swatches: ["#24272b", ...METAL, "#c4552e", "#78d8aa"] }, { label: "Lenses", def: "#1d3b3a", swatches: ["#1d3b3a", "#2a2a2a", "#5a3a1a", "#2f8a62", "#7a2a5a"] }] },
   { id: "specs", slot: "eyes", name: "Glasses", colours: [{ label: "Frame", def: "#6a4128", swatches: ["#6a4128", "#24272b", ...METAL, "#c4552e"] }] },
-  { id: "bandana", slot: "neck", name: "Bandana", colours: [{ label: "Cloth", def: "#b8312f", swatches: FABRIC }] },
+  { id: "bandana", slot: "neck", name: "Bandana", colours: [{ label: "Cloth", def: "#b8312f", swatches: FABRIC }, { label: "Pattern", def: "#f3ead8", swatches: ["#f3ead8", "#24272b", "#78d8aa", "#ffc94d", "#24365a"] }] },
   { id: "chain", slot: "neck", name: "Banana chain", colours: [{ label: "Chain", def: "#ffc94d", swatches: METAL }] },
   { id: "tee", slot: "top", name: "ChimpVibe tee", colours: [{ label: "Shirt", def: "#24272b", swatches: FABRIC }, { label: "Print", def: "#78d8aa", swatches: ["#78d8aa", "#c8fce3", "#ffc94d", "#efe4cc", "#24272b"] }] },
   { id: "hoodie", slot: "top", name: "Hoodie", colours: [{ label: "Body", def: "#2f8a62", swatches: FABRIC }, { label: "Cuffs", def: "#24272b", swatches: FABRIC }] },

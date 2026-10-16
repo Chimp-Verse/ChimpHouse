@@ -153,6 +153,7 @@ const VIEWS: Record<string, { alpha: number; beta: number; radius: number; targe
   neckFront: { alpha: Math.PI / 2 + 0.25, beta: 1.42, radius: 0.85, target: at("upperChest", 0.08) },
   neck3: { alpha: Math.PI / 2 - 0.7, beta: 1.3, radius: 0.85, target: at("upperChest", 0.08) },
   neckBack: { alpha: -Math.PI / 2 + 0.4, beta: 1.2, radius: 0.85, target: at("upperChest", 0.08) },
+  nape: { alpha: -Math.PI / 2 + 0.25, beta: 1.2, radius: 0.5, target: at("neck", 0.05) },
   torsoFront: { alpha: Math.PI / 2, beta: 1.45, radius: 1.55, target: at("chest", 0.02) },
   torso3: { alpha: Math.PI / 2 - 0.7, beta: 1.35, radius: 1.55, target: at("chest", 0.02) },
   torsoSide: { alpha: Math.PI, beta: 1.42, radius: 1.55, target: at("chest", 0.02) },

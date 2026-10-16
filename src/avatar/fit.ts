@@ -11,7 +11,7 @@
 
 import type { Anatomy, Part } from "./anatomy";
 import type { ItemMesh } from "./items";
-import { type Field, type V3, add, cross, dot, len, norm, scale, sub } from "./sdf";
+import { Field as FieldCtor, type Field, type V3, add, cross, dot, len, norm, scale, sub } from "./sdf";
 
 /**
  * How far from `from` (inside the shape) along `dir` its surface is: stepped out by
@@ -51,6 +51,25 @@ export function topAt(field: Field, x: number, z: number, from: number, to: numb
     y -= Math.max(0.0006, d * 0.9);
   }
   return to;
+}
+
+/** The skin of the body and head together, for fitting what is worn where they meet (round the neck). */
+export function skinOf(anatomy: Anatomy): Field {
+  const f = new FieldCtor();
+  for (const name of ["body", "head"]) f.add(anatomy.parts.find((p) => p.name === name)!.field);
+  return f;
+}
+
+/** Where a ray from `from` (outside the shape) along `dir` meets its surface; null if it doesn't within `max`. */
+export function hitAlong(field: Field, from: V3, dir: V3, max = 0.4): V3 | null {
+  let t = 0;
+  while (t < max) {
+    const p = add(from, scale(dir, t));
+    const d = field.at(p[0], p[1], p[2]);
+    if (d <= 0.0002) return p;
+    t += Math.max(0.0005, d * 0.9);
+  }
+  return null;
 }
 
 /** The field's outward normal at p (its gradient). */
@@ -201,6 +220,105 @@ export function tubeProfile(r: number, sides = 10): { p: [number, number]; n: [n
     out.push({ p: [r * Math.cos(a), r * Math.sin(a)], n: [Math.cos(a), Math.sin(a)] });
   }
   return out;
+}
+
+/**
+ * A rope (a rolled kerchief): a round tube along a closed path, `radius(i)` thick at
+ * each point, its surface twisted in a spiral as rolled cloth is.
+ */
+export function rope(out: RawMesh, path: V3[], up: V3[], radius: (i: number) => number, twist = 0, sides = 14): void {
+  const n = path.length;
+  const base = out.positions.length / 3;
+  let along = 0;
+  for (let i = 0; i < n; i++) {
+    const prev = path[(i - 1 + n) % n];
+    const next = path[(i + 1) % n];
+    const t = norm(sub(next, prev));
+    let u = sub(up[i], scale(t, dot(up[i], t)));
+    u = len(u) < 1e-6 ? (Math.abs(t[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]) : norm(u);
+    const b = norm(cross(u, t));
+    if (i > 0) along += len(sub(path[i], path[i - 1]));
+    for (let k = 0; k < sides; k++) {
+      const ph = (k / sides) * Math.PI * 2;
+      const dir = norm(add(scale(b, Math.cos(ph)), scale(u, Math.sin(ph))));
+      // the spiral of the roll: the radius swells and dips twice round, turning along the path
+      const r = radius(i) * (1 + (twist ? 0.11 * Math.sin(2 * ph + along * twist) : 0));
+      const p = add(path[i], scale(dir, r));
+      out.positions.push(p[0], p[1], p[2]);
+      out.normals.push(dir[0], dir[1], dir[2]);
+      // the side against the body sees little light
+      out.open.push(0.55 + 0.45 * (0.5 + 0.5 * Math.sin(ph)));
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    const a = base + i * sides;
+    const c = base + ((i + 1) % n) * sides;
+    for (let k = 0; k < sides; k++) {
+      const k2 = (k + 1) % sides;
+      out.indices.push(a + k, c + k, a + k2, a + k2, c + k, c + k2);
+    }
+  }
+}
+
+/**
+ * A triangle of cloth draped on the skin (a kerchief's point, its knot's ends): its top
+ * edge along `top(s)` (s from -1 to 1), narrowing to `tip`. Each point is found on the
+ * skin looking in toward the body's middle line (at x, z = `axis`), or toward the point
+ * `toward` (for skin that faces up more than out, as the top of the back does), stood `gap` off it,
+ * plus a `bulge` in the middle and soft `folds` toward the tip. A thin sheet `thick`
+ * through; `edge` per vertex is how far its side edges are (for a printed border).
+ * Returns the mesh and the sheet's points (for the fur under it).
+ */
+export function drape(skin: Field, top: (s: number) => V3, tip: V3, axis: [number, number], o: { cols: number; rows: number; gap: number; bulge: number; folds: number; thick: number; toward?: V3; border?: boolean }): { raw: RawMesh; points: V3[] } {
+  const { cols, rows } = o;
+  const grid: V3[][] = [];
+  const nrm: V3[][] = [];
+  for (let j = 0; j < rows; j++) {
+    const v = j / (rows - 1);
+    const row: V3[] = [];
+    const nrow: V3[] = [];
+    for (let i = 0; i < cols; i++) {
+      const s = -1 + (2 * i) / (cols - 1);
+      const T = add(scale(top(s), 1 - v), scale(tip, v));
+      const out = o.toward ? norm(sub(T, o.toward)) : norm([T[0] - axis[0], 0, T[2] - axis[1]]);
+      const hit = hitAlong(skin, add(T, scale(out, 0.08)), scale(out, -1), 0.2) ?? T;
+      const n = normalAt(skin, hit);
+      const off = o.gap + o.bulge * (1 - Math.abs(s)) * Math.sin(Math.PI * Math.min(1, v * 1.15)) + o.folds * Math.sin(s * Math.PI * 3) * v;
+      row.push(add(hit, scale(n, off)));
+      nrow.push(n);
+    }
+    grid.push(row);
+    nrm.push(nrow);
+  }
+  const raw = rawMesh();
+  const halfW = len(sub(top(1), top(-1))) / 2;
+  for (const side of [1, -1]) {
+    const base = raw.positions.length / 3;
+    for (let j = 0; j < rows; j++)
+      for (let i = 0; i < cols; i++) {
+        const p = add(grid[j][i], scale(nrm[j][i], side > 0 ? 0 : -o.thick));
+        raw.positions.push(...p);
+        raw.normals.push(...scale(nrm[j][i], side));
+        raw.open.push(side > 0 ? 1 : 0.5);
+        // how far the side edges are, for a printed border (none: as if they were far off)
+        raw.edge.push(o.border === false ? 1 : (1 - Math.abs(-1 + (2 * i) / (cols - 1))) * halfW * (1 - j / (rows - 1)) * 0.92);
+        raw.along.push(0);
+      }
+    for (let j = 0; j < rows - 1; j++)
+      for (let i = 0; i < cols - 1; i++) {
+        const q = base + j * cols + i;
+        raw.indices.push(q, q + cols, q + 1, q + 1, q + cols, q + cols + 1);
+      }
+  }
+  // the side edges: the two faces joined
+  const half = rows * cols;
+  for (const i of [0, cols - 1])
+    for (let j = 0; j < rows - 1; j++) {
+      const a0 = j * cols + i;
+      const a1 = (j + 1) * cols + i;
+      raw.indices.push(a0, a1, a0 + half, a0 + half, a1, a1 + half);
+    }
+  return { raw, points: grid.flat() };
 }
 
 /** A ring (a chain's link, a buckle's frame): round `axis`, `R` to the middle of its tube, the tube `r` thick, stretched `long` along `along`. */

@@ -345,6 +345,7 @@ export class Chimp {
           if (im.seams) cloth.seams.set(...im.seams);
           if (im.knit !== undefined) cloth.knit = im.knit ? 1 : 0;
           cloth.fuzz = im.fuzz ?? 0;
+          cloth.pattern = item.pattern ?? 0;
           if (im.fuzz) cloth.weave = 0;
         }
         mesh.material = material;

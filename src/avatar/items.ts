@@ -15,7 +15,7 @@
 
 import type { Anatomy, PartName } from "./anatomy";
 import { decimate } from "./decimate";
-import { type RawMesh, rawMesh, surfaceAlong, toItemMesh, topAt } from "./fit";
+import { type RawMesh, drape, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, surfaceAlong, toItemMesh, topAt, weighOnBody } from "./fit";
 import { buildGarment } from "./garments";
 import { meshField, settle } from "./mesher";
 import { type PrintArt, printAspect } from "./wordmark";
@@ -55,6 +55,8 @@ export interface ItemModel {
   /** what the print shows (the tree; the tree over the word), and which of the item's colours is its main ink (none: one that stands out from the cloth) */
   printArt?: PrintArt;
   printInk?: number;
+  /** a printed pattern all over it, in its second colour (1: a bandana's paisley and border) */
+  pattern?: number;
   /** knitted (a beanie): ribs rather than a weave */
   knit?: boolean;
 }
@@ -82,6 +84,10 @@ interface Plan {
   pieces: Piece[];
   /** pieces made directly as meshes (avatar/fit.ts): a cap's peak, a strap */
   meshes?: ItemMesh[];
+  /** weighted to the body's bones as the skin under it is (it moves with the neck, the shoulders), rather than carried by `bone` */
+  skinned?: boolean;
+  /** a printed pattern all over it (1: a bandana's) */
+  pattern?: number;
   /** the fur it hides: > 0 inside */
   covers?: (x: number, y: number, z: number) => number;
   print?: [number, number, number, number];
@@ -101,6 +107,7 @@ export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartNam
     if (m) meshes.push({ ...m, kind: piece.kind, colour: piece.colour, hex: piece.hex, bone: plan.bone, seams: piece.seams, knit: piece.knit, fuzz: piece.fuzz });
   }
   meshes.push(...(plan.meshes ?? []));
+  if (plan.skinned) for (let i = 0; i < meshes.length; i++) meshes[i] = weighOnBody(anatomy, meshes[i]);
   const cover: Partial<Record<PartName, Float32Array>> = {};
   if (plan.covers) {
     for (const [part, pos] of Object.entries(furPositions) as [PartName, Float32Array][]) {
@@ -113,7 +120,7 @@ export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartNam
       if (any) cover[part] = c;
     }
   }
-  return { id, meshes, cover, print: plan.print, printArt: plan.printArt, knit: plan.knit };
+  return { id, meshes, cover, print: plan.print, printArt: plan.printArt, knit: plan.knit, pattern: plan.pattern };
 }
 
 /** Mesh a piece: on its grid, simplified, settled on its surface; its bands and creases worked out. */
@@ -453,27 +460,86 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
   specs: (a) => glasses(a, false),
 
   bandana(a) {
-    const neck = a.rig.bones[a.rig.index.neck].head;
-    const g = a.rig.marks.girth;
-    const f = new Field();
-    const ringC = add(neck, [0, 0.012, 0.004]);
-    const axis = norm([0, 1, 0.22]);
-    // a rolled kerchief round the neck, knotted behind, its point hanging over the chest
-    f.add(Prim.torus(ringC, axis, 0.086 * g + 0.014, 0.017, 0, "roll", 0.7));
-    f.add(Prim.sphere(add(ringC, [0, 0.0, -(0.086 * g + 0.03)]), 0.022, 0, "knot"), 0.01);
-    const flapC = add(ringC, [0, -0.055, 0.086 * g + 0.012]);
-    const flap = new Field();
-    flap.add(Prim.ellipsoid(flapC, [0.07, 0.07, 0.007], 0, "flap", [0, -0.35, 1]));
-    // cut to a point: two slanting cuts below
-    flap.cut(Prim.box(add(flapC, [0.5 + 0.0, -0.5 - 0.0, 0]), [0.5, 0.5, 0.5], 0, 0, "v1", [0, 0, 1], norm([1, 1, 0])), 0.002);
-    flap.cut(Prim.box(add(flapC, [-0.5, -0.5, 0]), [0.5, 0.5, 0.5], 0, 0, "v2", [0, 0, 1], norm([-1, 1, 0])), 0.002);
-    flap.meet(Prim.box(add(flapC, [0, -0.5 + 0.035, 0]), [1, 0.5, 1], 0, 0, "top"), 0.002);
-    f.add(flap, 0.01);
-    const roll = Prim.torus(ringC, axis, 0.086 * g + 0.014, 0.024, 0, "rollCover", 0.7);
+    const r = a.rig;
+    const g = r.marks.girth;
+    const skin = skinOf(a);
+    const J = (n: string): V3 => r.bones[r.index[n]].head;
+    // the roll: round the neck above the shoulders, lower in front and higher behind, on the skin
+    const neckBase = add(J("upperChest"), [0, 0.07, -0.006]);
+    const neckTop = add(J("head"), [0, 0.045, 0.004]);
+    const O = lerp3(neckBase, neckTop, 0.48);
+    const tilt = 0.4;
+    const X: V3 = [1, 0, 0];
+    const F: V3 = [0, -Math.sin(tilt), Math.cos(tilt)];
+    const N = 56;
+    const ring = ringOnSkin(skin, O, N, (t) => add(scale(X, Math.cos(t)), scale(F, Math.sin(t))));
+    // fatter in front, where the folded cloth bunches, and at the knot behind
+    const front = (i: number) => Math.cos((i / N) * Math.PI * 2 - Math.PI / 2);
+    const rollR = (i: number) => (0.0085 + 0.0035 * Math.max(0, front(i)) + 0.0015 * Math.max(0, -front(i))) * Math.sqrt(g);
+    const GAP = 0.003;
+    let path = ring.at.map((p, i) => add(p, scale(ring.normal[i], rollR(i) + GAP)));
+    path = smoothPath(path, 4, true);
+    const roll = rawMesh();
+    rope(roll, path, ring.normal, rollR, 260);
+
+    // the triangle: hung from under the roll in front, draped over the chest to a point
+    const SPAN = 0.95;
+    const L = 0.13 * Math.sqrt(g);
+    const THICK = 0.0018;
+    const topAtS = (sv: number): V3 => {
+      // the roll's point at this angle round the front, a little under it
+      const ang = Math.PI / 2 + sv * SPAN;
+      const f = (ang / (Math.PI * 2)) * N;
+      const i0 = Math.floor(f);
+      const t = f - i0;
+      const p = lerp3(path[i0 % N], path[(i0 + 1) % N], t);
+      const nn = norm(lerp3(ring.normal[i0 % N], ring.normal[(i0 + 1) % N], t));
+      return add(p, add(scale(nn, -rollR(i0) * 0.5), [0, -rollR(i0) * 0.6, 0]));
+    };
+    const axisZ = J("chest")[2];
+    const flap = drape(skin, topAtS, add(topAtS(0), [0, -L, 0]), [O[0], axisZ], { cols: 15, rows: 13, gap: GAP + 0.0012, bulge: 0.0045, folds: 0.0022, thick: THICK });
+
+    // the knot behind, and its two ends hanging from it, draped on the back
+    const back = Math.round(N * 0.75);
+    const kn = add(path[back], scale(ring.normal[back], 0.005));
+    const kN = ring.normal[back];
+    const knot = new Field();
+    knot.add(Prim.ellipsoid(kn, [0.015 * Math.sqrt(g), 0.013, 0.012], 0, "knot", kN, [0, 1, 0]));
+    for (const s of [-1, 1]) knot.add(Prim.ellipsoid(add(kn, [s * 0.013, 0.004, -0.002]), [0.011, 0.009, 0.008], 0, "knotEar", kN, [0, 1, 0]), 0.005);
+    // each end a short, broad triangle of the cloth, hanging down and out from under the knot
+    const ends = [-1, 1].map((s) =>
+      drape(skin, (t) => add(kn, [s * (0.003 + 0.017 * (t + 1)), -0.007 - 0.004 * (t + 1), 0]), add(kn, [s * 0.03, -0.052 * Math.sqrt(g), 0]), [O[0], axisZ], {
+        cols: 9,
+        rows: 9,
+        gap: GAP + 0.0025,
+        bulge: 0.0025,
+        folds: 0.0012,
+        thick: THICK,
+        toward: O,
+        // too small for the border to read as one
+        border: false,
+      }),
+    );
+
+    // the fur under it goes; round it, pressed down
+    const sheetPts = [...flap.points, ...ends.flatMap((e) => e.points)];
     return {
       bone: "neck",
-      pieces: [{ kind: "cloth", colour: 0, field: f, h: 0.0035, tris: 3400 }],
-      covers: (x, y, z) => inside(roll.d(x, y, z), 0.006),
+      pieces: [{ kind: "cloth", colour: 0, field: knot, h: 0.0016, tris: 2600 }],
+      meshes: [toItemMesh(roll, "cloth", 0, null), toItemMesh(flap.raw, "cloth", 0, null), ...ends.map((e) => toItemMesh(e.raw, "cloth", 0, null))],
+      skinned: true,
+      pattern: 1,
+      covers: (x, y, z) => {
+        const p: V3 = [x, y, z];
+        const dRoll = pathDistance(path, true, p) - 0.012 * Math.sqrt(g);
+        let best = Infinity;
+        for (const q of sheetPts) best = Math.min(best, (q[0] - x) ** 2 + (q[1] - y) ** 2 + (q[2] - z) ** 2);
+        const dFlap = Math.sqrt(best);
+        const dKnot = len(sub(kn, p)) - 0.022;
+        const under = Math.max(inside(dRoll, 0.003), dFlap < 0.011 ? 1 : 0, inside(dKnot, 0.004));
+        const near = Math.max(1 - smoothstep(0.0, 0.022, dRoll), 1 - smoothstep(0.011, 0.024, dFlap), 1 - smoothstep(0, 0.02, dKnot)) * 0.75;
+        return Math.max(under, near);
+      },
     };
   },
 

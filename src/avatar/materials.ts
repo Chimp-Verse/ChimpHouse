@@ -307,6 +307,8 @@ export class ChimpClothPlugin extends MaterialPluginBase {
   seams = new Vector4(0, 0, 0, 0);
   /** yarn's fuzz (a bobble): 0 smooth, 1 a fine speckle of fibres */
   fuzz = 0;
+  /** a printed pattern all over, in the band colour: 0 none, 1 a bandana's paisley, dots and border */
+  pattern = 0;
   /** the weave's size: repeats per metre, and 0 woven, 1 knitted ribs */
   weave = 260;
   knit = 0;
@@ -343,12 +345,13 @@ export class ChimpClothPlugin extends MaterialPluginBase {
         { name: "chimpInk2", size: 3, type: "vec3" },
         { name: "chimpSeams", size: 4, type: "vec4" },
         { name: "chimpFuzz", size: 1, type: "float" },
+        { name: "chimpPattern", size: 1, type: "float" },
         { name: "chimpPrintRect", size: 4, type: "vec4" },
         { name: "chimpWeave", size: 1, type: "float" },
         { name: "chimpKnit", size: 1, type: "float" },
         { name: "chimpClothFade", size: 1, type: "float" },
       ],
-      fragment: "uniform vec3 chimpMain; uniform vec3 chimpBand; uniform vec3 chimpInk; uniform vec3 chimpInk2; uniform vec4 chimpSeams; uniform float chimpFuzz; uniform vec4 chimpPrintRect; uniform float chimpWeave; uniform float chimpKnit; uniform float chimpClothFade;",
+      fragment: "uniform vec3 chimpMain; uniform vec3 chimpBand; uniform vec3 chimpInk; uniform vec3 chimpInk2; uniform vec4 chimpSeams; uniform float chimpFuzz; uniform float chimpPattern; uniform vec4 chimpPrintRect; uniform float chimpWeave; uniform float chimpKnit; uniform float chimpClothFade;",
     };
   }
 
@@ -359,6 +362,7 @@ export class ChimpClothPlugin extends MaterialPluginBase {
     ubo.updateColor3("chimpInk2", this.printColour2);
     ubo.updateVector4("chimpSeams", this.seams);
     ubo.updateFloat("chimpFuzz", this.fuzz);
+    ubo.updateFloat("chimpPattern", this.pattern);
     ubo.updateVector4("chimpPrintRect", this.printRect);
     ubo.updateFloat("chimpWeave", this.weave);
     ubo.updateFloat("chimpKnit", this.knit);
@@ -380,6 +384,31 @@ float chimpSpecOcc = vChimpCloth.z;
 {
   float band = vChimpCloth.x;
   vec3 col = mix(chimpMain, chimpBand, smoothstep(0.35, 0.65, band));
+  if (chimpPattern > 0.5) {
+    // a bandana's print, in the second colour: paisley drops in staggered rows, dots between, a
+    // border line just inside the cloth's edge (y: how far the edge is; far away on the roll and knot)
+    vec3 pn = abs(normalize(vChimpRestN));
+    vec2 p = (pn.x > max(pn.y, pn.z) ? vChimpRest.zy : pn.y > pn.z ? vChimpRest.xz : vChimpRest.xy) / 0.017;
+    vec2 cell = floor(p);
+    vec2 f = fract(p) - 0.5;
+    if (mod(cell.y, 2.0) > 0.5) f.x = fract(p.x + 0.5) - 0.5;
+    // a drop: a round head with its tail curling up and over, a cloth-coloured hollow, a dot in it
+    vec2 h = f - vec2(-0.03, -0.07);
+    float head = 1.0 - smoothstep(0.17, 0.2, length(h));
+    float tail = (1.0 - smoothstep(0.055, 0.08, length(f - vec2(0.1, 0.13)))) + (1.0 - smoothstep(0.03, 0.05, length(f - vec2(0.17, 0.25))));
+    float hollow = 1.0 - smoothstep(0.08, 0.1, length(h));
+    float eye = 1.0 - smoothstep(0.035, 0.05, length(h));
+    float motif = clamp(max(head, tail) * (1.0 - hollow) + eye, 0.0, 1.0);
+    float dots = 1.0 - smoothstep(0.04, 0.055, length(fract(p + vec2(0.5, 0.5)) - 0.5));
+    float ink = max(motif, dots);
+    float e = vChimpCloth.y;
+    if (e > 0.0 && e < 0.5) {
+      // the border: plain cloth along the very edge, a line, then the field of the print
+      float line = 1.0 - smoothstep(0.0007, 0.0013, abs(e - 0.0045));
+      ink = e < 0.0085 ? line : ink;
+    }
+    col = mix(col, chimpBand, ink * 0.92);
+  }
   // the weave: fine threads across and along, from the rest pose's position on the plane it faces most;
   // knitted things (and every band) have ribs instead
   vec3 an = abs(normalize(vChimpRestN));
