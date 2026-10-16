@@ -10,7 +10,7 @@
 // read from their meshes, never from how the room code builds them.
 
 import { AbstractMesh, Matrix, Mesh, Scene, Vector3, VertexBuffer, Viewport } from "@babylonjs/core";
-import { FlyCamera, Pose } from "./flyCamera";
+import { FlyCamera, Pose, viewer } from "./flyCamera";
 import { FocusInfo, ScreenRect, store } from "./store";
 
 /** A screen's place in the world, read from its mesh. */
@@ -130,11 +130,16 @@ export function pickPoint(canvas: HTMLCanvasElement, client: { x: number; y: num
   return { x: client.x - box.left, y: client.y - box.top };
 }
 
-/** What a click on the canvas is on (the centre of the view while the mouse is captured), and how far away. */
+/**
+ * What a click on the canvas is on (the centre of the view while the mouse is captured), and how
+ * far it is from the visitor's eyes: the camera's while flying, the chimp's while walking (so a
+ * camera behind the chimp doesn't put everything out of reach).
+ */
 export function pickAt(scene: Scene, canvas: HTMLCanvasElement, e: MouseEvent): { mesh: AbstractMesh; distance: number } | null {
   const { x, y } = pickPoint(canvas, { x: e.clientX, y: e.clientY });
   const pick = scene.pick(x, y, (m) => m.isPickable && m.isEnabled() && m.isVisible);
-  return pick?.hit && pick.pickedMesh ? { mesh: pick.pickedMesh, distance: pick.distance } : null;
+  if (!pick?.hit || !pick.pickedMesh) return null;
+  return { mesh: pick.pickedMesh, distance: pick.pickedPoint ? Vector3.Distance(viewer.eye, pick.pickedPoint) : pick.distance };
 }
 
 /**
@@ -190,7 +195,8 @@ export class ScreenFocus {
     if (!f || f.phase === "out") return;
     const token = ++this.seq;
     store.set({ focus: { ...f, phase: "out" }, focusRect: null });
-    if (back) await this.fly.glide(back, glide);
+    // back to the chimp's eyes' pose, or in third person to the camera behind the chimp looking the same way
+    if (back) await this.fly.glide(this.fly.settlePose(back), glide);
     if (this.seq !== token) return;
     this.screen = null;
     this.pose = null;

@@ -423,7 +423,7 @@ export class Foosball {
     const p = Vector3.TransformCoordinatesFromFloatsToRef(f.x, f.y, f.z, this.tableInv, this.v1);
     if (Math.abs(p.x) > HL + 0.1 + NEAR || Math.abs(p.z) > OZ + NEAR) return null;
     // looking at the table
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const fwd = this.fly.aim;
     const c = this.tableWM.getTranslation();
     const dx = c.x - f.x;
     const dz = c.z - f.z;
@@ -800,7 +800,7 @@ export class Foosball {
   }
 
   private distance(): number {
-    return Vector3.Distance(this.fly.camera.position, this.tableWM.getTranslation());
+    return Vector3.Distance(this.fly.eye, this.tableWM.getTranslation());
   }
 
   // ------------------------------------------------------------------ showing it

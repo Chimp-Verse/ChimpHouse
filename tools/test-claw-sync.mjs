@@ -23,7 +23,7 @@ const open = async (name, w, h) => {
   const ctx = await browser.newContext({ viewport: { width: w, height: h } });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
-  await page.goto(`${URL}/?capture=1&quality=low&name=${name}`);
+  await page.goto(`${URL}/?pov=first&capture=1&quality=low&name=${name}`);
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   return { ctx, page };
 };

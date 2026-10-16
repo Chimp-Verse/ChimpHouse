@@ -3,11 +3,13 @@ import { faceLabel } from "../world/context";
 import { CollisionWorld, closestOnTriangle, emptyProbe } from "./collision";
 
 /**
- * Size of the walking avatar, in metres. The chimp avatar isn't designed yet,
- * so this is a person-sized stand-in: change it here to test other sizes.
+ * Size of the walking body, in metres: the capsule that bumps into things. The
+ * chimp (engine/avatars.ts) sets the eye height a walker sees from to its own;
+ * the capsule stays person-sized, so every chimp fits through the same doors.
  */
 export const AVATAR = {
   height: 1.7,
+  /** eye height until a chimp sets the walker's own (`Walker.eye`) */
   eye: 1.55,
   /** eye height sitting down, as when watching the theatre screen */
   seatedEye: 1.15,
@@ -53,6 +55,8 @@ export class Walker {
   private contactPush = 0;
   /** Label of what the walker last walked into, kept for a few seconds after. */
   blockedBy: string | null = null;
+  /** the eye's height above the feet: the chimp's own, once it has one */
+  eye = AVATAR.eye;
   private cp = new Float64Array(3);
   private under = emptyProbe();
 
@@ -62,6 +66,21 @@ export class Walker {
   /** Eye height for the camera, eased over steps. */
   get eyeY(): number {
     return this.camY;
+  }
+
+  /** The ground's height under the walker, eased over steps as the eye is (where a body stands). */
+  get groundY(): number {
+    return this.camY - this.eye;
+  }
+
+  /** Horizontal velocity, metres per second (world x and z). */
+  get velocity(): { x: number; z: number } {
+    return { x: this.vel.x, z: this.vel.z };
+  }
+
+  /** On the ground (not falling). */
+  get onGround(): boolean {
+    return this.grounded;
   }
 
   /**
@@ -80,7 +99,7 @@ export class Walker {
     this.vy = 0;
     this.slideX = this.slideZ = 0;
     this.grounded = p.walkY === floor;
-    this.camY = floor + AVATAR.eye;
+    this.camY = floor + this.eye;
     this.safe.copyFrom(this.feet);
     this.stuckTime = 0;
     this.blockedBy = null;
@@ -117,7 +136,7 @@ export class Walker {
     } else if ((this.sinceBlocked += dt) > 2.5) this.blockedBy = null;
 
     // ease the eye over steps; follow falls exactly
-    const target = this.feet.y + AVATAR.eye;
+    const target = this.feet.y + this.eye;
     if (this.grounded && Math.abs(target - this.camY) < 0.6) this.camY += (target - this.camY) * (1 - Math.exp(-dt * 16));
     else this.camY = target;
 

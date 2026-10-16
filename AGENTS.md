@@ -26,6 +26,16 @@ These are built on the code world before the Blender cut-over, and built to surv
 - Keep dynamic things as runtime data: the list of admitted games and each game's art come from ChimpVibe, screen images are placeholders, and video and game content loads when someone uses it.
 - Show another site's content (a YouTube player, a game hosted on ChimpVibe's site) as an overlay lined up with its screen or in a panel: browsers don't let it be drawn onto a 3D surface. Content running in ChimpVerse's own page can be drawn onto the screen.
 
+## Chimp avatars
+
+Every visitor walks the house as a chimp they shape and dress (`docs/plans/2026-10-16-chimp-avatar-plan.md` has how, and what a Blender chimp must do to take its place):
+
+- The chimp is made in code, in `src/avatar/`, as the house is until its cut-over. Its DNA (`dna.ts`) is the one record of what a chimp looks like; everything else is built from it. A new setting is a row in `SHAPES` or `COLOURS`; a new item an entry in `wardrobe.ts` and its builder in `items.ts` (worn on a bone) or `garments.ts` (fitted to the body).
+- Work on its look and movement in the chimp lab (`chimp.html`): `tools/chimp-shots.mjs` photographs it there, `tools/chimp-house-shots.mjs` in the house. Check it with `tools/test-chimp.mjs` and, for other visitors' chimps, `tools/test-chimp-sync.mjs`.
+- Walking, the camera is behind the chimp. Measure reach and aim from the visitor's eyes, `fly.eye` and `fly.aim` (`viewer` in `engine/flyCamera.ts`), never from `fly.camera`, which is only for what is drawn on the page (an overlay lined up with a screen, what is in view). Browser tests written for walking from the eyes open the page with `?pov=first`.
+- A chimp is lit by lights of its own that copy the room lights where it stands (`ChimpLights` in `engine/lighting.ts`). Never light something that moves by adding it to the room lights' mesh lists or taking it out: each change is a pass over every mesh in the house, a hitch every time it crosses a doorway.
+- Keep the skeleton's VRM bone names and unrotated A-pose rest, and the vertex attributes the materials read: the animation, the wardrobe and a Blender chimp all rely on them.
+
 ## Committing Git LFS files
 
 The large art files are stored with Git LFS: the Blender files (the master, the room files and the material library), their textures and the exports (the tracked patterns are in `.gitattributes`). The house is split into room files so a change commits only the rooms it touched. GitHub keeps every committed version of an LFS file in full and counts it against the account's limited LFS storage and download allowance, and deleting the files later doesn't give that space back.

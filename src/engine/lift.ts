@@ -303,7 +303,8 @@ export class Lift {
 
   /** Whether this visitor is at the lift: in the car, or near a landing's doors (a little further to leave than to come). */
   private nearLift(s: LiftState, now: number): boolean {
-    const eye = this.fly.camera.globalPosition;
+    // the visitor is where their eyes are: the chimp's, walking, not a camera behind it
+    const eye = this.fly.eye;
     const carFloor = LEVEL.lower + carHeight(s, now);
     if (this.inCar(eye.x, eye.z) && eye.y > carFloor && eye.y < carFloor + LIFT_CAR.height) return true;
     const reach = s.nearby.includes(VIEWER) ? LEFT_LIFT : NEAR_LIFT;
@@ -313,7 +314,8 @@ export class Lift {
   /** Where the visitor hears the lift from: their ear and the way they face, where the car is, and whether they are inside it or shut out of it. */
   private listen(s: LiftState, now: number): void {
     const cam = this.fly.camera;
-    const eye = cam.globalPosition;
+    // heard from where the visitor is (the chimp's head, walking), facing the way the camera does
+    const eye = this.fly.eye;
     const cy = LEVEL.lower + carHeight(s, now) + 1.2;
     const cz = (LIFT_CAR.z0 + LIFT_CAR.z1) / 2;
     const inside = this.inCar(eye.x, eye.z) && Math.abs(eye.y - cy) < 1.3;
@@ -361,7 +363,8 @@ export class Lift {
       const p = b.mesh.getBoundingInfo().boundingBox.centerWorld;
       const v = p.subtract(ray.origin);
       const along = Vector3.Dot(v, ray.direction);
-      if (along <= 0 || v.length() > REACH) continue;
+      // pointed at through the view, within reach of the visitor's eyes
+      if (along <= 0 || Vector3.Distance(p, this.fly.eye) > REACH) continue;
       const miss = v.subtract(ray.direction.scale(along)).length();
       if (miss > AIM[b.at === "car" ? "car" : "call"] || miss >= bestMiss) continue;
       best = b;

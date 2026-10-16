@@ -104,8 +104,8 @@ export class Remotes {
 
   /** What E would do here: take the remote whose spot is looked at, or, holding one, set it down at the stand. */
   private offer(): { action: "take" | "put"; remote: number } | null {
-    const eye = this.fly.camera.position;
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const eye = this.fly.eye;
+    const fwd = this.fly.aim;
     let best: { n: number; cos: number } | null = null;
     for (const spot of this.spots) {
       const to = spot.getAbsolutePosition().subtract(eye);
@@ -122,6 +122,6 @@ export class Remotes {
   /** Whether the camera is in the room the remotes belong to. */
   private inTheatre(): boolean {
     const room = (this.spots[0]?.metadata as SlotMeta | undefined)?.room;
-    return !!room && roomAt(this.fly.camera.position)?.id === room;
+    return !!room && roomAt(this.fly.eye)?.id === room;
   }
 }

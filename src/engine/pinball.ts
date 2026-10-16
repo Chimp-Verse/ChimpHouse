@@ -241,7 +241,7 @@ export class Pinball {
     const walker = this.fly.walker;
     if (!walker) return null;
     const feet = walker.feet;
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const fwd = this.fly.aim;
     let best: Machine | null = null;
     let bestD = REACH;
     for (const m of this.machines) {
@@ -251,7 +251,7 @@ export class Pinball {
       const d = Math.hypot(stand.x - feet.x, stand.z - feet.z);
       if (d >= bestD) continue;
       const c = Vector3.TransformCoordinates(new Vector3(0, 0.1, 0.5), wm);
-      const to = c.subtract(this.fly.camera.position).normalize();
+      const to = c.subtract(this.fly.eye).normalize();
       if (Vector3.Dot(to, fwd) < LOOK) continue;
       best = m;
       bestD = d;

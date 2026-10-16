@@ -8,6 +8,7 @@ import { PlushPanel, PlushPrompt } from "./PlushHud";
 import { AirHockeyOverlay } from "./AirHockeyOverlay";
 import { FoosballPanel } from "./FoosballPanel";
 import { PlayOverlay } from "./PlayOverlay";
+import { Wardrobe } from "./Wardrobe";
 import { RemotePanel } from "./RemotePanel";
 import { SnackPanel } from "./SnackPanel";
 import { TheatreOverlay } from "./TheatreOverlay";
@@ -41,7 +42,8 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         <PlushPanel s={s} claw={ctl.claw} />
       </div>
 
-      <div className="panel views">
+      {s.wardrobe && <Wardrobe ctl={ctl} s={s} />}
+      <div className="panel views" style={s.wardrobe ? { display: "none" } : undefined}>
         <div className="section">Theatre</div>
         <div className="theatre-now" title={s.theatreVideo?.title}>
           {s.theatre.videoId ? (
@@ -64,6 +66,8 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         ))}
         <div className="section">Display</div>
         <Toggle on={s.walking} label="Walk mode" k="F" onClick={() => ctl.setWalking(!s.walking)} />
+        <Toggle on={s.walking && s.firstPerson} label="From your chimp's eyes" k="V" onClick={() => (s.walking ? ctl.toggleView() : ctl.setWalking(true))} />
+        <Toggle on={s.wardrobe} label="Dress your chimp" k="C" onClick={() => ctl.setWardrobe(!s.wardrobe)} />
         <Toggle on={s.night} label="Night" k="N" onClick={() => ctl.setNight(!s.night)} />
         <Toggle on={s.roofHidden} label="Hide roofs" k="R" onClick={() => ctl.setRoofHidden(!s.roofHidden)} />
         <Toggle on={s.upperHidden} label="Hide upper level" k="U" onClick={() => ctl.setUpperHidden(!s.upperHidden)} />
@@ -99,7 +103,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         </div>
       )}
 
-      {view?.ref && s.refOverlay === "thumb" && (
+      {view?.ref && s.refOverlay === "thumb" && !s.wardrobe && (
         <div className="ref-thumb">
           <img src={view.ref} alt={view.refName} />
           <div>{view.refName}</div>
@@ -115,7 +119,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote, pick up a plush or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · wheel to bring the camera in or out · <b>V</b> your chimp's eyes · <b>C</b> dress your chimp · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote, pick up a plush or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -252,7 +256,10 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>E or Space / Q or C</td><td>Up / down</td></tr>
             <tr><td>Shift / Alt (held)</td><td>Four times faster / slower</td></tr>
             <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
-            <tr><td>F</td><td>Walk at avatar height (walls, furniture, stairs and gravity) / fly</td></tr>
+            <tr><td>F</td><td>Walk as your chimp (walls, furniture, stairs and gravity) / fly</td></tr>
+            <tr><td>Wheel (walking)</td><td>Bring the camera in to your chimp, or further out behind it; all the way in is from its eyes</td></tr>
+            <tr><td>V (walking)</td><td>See from your chimp's eyes, or from behind it</td></tr>
+            <tr><td>C (walking)</td><td>Dress your chimp: its body, face, fur and clothes. Kept for your next visit, and everyone sees it</td></tr>
             <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>

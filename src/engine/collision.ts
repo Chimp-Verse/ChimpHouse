@@ -382,12 +382,95 @@ export class CollisionWorld {
     }
   }
 
+  /**
+   * How far a ray from (ox, oy, oz) along the unit direction (dx, dy, dz) goes
+   * before it meets a solid surface, up to `max`: what keeps a camera behind the
+   * chimp out of walls. The ray steps through the grid's cells along its plan,
+   * nearest first, and stops once no farther cell can hold a nearer hit. The lift's
+   * car and doors count, where they are now.
+   */
+  raycast(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, max: number): number {
+    this.gatherId++;
+    let best = max;
+    const t = this.tri;
+    const hit = (v: ArrayLike<number>, o: number) => {
+      const d = rayTriangle(ox, oy, oz, dx, dy, dz, v, o);
+      if (d > 1e-4 && d < best) best = d;
+    };
+    let i = Math.floor((ox - this.x0) / CELL);
+    let j = Math.floor((oz - this.z0) / CELL);
+    const stepI = dx > 0 ? 1 : -1;
+    const stepJ = dz > 0 ? 1 : -1;
+    const deltaX = dx !== 0 ? Math.abs(CELL / dx) : Infinity;
+    const deltaZ = dz !== 0 ? Math.abs(CELL / dz) : Infinity;
+    let maxX = dx > 0 ? (this.x0 + (i + 1) * CELL - ox) / dx : dx < 0 ? (this.x0 + i * CELL - ox) / dx : Infinity;
+    let maxZ = dz > 0 ? (this.z0 + (j + 1) * CELL - oz) / dz : dz < 0 ? (this.z0 + j * CELL - oz) / dz : Infinity;
+    let enter = 0;
+    while (enter <= best) {
+      const exit = Math.min(maxX, maxZ, best);
+      if (i >= 0 && j >= 0 && i < this.nx && j < this.nz) {
+        // only triangles reaching the heights the ray passes at in this cell
+        const ya = oy + dy * enter;
+        const yb = oy + dy * exit;
+        const y0 = Math.min(ya, yb);
+        const y1 = Math.max(ya, yb);
+        const c = j * this.nx + i;
+        for (let e = this.cellStart[c]; e < this.cellStart[c + 1]; e++) {
+          const tri = this.cellTris[e];
+          if (this.stamp[tri] === this.gatherId || this.triY1[tri] < y0 || this.triY0[tri] > y1) continue;
+          this.stamp[tri] = this.gatherId;
+          if (!this.enabled(this.triSrc[tri])) continue;
+          this.load(tri, t, 0);
+          hit(t, 0);
+        }
+      }
+      // a hit inside this cell can't be beaten by a farther one
+      if (best <= exit || (maxX === Infinity && maxZ === Infinity)) break;
+      if (maxX < maxZ) {
+        i += stepI;
+        enter = maxX;
+        maxX += deltaX;
+      } else {
+        j += stepJ;
+        enter = maxZ;
+        maxZ += deltaZ;
+      }
+    }
+    for (let k = 0; k < this.moverTris; k++) if (this.moverOn[this.moverOwner[k]]) hit(this.moverWorld, k * 9);
+    return best;
+  }
+
   /** The mesh and face index of a triangle id, for labelling. */
   face(tri: number): { mesh: Mesh; face: number } {
     if (tri >= this.triangles) return { mesh: this.movers[this.moverOwner[tri - this.triangles]], face: this.moverFace[tri - this.triangles] };
     const src = this.triSrc[tri];
     return { mesh: this.sources[src].mesh, face: tri - this.srcStart[src] };
   }
+}
+
+/**
+ * Where a ray meets a triangle (vertices at `v[o..o+8]`), as a distance along its
+ * unit direction, either face (Moller and Trumbore); -1 when it misses.
+ */
+function rayTriangle(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, v: ArrayLike<number>, o: number): number {
+  const ax = v[o], ay = v[o + 1], az = v[o + 2];
+  const e1x = v[o + 3] - ax, e1y = v[o + 4] - ay, e1z = v[o + 5] - az;
+  const e2x = v[o + 6] - ax, e2y = v[o + 7] - ay, e2z = v[o + 8] - az;
+  const px = dy * e2z - dz * e2y;
+  const py = dz * e2x - dx * e2z;
+  const pz = dx * e2y - dy * e2x;
+  const det = e1x * px + e1y * py + e1z * pz;
+  if (Math.abs(det) < 1e-12) return -1;
+  const inv = 1 / det;
+  const sx = ox - ax, sy = oy - ay, sz = oz - az;
+  const u = (sx * px + sy * py + sz * pz) * inv;
+  if (u < 0 || u > 1) return -1;
+  const qx = sy * e1z - sz * e1y;
+  const qy = sz * e1x - sx * e1z;
+  const qz = sx * e1y - sy * e1x;
+  const w = (dx * qx + dy * qy + dz * qz) * inv;
+  if (w < 0 || u + w > 1) return -1;
+  return (e2x * qx + e2y * qy + e2z * qz) * inv;
 }
 
 /** A part of the lift that moves (see MeshMeta.kind): solid, but tested in its place, not in the grid. */

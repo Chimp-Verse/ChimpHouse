@@ -243,7 +243,7 @@ export class SnackMachine {
       if (next !== this.state) this.publish(next);
     }
     // the sounds of vends as they start, wherever they were chosen
-    const eye = this.fly.camera.globalPosition;
+    const eye = this.fly.eye;
     this.sound.distance = Vector3.Distance(eye, Vector3.TransformCoordinates(this.tmp.v.set(0, 1.1, SNACK.front), this.world));
     for (const v of this.state.vends) if (!this.heard.has(vendKey(v))) this.hear(v, now);
 
@@ -407,7 +407,8 @@ export class SnackMachine {
       Vector3.TransformCoordinatesToRef(k.local, this.world, p);
       const v = p.subtract(ray.origin);
       const along = Vector3.Dot(v, ray.direction);
-      if (along <= 0 || v.length() > reach) return;
+      // within reach of the visitor's eyes (the chimp's, walking), wherever the camera is
+      if (along <= 0 || Vector3.Distance(p, this.fly.eye) > reach) return;
       const miss = v.subtract(ray.direction.scale(along)).length();
       if (miss < bestMiss) {
         best = i;
@@ -419,7 +420,7 @@ export class SnackMachine {
       return;
     }
     const hit = ray.intersectsMesh(this.flap);
-    this.target = hit.hit && hit.distance <= reach + 0.3 ? { flap: true } : null;
+    this.target = hit.hit && Vector3.Distance(ray.origin.add(ray.direction.scale(hit.distance)), this.fly.eye) <= reach + 0.3 ? { flap: true } : null;
   }
 
   /** E (or a click at the machine): press the key pointed at, push the flap, eat, or step up to the machine. */
@@ -438,7 +439,7 @@ export class SnackMachine {
     this.aim();
     if (!this.target) return false;
     const at = "key" in this.target ? Vector3.TransformCoordinates(this.keys[this.target.key].local, this.world) : this.flap.getBoundingInfo().boundingBox.centerWorld;
-    if (Vector3.Distance(at, this.fly.camera.globalPosition) > CLICK_REACH) return false;
+    if (Vector3.Distance(at, this.fly.eye) > CLICK_REACH) return false;
     this.act();
     return true;
   }
@@ -722,7 +723,7 @@ export class SnackMachine {
     if (!w) return false;
     const p = Vector3.TransformCoordinates(w.feet, this.inv);
     if (Math.abs(p.y) > 0.6 || p.z > SNACK.front || p.z < SNACK.front - NEAR || Math.abs(p.x) > 0.75) return false;
-    const fwd = Vector3.TransformNormal(this.fly.camera.getDirection(Vector3.Forward()), this.inv);
+    const fwd = Vector3.TransformNormal(this.fly.aim, this.inv);
     return fwd.z > 0.5;
   }
 

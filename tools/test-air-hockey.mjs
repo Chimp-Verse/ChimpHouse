@@ -30,7 +30,7 @@ async function open(viewport = { width: 1400, height: 860 }, query = "capture=1&
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
-  await page.goto(`${URL}/?${query}${name ? `&name=${name}` : ""}${process.env.QUALITY && !query.includes("quality") ? `&quality=${process.env.QUALITY}` : ""}`, { timeout: 180000, waitUntil: "domcontentloaded" });
+  await page.goto(`${URL}/?pov=first&${query}${name ? `&name=${name}` : ""}${process.env.QUALITY && !query.includes("quality") ? `&quality=${process.env.QUALITY}` : ""}`, { timeout: 180000, waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   return page;
 }
@@ -286,32 +286,37 @@ if (mode === "play" && !SHARED) {
   check(prompt?.end === 1 && prompt.opponent === "the robot", "walking up to the red end offers it, against the robot", JSON.stringify(prompt));
   await page.keyboard.press("KeyE");
   await page.waitForFunction(() => window.__chimp.state().focus?.phase === "on", null, { timeout: 8000 }).catch(() => {});
+  // the faceoff: nothing moves the puck and the robot waits until a 3-2-1 countdown has run.
+  // Watched from the moment the visitor is in place, in the page, while the checks below and
+  // the screenshot are made (a slow page takes longer than the "3" shows to screenshot)
+  await page.evaluate(() => {
+    window.__faceoff = (async () => {
+      const c = window.__chimp.airHockey;
+      const t0 = performance.now();
+      const first = c.describe();
+      const counts = new Set();
+      let puckMoved = 0;
+      let robotOff = 0;
+      let goals = 0;
+      while (c.describe().phase === "ready" && performance.now() - t0 < 8000) {
+        const d = c.describe();
+        const h = window.__chimp.state().airHockey;
+        if (h?.countdown) counts.add(h.countdown);
+        puckMoved = Math.max(puckMoved, Math.hypot(d.puck[0] - first.puck[0], d.puck[1] - first.puck[1]), Math.hypot(d.puck[2], d.puck[3]));
+        if (performance.now() - t0 > 400) robotOff = Math.max(robotOff, Math.hypot(d.mallets[1][0] - 0.87, d.mallets[1][1]));
+        goals = d.score[0] + d.score[1];
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const after = c.describe();
+      return { counts: [...counts].sort(), puckMoved, robotOff, goals, waited: Math.round(performance.now() - t0), phase: after.phase };
+    })();
+  });
   const s1 = await page.evaluate(() => ({ focus: window.__chimp.state().focus, hud: window.__chimp.state().airHockey, d: window.__chimp.airHockey.describe() }));
   check(s1.focus?.kind === "airHockey" && s1.focus.end === 1, "E sits the visitor at the red end, the view behind it", JSON.stringify(s1.focus));
   check(s1.d.runs && s1.d.phase === "ready" && s1.d.score[0] + s1.d.score[1] === 0, "their page runs the game, and a match starts with a faceoff", JSON.stringify({ runs: s1.d.runs, phase: s1.d.phase, players: s1.d.players }));
   check(s1.hud?.opponent === "the robot", "the HUD shows the score and the robot as the opponent", JSON.stringify(s1.hud));
   await page.screenshot({ path: "captures/air-hockey-faceoff.png" });
-  // the faceoff: nothing moves the puck and the robot waits until a 3-2-1 countdown has run
-  const face = await page.evaluate(async () => {
-    const c = window.__chimp.airHockey;
-    const t0 = performance.now();
-    const first = c.describe();
-    const counts = new Set();
-    let puckMoved = 0;
-    let robotOff = 0;
-    let goals = 0;
-    while (c.describe().phase === "ready" && performance.now() - t0 < 8000) {
-      const d = c.describe();
-      const h = window.__chimp.state().airHockey;
-      if (h?.countdown) counts.add(h.countdown);
-      puckMoved = Math.max(puckMoved, Math.hypot(d.puck[0] - first.puck[0], d.puck[1] - first.puck[1]), Math.hypot(d.puck[2], d.puck[3]));
-      if (performance.now() - t0 > 400) robotOff = Math.max(robotOff, Math.hypot(d.mallets[1][0] - 0.87, d.mallets[1][1]));
-      goals = d.score[0] + d.score[1];
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    const after = c.describe();
-    return { counts: [...counts].sort(), puckMoved, robotOff, goals, waited: Math.round(performance.now() - t0), phase: after.phase };
-  });
+  const face = await page.evaluate(() => window.__faceoff);
   check(face.counts.join() === "1,2,3" && face.waited > 2500, "a 3-2-1 countdown runs once the visitor is in place", JSON.stringify(face));
   check(face.goals === 0 && face.puckMoved < 0.001 && face.robotOff < 0.01, "no goal and no robot strike before the countdown ends: the puck held, the robot waiting", JSON.stringify(face));
   check(face.phase === "play", "then play begins");
@@ -347,9 +352,17 @@ if (mode === "play" && !SHARED) {
     await page.evaluate(() => window.__chimp.airHockey.setPuck(-0.45, 0.0, 0, 0));
     const b = await page.evaluate(() => window.__chimp.airHockey.aim(-0.1, 0.02));
     await page.mouse.move(b.x, b.y, { steps: 2 });
-    await sleep(60);
-    const d = await page.evaluate(() => window.__chimp.airHockey.describe());
-    const sp = Math.hypot(d.puck[2], d.puck[3]);
+    // at its top speed the mallet reaches the puck in about 0.1 s; a slow page takes a few frames more
+    const sp = await page.evaluate(async () => {
+      const c = window.__chimp.airHockey;
+      let fastest = 0;
+      for (const t0 = performance.now(); fastest <= 2 && performance.now() - t0 < 600; ) {
+        const d = c.describe();
+        fastest = Math.max(fastest, Math.hypot(d.puck[2], d.puck[3]));
+        await new Promise((r) => requestAnimationFrame(r));
+      }
+      return fastest;
+    });
     check(sp > 2, "sweeping the mallet through the puck sends it flying", `${sp.toFixed(2)} m/s`);
   }
   await page.screenshot({ path: "captures/air-hockey-play.png" });

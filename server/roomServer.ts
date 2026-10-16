@@ -49,6 +49,8 @@ export function roomServer(): Plugin {
       };
       const gone = (id: string) => {
         if (!visitors.delete(id)) return;
+        // a visitor's own topics (a family member such as their chimp, "chimp:<id>") go with them
+        for (const topic of topics.keys()) if (topic.endsWith(`:${id}`)) topics.delete(topic);
         for (const c of server.ws.clients) send(c, { kind: "gone", id });
       };
 

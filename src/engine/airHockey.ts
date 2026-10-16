@@ -311,7 +311,7 @@ export class AirHockey {
     const dz = c.z - feet.z;
     const d = Math.hypot(dx, dz);
     if (d > REACH + 1.2 || Math.abs(feet.y - c.y) > 0.8) return null;
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const fwd = this.fly.aim;
     const fl = Math.hypot(fwd.x, fwd.z) || 1;
     if ((fwd.x * dx + fwd.z * dz) / (fl * (d || 1)) < LOOK) return null;
     // the nearer end, or the other if it's taken
@@ -423,7 +423,8 @@ export class AirHockey {
       const was = s.airHockeyPrompt;
       if (o?.end !== was?.end || o?.opponent !== was?.opponent) store.set({ airHockeyPrompt: o });
     }
-    const cam = this.fly.camera.position;
+    // heard and played on near the visitor (their chimp, walking), not near a camera behind it
+    const cam = this.fly.eye;
     const c = this.table.getAbsolutePosition();
     const near = this.myEnd !== null || Math.hypot(cam.x - c.x, cam.y - c.y, cam.z - c.z) < NEAR;
     if (!near) {

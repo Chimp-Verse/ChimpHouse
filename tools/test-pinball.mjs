@@ -75,7 +75,7 @@ const look = (eye, target, fov = 0.9) =>
 
 // the browser is closed however the checks end
 try {
-await page.goto(`${URL}/?${mode === "hud" ? "" : "capture=1&"}view=entry${SHARED ? "&quality=low" : ""}`, { timeout: 300000 });
+await page.goto(`${URL}/?pov=first&${mode === "hud" ? "" : "capture=1&"}view=entry${SHARED ? "&quality=low" : ""}`, { timeout: 300000 });
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await sleep(500);
 
@@ -595,7 +595,7 @@ async function shared() {
   const ctx2 = await browser.newContext({ viewport: { width: 800, height: 500 } });
   const other = await ctx2.newPage();
   other.on("pageerror", (e) => console.log("[pageerror 2]", e.message));
-  await other.goto(`${URL}/?capture=1&view=entry&quality=low&name=Bonzo`, { timeout: 300000 });
+  await other.goto(`${URL}/?pov=first&capture=1&view=entry&quality=low&name=Bonzo`, { timeout: 300000 });
   await other.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   const M = await machine(1);
   // this visitor plays Jungle Quest

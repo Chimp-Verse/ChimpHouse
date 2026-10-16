@@ -117,6 +117,12 @@ export interface PreviewState {
   speed: number;
   /** walk mode: at avatar height with collisions and gravity, instead of flying */
   walking: boolean;
+  /** walking, seen from the chimp's own eyes rather than from behind it */
+  firstPerson: boolean;
+  /** the wardrobe is open: the chimp stands still, facing the camera, to be dressed */
+  wardrobe: boolean;
+  /** this visitor's chimp is being (re)built: its new shape comes in a moment */
+  chimpBuilding: boolean;
   /** what the walker is walking into, while it is held up */
   blocked: string | null;
   viewId: string | null;
@@ -194,6 +200,9 @@ class Store {
     heading: 0,
     speed: 6,
     walking: false,
+    firstPerson: false,
+    wardrobe: false,
+    chimpBuilding: true,
     blocked: null,
     viewId: null,
     night: false,

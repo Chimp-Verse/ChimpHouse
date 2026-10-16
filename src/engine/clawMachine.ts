@@ -736,8 +736,8 @@ export class ClawMachine {
     if (Math.hypot(f.x - stand.x, f.z - stand.z) > REACH || Math.abs(f.y - stand.y) > 0.6) return false;
     // in front of it, and the first thing on the line of sight is the machine (not the snack machine's keypad beside it)
     const inv = wm.clone().invert();
-    if (Vector3.TransformCoordinates(this.fly.camera.position, inv).z > this.spec.outer[4]) return false;
-    const ray = new Ray(this.fly.camera.position.clone(), this.fly.camera.getDirection(Vector3.Forward()), 2.5);
+    if (Vector3.TransformCoordinates(this.fly.eye, inv).z > this.spec.outer[4]) return false;
+    const ray = new Ray(this.fly.eye.clone(), this.fly.aim.clone(), 2.5);
     const hit = this.scene.pickWithRay(ray, (m) => m.isPickable && m.isEnabled() && m.isVisible);
     if (!hit?.hit || !hit.pickedPoint) return false;
     const p = Vector3.TransformCoordinates(hit.pickedPoint, inv);
@@ -784,11 +784,11 @@ export class ClawMachine {
     const wm = this.root.computeWorldMatrix(true);
     const S = this.spec;
     const door = Vector3.TransformCoordinates(new Vector3((S.chute[0] + S.chute[1]) / 2, S.binY + 0.13, S.doorZ), wm);
-    const eye = this.fly.camera.position;
+    const eye = this.fly.eye;
     const to = door.subtract(eye);
     const dist = to.length();
     if (dist > DOOR_REACH || Vector3.TransformCoordinates(eye, wm.clone().invert()).z > S.doorZ) return false;
-    return Vector3.Dot(to.normalize(), this.fly.camera.getDirection(Vector3.Forward())) > Math.cos(DOOR_AIM);
+    return Vector3.Dot(to.normalize(), this.fly.aim) > Math.cos(DOOR_AIM);
   }
 
   /** E: pick up the prize waiting behind the pickup door (the oldest), or the plush on the floor looked at. */

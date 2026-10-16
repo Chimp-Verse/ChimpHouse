@@ -46,7 +46,7 @@ async function visitor(name, size = { width: 1400, height: 820 }, from = browser
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
   page.on("console", (m) => m.type() === "error" && !/status of (530|404)|chimpvibe/i.test(m.text()) && console.log(`[${name} error]`, m.text().slice(0, 300)));
   const t0 = Date.now();
-  await page.goto(`${URL}/?view=game&name=${encodeURIComponent(name)}${query}`, { timeout: 180000 });
+  await page.goto(`${URL}/?pov=first&view=game&name=${encodeURIComponent(name)}${query}`, { timeout: 180000 });
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   console.log(`(${name} loaded in ${((Date.now() - t0) / 1000).toFixed(0)} s)`);
   const ev = (fn, a) => page.evaluate(fn, a);

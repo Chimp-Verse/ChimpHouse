@@ -412,7 +412,7 @@ export class PlushCarry {
   private spotFor(): Vector3 {
     const walker = this.fly.walker!;
     const f = walker.feet;
-    const dir = this.fly.camera.getDirection(Vector3.Forward());
+    const dir = this.fly.aim;
     const yaw = Math.atan2(dir.x, dir.z);
     for (const d of [0.55, 0.45, 0.65, 0.35, 0.8, 0.25])
       for (const a of [0, 0.3, -0.3, 0.6, -0.6, 1.0, -1.0, 1.5, -1.5, 2.2, -2.2, Math.PI]) {
@@ -642,8 +642,8 @@ export class PlushCarry {
     if (s.walking && !s.focus && this.fly.enabled) {
       if (door) prompt = this.held ? { label: "Your hands are full", sub: "put the plush you have down first (Q)" } : door;
       else {
-        const eye = this.fly.camera.position;
-        const dir = this.fly.camera.getDirection(Vector3.Forward());
+        const eye = this.fly.eye;
+        const dir = this.fly.aim;
         let best = Infinity;
         for (const p of this.list) {
           if (p.by !== null) continue;

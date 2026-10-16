@@ -2,14 +2,14 @@ import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Ve
 import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
-import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
+import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
 import { VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
 import { Lighting } from "./lighting";
 import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
-import { CollisionWorld } from "./collision";
+import { CollisionWorld, emptyProbe } from "./collision";
 import { Walker } from "./walker";
 import { Arcade } from "./arcade";
 import { AirHockey } from "./airHockey";
@@ -27,6 +27,8 @@ import { SnackMachine } from "./snackMachine";
 import { Theatre } from "./theatre";
 import { Pinball } from "./pinball";
 import { parseYouTube } from "./youtube";
+import { Avatars, prepareMyChimp } from "./avatars";
+import type { ChimpDna } from "../avatar/dna";
 
 export interface PreviewController {
   goTo(id: string): void;
@@ -53,6 +55,14 @@ export interface PreviewController {
   readonly foosball: Foosball;
   /** The Game Room's snack machine. */
   readonly snacks: SnackMachine;
+  /** This visitor's chimp, and everyone else's. */
+  readonly avatars: Avatars;
+  /** Change this visitor's chimp (the wardrobe): kept for their next visit, shown to everyone. */
+  setChimp(dna: ChimpDna): void;
+  /** Open the wardrobe (walking: the camera swings round in front of the chimp to dress it), or close it. */
+  setWardrobe(open: boolean): void;
+  /** Walking: from the chimp's eyes, or from behind it. */
+  toggleView(): void;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -69,7 +79,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const applyScale = (q: Quality) => engine.setHardwareScalingLevel(1 / Math.min(dpr, q === "high" ? 1.25 : q === "medium" ? 1.0 : 0.75));
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
+  // this visitor's chimp is built in the workers while the house builds here
+  prepareMyChimp();
   const fly = new FlyCamera(scene, canvas);
+  // walking starts behind the chimp; ?pov=first starts it from the chimp's eyes (as the house's older tests walk)
+  if (params.get("pov") === "first") fly.setBoom(0);
   // the arcade's game list loads while the house builds
   const gameList = loadGameList();
 
@@ -80,6 +94,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const lighting = new Lighting(scene, world.sky);
   lighting.attach(world.ctx);
   const post = new PostFx(scene, fly.camera);
+  // the chimps: this visitor's, which the walker carries, and every other visitor's
+  const avatars = new Avatars(scene, fly, lighting);
   // using a screen: a cabinet's game, the theatre's video
   const focus = new ScreenFocus(scene, fly, canvas);
   // cabinets for the admitted games; the walker's collisions are rebuilt when they come or go
@@ -112,6 +128,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   let walker: Walker | null = null;
   /** while a room is being exported the scene isn't drawn */
   let exporting = false;
+  /** the camera's boom before the wardrobe opened, to go back to */
+  let wardrobeBoom: number | null = null;
 
   const applyVisibility = () => {
     const s = store.get();
@@ -154,6 +172,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     setWalking(v) {
       if (store.get().focus) return;
       if (!v) {
+        controller.setWardrobe(false);
         fly.walker = null;
         store.set({ walking: false, blocked: null });
         return;
@@ -176,7 +195,38 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       }
       fly.walker = walker;
       store.set({ walking: true });
-      flash("Walking at avatar height · F to fly");
+      flash(fly.firstPerson ? "Walking, from your chimp's eyes · V to see it · F to fly" : "Walking as your chimp · V for its eyes · C to dress it · F to fly");
+    },
+    avatars,
+    setChimp: (dna) => avatars.setDna(dna),
+    setWardrobe(open) {
+      const s = store.get();
+      if (open === s.wardrobe) return;
+      if (open) {
+        if (s.focus) return;
+        if (!s.walking) controller.setWalking(true);
+        if (!fly.walker) return;
+        store.set({ wardrobe: true });
+        fly.holdStill = true;
+        // round in front of the chimp, the whole of it framed left of the wardrobe's panel
+        wardrobeBoom = fly.boom;
+        fly.setBoom(2.5);
+        const height = avatars.dna.shape.height;
+        fly.framing = { drop: height * 0.62, side: 0.42 };
+        const facing = avatars.describe().mine?.facing ?? 0;
+        void fly.glide(fly.settlePose({ ...fly.getPose(), yaw: facing + Math.PI + 0.3, pitch: 0.06 }), 0.7);
+      } else {
+        store.set({ wardrobe: false });
+        fly.holdStill = false;
+        fly.framing = { drop: 0, side: 0 };
+        if (wardrobeBoom !== null) fly.setBoom(wardrobeBoom);
+        wardrobeBoom = null;
+      }
+    },
+    toggleView() {
+      if (!store.get().walking) return;
+      fly.toggleView();
+      flash(fly.firstPerson ? "From your chimp's eyes · V to see it again" : "Behind your chimp · wheel to come closer or go further");
     },
     useCabinet: (slot) => arcade.use(slot),
     leaveCabinet: () => arcade.leave(),
@@ -296,6 +346,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     const s = store.get();
     // using a screen: keys are the game's or the player's, ChimpHouse's own do nothing
     if (s.focus) return;
+    // dressing the chimp: only the wardrobe's own keys (C or Esc to close it)
+    if (s.wardrobe && e.code !== "KeyC" && e.code !== "Escape") return;
     const v = VIEWPOINTS.find((vp) => vp.key === e.key);
     if (v) controller.goTo(v.id);
     else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
@@ -320,6 +372,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       remotes.putBack();
       flash("The remote is back on the stand");
     }
+    else if (e.code === "KeyV" && s.walking) controller.toggleView();
+    else if (e.code === "KeyC" && s.walking) controller.setWardrobe(!s.wardrobe);
+    else if (e.code === "Escape" && s.wardrobe) controller.setWardrobe(false);
     else if (e.code === "KeyN") controller.setNight(!s.night);
     else if (e.code === "KeyF") controller.setWalking(!s.walking);
     else if (e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
@@ -387,6 +442,31 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
     zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
     walker: () => fly.walker,
+    /** the chimps: this visitor's (where it is, which way it faces) and the others it has heard of */
+    chimps: {
+      describe: () => avatars.describe(),
+      dna: () => avatars.dna,
+      setDna: (dna: ChimpDna) => avatars.setDna(dna),
+      /** the visitor's eyes and the way they look, which reach is measured from */
+      eye: () => ({ at: fly.eye.asArray(), aim: fly.aim.asArray() }),
+      setBoom: (m: number) => fly.setBoom(m),
+      toggleView: () => controller.toggleView(),
+      wardrobe: (open: boolean) => controller.setWardrobe(open),
+      /** the main stair's layout, for walking a chimp up it */
+      stair: () => ({ ...STAIR }),
+      /** each of this visitor's chimp's ankles, and the walkable ground under it (world y), for feet on steps */
+      feet: () => {
+        const c = avatars.mine.chimp;
+        const w = fly.walker;
+        if (!c || !w) return null;
+        return ["leftFoot", "rightFoot"].map((n) => {
+          const p = c.nodes[n].getAbsolutePosition();
+          const probe = emptyProbe();
+          w.world.probe(p.x, p.z, p.y + 0.3, p.y - 0.6, probe);
+          return { ankle: p.y, ground: probe.walkY, scale: c.root.scaling.y };
+        });
+      },
+    },
     pose: () => fly.getPose(),
     state: () => store.get(),
     remotes: {
@@ -664,6 +744,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     // the lift moves before the walker does, so the walker stands on the car where it is this frame
     lift.update();
     fly.update(dt);
+    avatars.update(dt);
     focus.update();
     arcade.update();
     remotes.update();
@@ -687,7 +768,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         drawCalls: engine._drawCalls?.current ?? 0,
         pos: [round1(p.x), round1(p.y), round1(p.z)],
         heading: Math.round(fly.headingDeg),
-        area: locate(p),
+        area: locate(store.get().walking ? fly.eye : p),
         blocked: fly.walker?.blockedBy ?? null,
       });
     }

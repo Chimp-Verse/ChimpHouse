@@ -2,7 +2,7 @@
 
 A fly-through preview of ChimpHouse, built from `chimphouse-description.md` and the concept art in `Reference Images/`. It uses the stack recommended in `docs/research/2026-10-01-chimpverse-technology-stack.md`: TypeScript, Vite and a React DOM HUD around a Babylon.js (WebGL2) scene.
 
-This is a look-and-layout preview. There are no avatars, multiplayer or voice yet; the arcade cabinets and the theatre screen are the first room activities. The house, its furniture and its jungle setting are generated procedurally in code, so changes are quick to make and hot-reload in the browser.
+This is a look-and-layout preview, with the first room activities (the arcade, the theatre, the Game Room's machines) and chimp avatars: every visitor walks the house as a chimp they shape and dress, and sees every other visitor's. There is no voice yet. The house, its furniture, its jungle setting and the chimps are generated procedurally in code, so changes are quick to make and hot-reload in the browser.
 
 ## Running it
 
@@ -35,15 +35,32 @@ The first load takes a few seconds while textures are painted and shaders compil
 
 Each reference image has a matching viewpoint, and the reference is shown in the corner so you can compare. The camera position is remembered between reloads.
 
-## Walking
+## Walking as your chimp
 
-Press **F** to walk instead of fly. You drop onto the floor below the camera and move at avatar height with gravity, using the same mouse look. W A S D walk and Shift runs. Use it to check that the stairs, doorways, corridor, bridge and side entrance work for someone on foot.
+Press **F** to walk instead of fly: your chimp stands on the floor below the camera, and you move it with gravity, using the same mouse look. W A S D walk (a chimp's jog), Shift runs and Alt walks slowly. Use it to check that the stairs, doorways, corridor, bridge and side entrance work for someone on foot.
 
+- **The camera** follows behind and above your chimp, which turns to face the way it goes and looks where you look; swing the camera round in front of it and it looks at you. Walls cut the camera's distance short at once (it never looks through one) and it eases back out when they clear. The **mouse wheel** brings the camera in or takes it further out; all the way in is your chimp's own eyes. **V** switches between the two.
+- **Reach is your chimp's:** a cabinet, a remote, a button or a click on a screen is within reach of your chimp's eyes, wherever the camera is. Its eyes are about 1.3 m up (a chimp's height, set in the wardrobe); the body that bumps into things stays 1.7 m tall and 0.6 m wide (`AVATAR` in `src/engine/walker.ts`), so every chimp fits through the same doors.
 - Walls, glass, railings and furniture block you, and you slide along them. Stairs and ledges up to 0.3 m are stepped onto. Leaves and plant stems are passed through.
 - Roofs are ignored, so pressing F above the house drops you into the room below.
 - When something stops you, the status panel shows **Bumped into** and the object's name, and **P** includes it in the copied details.
 - Eye-level viewpoints keep you walking. Choosing a viewpoint in the air, or a plan view, switches back to flying.
-- The avatar is a stand-in, 1.7 m tall and 0.6 m wide with its eyes at 1.55 m, until the chimp avatar is designed. Change `AVATAR` in `src/engine/walker.ts` to try other sizes.
+- `?pov=first` starts walking from your chimp's eyes (the house's older browser tests walk that way).
+
+## Your chimp
+
+**C** while walking (or **Dress your chimp** in the side panel) opens the wardrobe: the camera swings round in front of your chimp, which stands still and looks at you, and the panel beside it has four tabs.
+
+- **Body:** a chimp to start from (Classic, Youngster, Elder, Golden, or Mint in ChimpVibe's colours, each in the clothes you have on), then height (1.3 to 1.8 m), build, belly, arms and legs.
+- **Face:** head size, muzzle, brow, ears and eyes; the face's and the eyes' colours.
+- **Fur:** its colour, its tips' colour, its length, a grey beard, and the hands' and feet's colour.
+- **Clothes:** a slot each for the head (cap, beanie, headphones), eyes (shades, glasses), neck (bandana, banana chain), top (ChimpVibe tee, hoodie), bottom (shorts), back (backpack) and wrist (watch), each in colours you choose.
+
+Colours, height and clothes change at once; a new shape is built in a second or so ("Reshaping…"). **Surprise me** makes a new chimp in the same clothes, **Start again** goes back to the first chimp, and **Done**, **C** or **Esc** closes the wardrobe. Your chimp is kept in this browser for your next visit.
+
+**Other visitors' chimps** walk where they walk, dressed as they dressed them, with their names over their heads (`?name=` sets yours), and go when they leave. They come through the room server (below) with the lift and the TV.
+
+How chimps are made, and what a chimp and clothes modelled in Blender must do to take their place, is in `docs/plans/2026-10-16-chimp-avatar-plan.md`. The chimp lab, **http://localhost:5173/chimp.html**, shows one chimp under the house's kind of light without loading the house, for working on its look and movement (`?view=`, `?anim=walk`, `?wear=cap,tee`; see the top of `chimp.html`).
 
 ## Playing at the arcade
 
@@ -194,7 +211,7 @@ Shared state goes through a room server. For now it lives inside the dev server 
 
 - It keeps the newest version of each shared topic, so a visitor who arrives later is told how things stand, and passes each change on to everyone else.
 - It keeps the room's clock, so the car is in the same place on every computer whatever its own clock says.
-- It tells everyone when a visitor leaves.
+- It tells everyone when a visitor leaves, and forgets that visitor's own topics (their chimp: the families `chimpdna:<id>` and `chimp:<id>`, see "Your chimp").
 
 It only exists in development. A production build has no dev server, so it falls back to sharing between tabs of the same browser. Restarting the dev server resets the lift. Before ChimpHouse is published for real players it needs a standalone, authoritative room server: see `docs/plans/2026-10-09-standalone-room-server-plan.md`.
 
@@ -228,7 +245,10 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `src/world/environment/` | Sky, terrain, waterfalls, jungle, giant trees, front approach, canopy bridge |
 | `src/world/materials/` | Procedural textures, leaf atlas, signs, shared material library |
 | `src/world/viewpoints.ts` | Saved camera viewpoints |
-| `src/engine/` | Engine bootstrap, fly camera, walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state; using a screen (`focus.ts`: the glide onto it and lining content up over it), the arcade (`arcade.ts`) and the theatre (`theatre.ts`, `youtube.ts`) |
+| `src/engine/` | Engine bootstrap, fly camera and the camera that follows a walking chimp (`flyCamera.ts`), walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state; using a screen (`focus.ts`: the glide onto it and lining content up over it), the arcade (`arcade.ts`) and the theatre (`theatre.ts`, `youtube.ts`) |
+| `src/avatar/` | The chimps: their DNA (`dna.ts`), skeleton (`rig.ts`), anatomy as distance fields (`anatomy.ts`, `sdf.ts`), meshing and simplifying (`mesher.ts`, `decimate.ts`, `model.ts`, built in two workers by `builder.ts`), materials (skin, fur shells, cloth: `materials.ts`), the chimp in the scene (`chimp.ts`), its animation (`animator.ts`) and the wardrobe's items (`wardrobe.ts`, `items.ts`, `garments.ts`) |
+| `src/engine/avatars.ts`, `src/ui/Wardrobe.tsx` | This visitor's chimp and every other visitor's in the house (where they are, through the room server; their lights, fur detail and shadows), and the wardrobe's panel |
+| `chimp.html`, `src/lab/chimpLab.ts` | The chimp lab: one chimp, no house |
 | `public/textures/screens/` | Screen artwork extracted from the reference images |
 | `docs/plans/2026-10-02-blender-switch-plan.md` | The plan for moving the house into Blender once the layout is settled |
 | `art/ChimpHouse.blend` | The Blender master: links every room and zone, and holds the lights, sun, viewpoint cameras and render settings |
@@ -259,6 +279,11 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `node tools/test-lift-sync.mjs` | With `npm run dev` running, check the lift shared between visitors (separate browser contexts): a press reaching another visitor, the car at the same height for both, the music playing for both from the same moment, a latecomer with its clock 5 s out seeing the car where the others do, and a visitor who leaves being let go of. Both lift tests reset the shared lift first, so anyone else on the server sees it jump back downstairs |
 | `node tools/test-air-hockey.mjs [look]` | With `npm run dev` running, check the air hockey table in a real browser: the physics and the robot on their own (the glide, rail rebounds, no puck escaping or passing through a mallet, the mallet's speed passing to the puck, goals and posts, the robot saving some shots and scoring), then a visitor walking up, playing the robot with the mouse, scoring and winning a match and a rematch, then two visitors (separate browser contexts) playing each other, the game handed over when one leaves. `look` takes screenshots of the table instead. Screenshots go to `captures/air-hockey-*.png` |
 | `node tools/test-foosball.mjs [pure] [solo]`, `SHARED=1 node tools/test-foosball.mjs duo` | With `npm run dev` running, check the foosball table in a real browser. **pure** checks the physics, rules and robot as pure functions: rolling, walls, corners, goals, no tunnelling at full speed, kicks, lifted men, and the robot stopping slow shots but beaten by some hard angled ones. **solo** plays the robot: the parts found by role, walking up and E, the real mouse sliding the rods and flicking a kick, a click's spin, picking rods, goals and the ball return, a match to 5, Rematch and Esc. **duo** (only with `SHARED=1`: a second page is a second house in memory) has two visitors: the second takes the robot's side, both pages see the same ball and each other's kicks, the host leaving hands over the game, and a closed page frees its side. `URL=` picks the dev server. Screenshots go to `captures/foosball-*.png` |
+| `node tools/test-chimp.mjs` | With `npm run dev` running, check walking as a chimp in a real browser: the chimp stands where the walker is and gives it its eye height, the camera behind it, walking and running turn it the way it goes, the camera never sits beyond a wall, V and back, the wardrobe swings round in front of it and holds it still, its panel dresses the chimp and keeps the outfit, a chimp to start from keeps the clothes on, a cabinet in front of the chimp is in reach with the camera behind, the room's lamps light the chimp while the house's lights are left as they were, it climbs the main stair with each foot on its step, and colours and shapes change. Screenshots go to `captures/chimp-*.png` |
+| `node tools/test-chimp-sync.mjs` | With `npm run dev` running, check another visitor's chimp: the house in one page and a light visitor (`tools/chimp-visitor.html`: the room server and a chimp walking a circle, no house) in another. The house builds it dressed as its DNA says, shows it with its name, follows it smoothly, and lets it go when its page closes |
+| `node tools/chimp-shots.mjs [out.png] [views] [query]` | With `npm run dev` running, photograph the chimp lab from several views into a contact sheet; a view can carry a pose (`side@walk:2.2`) |
+| `node tools/chimp-house-shots.mjs [out.png] [viewpoints]` | With `npm run dev` running, photograph your chimp in the house, behind and in front, at several viewpoints |
+| `node tools/chimp-eval.mjs "<js>"` | With `npm run dev` running, run a snippet in the chimp lab (`lab` is its hook) and print the result |
 | `node tools/export-house.mjs` | With `npm run dev` running, export every room and zone to `art/test/house/` (one .glb each) with `scene.json`: the house's lights, sun and viewpoint cameras |
 | `blender --background --factory-startup --python tools/blender/build_blend.py -- <out.blend> <export.glb or folder>… [--rooms <dir>]` | Build Blender files from exports: Group › Zone collections (Lower, Upper, Building, Site), shared materials and images, quads and welded vertices rebuilt from glTF's triangles (so items can be reshaped), textures saved as PNGs beside it, each zone's leaves in a "· Foliage" collection, the lights, the sun and a camera per viewpoint. With `--rooms` it writes a file per room, the material library and a master that links them: `-- art/ChimpHouse.blend art/test/house --rooms art/rooms` |
 | `blender --background <file.blend> --python tools/blender/render_views.py -- <out dir> [view…] [--scale 50] [--samples 16]` | Render viewpoint cameras from a Blender file, e.g. to compare with `npm run capture` |

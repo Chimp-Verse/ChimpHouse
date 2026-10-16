@@ -22,7 +22,7 @@ process.on("uncaughtException", (e) => {
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 page.on("crash", () => console.log("[crash] the page crashed"));
-await page.goto(`${URL}/?capture=1`);
+await page.goto(`${URL}/?pov=first&capture=1`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 // from the machine as it opens: the room keeps the last pile, so a fresh one for everyone
 await page.evaluate(() => {
@@ -478,12 +478,13 @@ const before = await ev(() => {
   const cam = c.scene.activeCamera;
   const d = cam.getForwardRay(1).direction;
   const l = Math.hypot(d.x, d.z);
-  return { eye: cam.position.asArray(), fwd: [d.x / l, d.z / l] };
+  // the floor under the walker (its eyes are the chimp's, not a person's 1.55 m up)
+  return { eye: cam.position.asArray(), fwd: [d.x / l, d.z / l], floor: c.walker().feet.y };
 });
 await page.keyboard.press("KeyQ");
 const down = await ev(() => window.__chimp.claw.plush.describe());
 const dropped = down.list.find((p) => p.name !== "the attendant" && p.by === null);
-const floorY = before.eye[1] - 1.55;
+const floorY = before.floor;
 const off = dropped ? [dropped.at[0] - before.eye[0], dropped.at[2] - before.eye[2]] : [0, 0];
 check(!down.held && !!dropped, "Q puts it down", dropped ? `${dropped.kind} at ${dropped.at.map((v) => v.toFixed(2)).join(", ")}` : "nothing on the floor");
 if (dropped) {
@@ -514,7 +515,7 @@ const atMachine = await ev(() => {
 check(atMachine.local[2] < atMachine.outer[4] - 0.05, "put down facing the machine, it lands on the floor in front of it, not inside", `${((atMachine.outer[4] - atMachine.local[2]) * 100).toFixed(0)} cm in front`);
 // ---- the room keeps the newest 20 put down
 await ev(() => window.__chimp.claw.plush.clear());
-const ids = await ev((at) => window.__chimp.claw.plush.scatter(24, at[0] - 1.5, at[1] - 1.55, at[2] - 1.5), before.eye);
+const ids = await ev((at) => window.__chimp.claw.plush.scatter(24, at[0] - 1.5, at[1], at[2] - 1.5), [before.eye[0], before.floor, before.eye[2]]);
 const kept = await ev(() => window.__chimp.claw.plush.describe().list.filter((p) => p.by === null));
 check(kept.length === 20 && ids.slice(-20).every((id) => kept.some((p) => p.id === id)), "the room keeps the 20 plushes put down last, the oldest go", `${kept.length} on the floor`);
 await ev(() => window.__chimp.claw.plush.clear());

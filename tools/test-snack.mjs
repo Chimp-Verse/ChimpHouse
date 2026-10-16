@@ -35,7 +35,7 @@ const shot = (name) => page.screenshot({ path: `captures/snack-${name}.png` });
 const snacks = (p = page) => ev(() => window.__chimp.snacks.describe(), null, p);
 const waitFor = (fn, arg, timeout = 15000) => page.waitForFunction(fn, arg, { timeout, polling: 100 });
 
-await page.goto(`${URL}/?capture=1&view=entry${process.env.SHARED ? "&quality=low" : ""}`);
+await page.goto(`${URL}/?pov=first&capture=1&view=entry${process.env.SHARED ? "&quality=low" : ""}`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
 await ev(() => window.__chimp.whenReady());
 
@@ -348,7 +348,7 @@ await shot("bin-full");
 if (process.env.SHARED) {
 await ev(() => window.__chimp.snacks.setState("reset"));
 const page2 = await browser.newPage({ viewport: { width: 800, height: 500 } });
-await page2.goto(`${URL}/?capture=1&quality=low&view=entry`);
+await page2.goto(`${URL}/?pov=first&capture=1&quality=low&view=entry`);
 await page2.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
 await sleep(1500);
 await ev(() => window.__chimp.snacks.choose("D2"));

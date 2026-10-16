@@ -160,7 +160,7 @@ export class Arcade {
     const walker = this.fly.walker;
     if (!walker) return null;
     const feet = walker.feet;
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const fwd = this.fly.aim;
     const fl = Math.hypot(fwd.x, fwd.z) || 1;
     let best: number | null = null;
     let bestD = REACH;

@@ -55,10 +55,18 @@ interface Topic {
   apply: (state: unknown) => void;
 }
 
+/** A family of topics, one per visitor: `<prefix><visitor id>` (each visitor's chimp, say). */
+interface Family {
+  apply: (topic: string, state: unknown) => void;
+  /** the newest version seen of each member */
+  seen: Map<string, Version>;
+}
+
 class Room {
   private hot = import.meta.hot;
   private channel: BroadcastChannel | null = null;
   private topics = new Map<string, Topic>();
+  private families = new Map<string, Family>();
   private seen = new Map<string, number>();
   private goneListeners = new Set<(id: string) => void>();
   /** the room's clock less this computer's (ms), and the round trip it was measured over */
@@ -105,6 +113,22 @@ class Room {
     };
   }
 
+  /**
+   * Share this visitor's member of a family of topics, `<prefix><visitor id>`,
+   * and hear everyone else's: `apply` is called with a member's topic and state
+   * whenever its visitor changes it (and for each the room has, as this visitor
+   * arrives). Returns the setter for this visitor's own member. Each visitor's
+   * members go when they leave (see onGone): the room server forgets them.
+   */
+  family<T>(prefix: string, apply: (topic: string, state: T) => void): (state: T) => void {
+    this.families.set(prefix, { apply: apply as (topic: string, s: unknown) => void, seen: new Map() });
+    const own = `${prefix}${ME.id}`;
+    // this visitor's member is an ordinary topic, so it is passed on and handed to newcomers as any is
+    const set = this.share<T>(own, undefined as T, () => undefined);
+    this.send({ kind: "hello", from: ME.id, sent: Date.now() });
+    return set;
+  }
+
   /** Call `fn` with each visitor's id as they leave (their page closed, or went quiet). */
   onGone(fn: (id: string) => void): void {
     this.goneListeners.add(fn);
@@ -114,7 +138,18 @@ class Room {
     switch (m.kind) {
       case "state": {
         const t = this.topics.get(m.topic);
-        if (!t || !newer(m.v, t.v)) return;
+        if (!t) {
+          for (const [prefix, f] of this.families) {
+            if (!m.topic.startsWith(prefix) || m.topic === `${prefix}${ME.id}`) continue;
+            const was = f.seen.get(m.topic);
+            if (was && !newer(m.v, was)) return;
+            f.seen.set(m.topic, m.v);
+            f.apply(m.topic, m.state);
+            return;
+          }
+          return;
+        }
+        if (!newer(m.v, t.v)) return;
         t.state = m.state;
         t.v = m.v;
         t.apply(m.state);
@@ -148,6 +183,7 @@ class Room {
   private gone(id: string): void {
     this.seen.delete(id);
     if (id === ME.id) return;
+    for (const [prefix, f] of this.families) f.seen.delete(`${prefix}${id}`);
     for (const fn of this.goneListeners) fn(id);
   }
 
