@@ -17,7 +17,7 @@ import { ChimpAnimator, type Motion } from "../avatar/animator";
 import { chimpModel, itemModel } from "../avatar/builder";
 import { Chimp, SHELLS } from "../avatar/chimp";
 import { type ChimpDna, SLOTS, type Slot, defaultDna, geometryKey, sanitize } from "../avatar/dna";
-import { item, itemColours, knownItem } from "../avatar/wardrobe";
+import { item, itemColours, knownItem, wornOver } from "../avatar/wardrobe";
 import type { Level } from "../world/context";
 import { levelAt, roomAt } from "../world/layout";
 import { emptyProbe } from "./collision";
@@ -69,8 +69,10 @@ class Body {
   /** the chimp's meshes as last lit (its version: clothes change them) */
   litVersion = -1;
   readonly shadow: Mesh;
-  /** what each slot is being dressed in, so an older item arriving late is dropped */
+  /** what each slot is being dressed in (the item, and the clothes it goes over), so an older one arriving late is dropped */
   private dressing: Partial<Record<Slot, string>> = {};
+  /** what each slot wears, as it was made: the item and the clothes it was made over */
+  private made: Partial<Record<Slot, string>> = {};
 
   constructor(
     private scene: Scene,
@@ -109,6 +111,7 @@ class Body {
       }
       this.litVersion = -1;
       this.dressing = {};
+      this.made = {};
       this.dress();
       this.onBuilt(this);
     });
@@ -124,20 +127,25 @@ class Body {
       const def = want ? item(want.id) : undefined;
       if (!want || !def) {
         delete this.dressing[slot];
+        delete this.made[slot];
         if (on[slot]) c.wear(slot, null, []);
         continue;
       }
       const colours = itemColours(def, want.colors);
-      if (on[slot] === want.id || this.dressing[slot] === want.id) {
+      // made over the clothes it is worn over (a bandana over the tee): a new tee, a new bandana
+      const over = wornOver(def, this.dna.outfit);
+      const key = `${want.id}|${over.join(",")}`;
+      if (this.made[slot] === key || this.dressing[slot] === key) {
         c.colourWorn(slot, colours);
         continue;
       }
-      this.dressing[slot] = want.id;
-      void itemModel(this.dna, want.id).then((m) => {
+      this.dressing[slot] = key;
+      void itemModel(this.dna, want.id, over).then((m) => {
         // the chimp was rebuilt, or something else was chosen for the slot, meanwhile
-        if (this.chimp !== c || this.dressing[slot] !== want.id) return;
+        if (this.chimp !== c || this.dressing[slot] !== key) return;
         const now = this.dna.outfit[slot];
         c.wear(slot, m, itemColours(def, now?.id === want.id ? now.colors : want.colors));
+        this.made[slot] = key;
       });
     }
   }

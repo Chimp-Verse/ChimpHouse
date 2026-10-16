@@ -103,6 +103,15 @@ export function hitAlong(field: Field, from: V3, dir: V3, max = 0.4): V3 | null 
   return null;
 }
 
+/**
+ * A point on the skin lifted out over what is worn over it there (a tee under a bandana), along
+ * the skin's normal `n`: the first way out of `worn` (the skin and the clothes together), never a
+ * far one (a ray from inside the neck would carry on through a tee's shoulder).
+ */
+export function lifted(worn: Field, p: V3, n: V3): V3 {
+  return worn.at(p[0], p[1], p[2]) >= 0 ? p : add(p, scale(n, surfaceAlong(worn, p, n, 0.08)));
+}
+
 /** The point of the skin nearest p (from just inside or outside it): stepped along the field's gradient. */
 export function onSkin(field: Field, p: V3, steps = 6): V3 {
   let q = p;

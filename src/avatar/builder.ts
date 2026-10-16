@@ -76,16 +76,16 @@ export function chimpModel(dna: ChimpDna): Promise<ChimpModel> {
   });
 }
 
-/** An item made for a chimp's shape (null for an item that doesn't exist). */
-export function itemModel(dna: ChimpDna, id: string): Promise<ItemModel | null> {
-  return kept(items, `${geometryKey(dna)}|${id}`, () =>
+/** An item made for a chimp's shape, worn over the clothes `over` names (null for an item that doesn't exist). */
+export function itemModel(dna: ChimpDna, id: string, over: string[] = []): Promise<ItemModel | null> {
+  return kept(items, `${geometryKey(dna)}|${id}|${over.join(",")}`, () =>
     chimpModel(dna).then((m) => {
       // where the body's fur grows, for the fur the item hides
       const fur: Partial<Record<PartName, Float32Array>> = {};
       for (const p of m.parts) if (p.fur) fur[p.name] = p.fur.positions;
       const ws = workers();
-      if (!ws) return buildItem(buildAnatomy(dna), fur, id);
-      return ask<ItemModel | null>(ws[next++ % ws.length], { kind: "item", dna, item: id, fur });
+      if (!ws) return buildItem(buildAnatomy(dna), fur, id, over);
+      return ask<ItemModel | null>(ws[next++ % ws.length], { kind: "item", dna, item: id, fur, over });
     }),
   );
 }

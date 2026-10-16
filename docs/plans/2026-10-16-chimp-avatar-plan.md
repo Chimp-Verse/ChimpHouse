@@ -167,7 +167,7 @@ Until then, the generator is cheap to keep. It builds any chimp in about a secon
   - a wave, a clap, a chest beat, a dance;
   - the jaw moving with voice once ChimpVerse has it (the jaw bone and the mouth's line are there).
 - **Clothes:**
-  - more items, and patterns on them;
+  - more items, and more patterns (the bandana has the first);
   - colours for every part of an item;
   - a mirror in the house for the wardrobe.
 - **Identity and moderation:**

@@ -54,7 +54,7 @@ Press **F** to walk instead of fly: your chimp stands on the floor below the cam
 - **Body:** a chimp to start from (Classic, Youngster, Elder, Golden, or Mint in ChimpVibe's colours, each in the clothes you have on), then height (1.3 to 1.8 m), build, belly, arms and legs.
 - **Face:** head size, muzzle, brow, ears and eyes; the face's and the eyes' colours.
 - **Fur:** its colour, its tips' colour, its length, a grey beard, and the hands' and feet's colour.
-- **Clothes:** a slot each for the head (cap, beanie, headphones), eyes (shades, glasses), neck (bandana, banana chain), top (ChimpVibe tee, hoodie), bottom (shorts), back (backpack) and wrist (watch), each in colours you choose.
+- **Clothes:** a slot each for the head (cap, beanie, headphones), eyes (shades, glasses), neck (bandana, banana chain), top (ChimpVibe tee, hoodie), bottom (shorts), back (backpack) and wrist (watch), each in colours you choose. Each is made for your chimp's own shape, so it fits every build, belly and head the settings make: a hat over its skull and brow, straps and bands laid on its skin, the fur pressed down under them.
 
 Colours, height and clothes change at once; a new shape is built in a second or so ("Reshaping…"). **Surprise me** makes a new chimp in the same clothes, **Start again** goes back to the first chimp, and **Done**, **C** or **Esc** closes the wardrobe. Your chimp is kept in this browser for your next visit.
 

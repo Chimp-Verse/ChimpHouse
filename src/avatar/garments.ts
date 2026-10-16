@@ -80,9 +80,11 @@ export const GARMENTS = Object.keys(PATTERNS);
 /** How far proud of the garment its ribbed trims stand. */
 const PROUD = 0.0032;
 
-export function buildGarment(anatomy: Anatomy, furPositions: Partial<Record<PartName, Float32Array>>, id: string): ItemModel | null {
-  const pat = PATTERNS[id];
-  if (!pat) return null;
+/**
+ * A garment's shape for this chimp: where it is cut (hem, waist, neck, each sleeve's or leg's end),
+ * and the whole of it as a field, every shape grown `more` past the ease.
+ */
+function shapeOf(anatomy: Anatomy, pat: Pattern) {
   const { rig } = anatomy;
   const body = anatomy.parts.find((p) => p.name === "body")!;
   const J = (n: string): V3 => rig.bones[rig.index[n]].head;
@@ -147,6 +149,23 @@ export function buildGarment(anatomy: Anatomy, furPositions: Partial<Record<Part
     }
     return f;
   };
+  return { rig, body, J, hips, hemY, waistY, neckline, limbs, garmentOf };
+}
+
+/**
+ * The outside of a garment as worn by this chimp (its trims included), for what is worn over
+ * it: a bandana or a chain round the neck of a tee, a backpack's straps over a hoodie, a watch
+ * on a hoodie's cuff (avatar/items.ts). Null if there is no such garment.
+ */
+export function garmentField(anatomy: Anatomy, id: string): Field | null {
+  const pat = PATTERNS[id];
+  return pat ? shapeOf(anatomy, pat).garmentOf(PROUD + 0.0012) : null;
+}
+
+export function buildGarment(anatomy: Anatomy, furPositions: Partial<Record<PartName, Float32Array>>, id: string): ItemModel | null {
+  const pat = PATTERNS[id];
+  if (!pat) return null;
+  const { rig, J, hemY, waistY, neckline, limbs, garmentOf } = shapeOf(anatomy, pat);
   const field = garmentOf(0);
   /** the trims: a field each (the garment a little proud, kept only round its edge), where to mesh it, and its triangles */
   const trims: { field: Field; lo: V3; hi: V3; tris: number }[] = [];

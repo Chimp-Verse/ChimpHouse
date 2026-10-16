@@ -15,8 +15,8 @@
 
 import type { Anatomy, PartName } from "./anatomy";
 import { decimate } from "./decimate";
-import { type RawMesh, disc, drape, hitAlong, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, strapProfile, surfaceAlong, sweep, toItemMesh, topAt, torusMesh, tubeProfile, weighOnBody } from "./fit";
-import { buildGarment } from "./garments";
+import { type RawMesh, disc, drape, hitAlong, lifted, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, strapProfile, surfaceAlong, sweep, toItemMesh, topAt, torusMesh, tubeProfile, weighOnBody } from "./fit";
+import { buildGarment, garmentField } from "./garments";
 import { meshField, settle } from "./mesher";
 import { type PrintArt, printAspect } from "./wordmark";
 import { Field, Mode, Prim, type V3, add, cross, dot, len, lerp3, norm, scale, smoothstep, sub } from "./sdf";
@@ -97,11 +97,14 @@ interface Plan {
   knit?: boolean;
 }
 
-/** Build an item for this chimp; null if there is no such item. */
-export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartName, Float32Array>>, id: string): ItemModel | null {
+/**
+ * Build an item for this chimp, worn over the clothes `over` names (a bandana over a tee: it is
+ * fitted to the tee's neck as well as the chimp's); null if there is no such item.
+ */
+export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartName, Float32Array>>, id: string, over: string[] = []): ItemModel | null {
   const garment = buildGarment(anatomy, furPositions, id);
   if (garment) return garment;
-  const plan = PLANS[id]?.(anatomy);
+  const plan = PLANS[id]?.(anatomy, over);
   if (!plan) return null;
   const meshes: ItemMesh[] = [];
   for (const piece of plan.pieces) {
@@ -321,7 +324,17 @@ function capPeak(crown: Field, C: V3, hk: number, bandY: (z: number) => number):
   return out;
 }
 
-const PLANS: Record<string, (a: Anatomy) => Plan> = {
+/** What an item is fitted to: the skin of these of the chimp's parts, and the outside of the clothes it is worn over. */
+function surfaceOf(a: Anatomy, parts: string[], over: string[]): Field {
+  const f = skinOf(a, parts);
+  for (const id of over) {
+    const g = garmentField(a, id);
+    if (g) f.add(g);
+  }
+  return f;
+}
+
+const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
   cap(a) {
     const { C, hk } = headFrame(a);
     // the crown: the skull grown a centimetre (the hair pressed flat under it), above the band
@@ -467,10 +480,10 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
   shades: (a) => glasses(a, true),
   specs: (a) => glasses(a, false),
 
-  bandana(a) {
+  bandana(a, over) {
     const r = a.rig;
     const g = r.marks.girth;
-    const skin = skinOf(a);
+    const skin = surfaceOf(a, ["body", "head"], over);
     const J = (n: string): V3 => r.bones[r.index[n]].head;
     // the roll: round the neck above the shoulders, lower in front and higher behind, on the skin
     const neckBase = add(J("upperChest"), [0, 0.07, -0.006]);
@@ -480,7 +493,10 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
     const X: V3 = [1, 0, 0];
     const F: V3 = [0, -Math.sin(tilt), Math.cos(tilt)];
     const N = 56;
-    const ring = ringOnSkin(skin, O, N, (t) => add(scale(X, Math.cos(t)), scale(F, Math.sin(t))));
+    // found on the bare skin, then lifted out over whatever is worn there (a tee's collar and back)
+    const bare = ringOnSkin(skinOf(a), O, N, (t) => add(scale(X, Math.cos(t)), scale(F, Math.sin(t))));
+    const lift = bare.at.map((p, i) => lifted(skin, p, bare.normal[i]));
+    const ring = { at: lift, normal: lift.map((p, i) => (p === bare.at[i] ? bare.normal[i] : normalAt(skin, add(p, scale(bare.normal[i], 0.0005))))) };
     // fatter in front, where the folded cloth bunches, and at the knot behind
     const front = (i: number) => Math.cos((i / N) * Math.PI * 2 - Math.PI / 2);
     const rollR = (i: number) => (0.0085 + 0.0035 * Math.max(0, front(i)) + 0.0015 * Math.max(0, -front(i))) * Math.sqrt(g);
@@ -551,10 +567,10 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
     };
   },
 
-  chain(a) {
+  chain(a, over) {
     const r = a.rig;
     const g = r.marks.girth;
-    const skin = skinOf(a);
+    const skin = surfaceOf(a, ["body", "head"], over);
     const J = (n: string): V3 => r.bones[r.index[n]].head;
     // the loop: round the base of the neck, over the shoulders' slope and down onto the chest in
     // front, where the pendant's weight pulls it into a V; found on the skin all the way round
@@ -565,6 +581,7 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
     const O = lerp3(neckBase, neckTop, 0.5);
     const U = J("upperChest")[1];
     const neckR = 0.09 * g;
+    const bareSkin = skinOf(a);
     const N = 72;
     const at0: V3[] = [];
     const nrm0: V3[] = [];
@@ -573,9 +590,12 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
       const front = Math.max(0, Math.sin(t));
       const back = Math.max(0, -Math.sin(t));
       const rho = (neckR + 0.02) * (1 + 0.3 * front);
-      const p = onSkin(skin, [O[0] + rho * Math.cos(t), U + 0.165 - 0.04 * front - 0.075 * front ** 4 + 0.02 * back, O[2] - 0.01 + rho * Math.sin(t)]);
+      // on the bare skin, then lifted out over whatever is worn there (a tee's collar and back)
+      const onBare = onSkin(bareSkin, [O[0] + rho * Math.cos(t), U + 0.165 - 0.04 * front - 0.075 * front ** 4 + 0.02 * back, O[2] - 0.01 + rho * Math.sin(t)]);
+      const bn = normalAt(bareSkin, onBare);
+      const p = lifted(skin, onBare, bn);
       at0.push(p);
-      nrm0.push(normalAt(skin, p));
+      nrm0.push(p === onBare ? bn : normalAt(skin, add(p, scale(bn, 0.0005))));
     }
     const ring = { at: at0, normal: nrm0 };
     const LINK_R = 0.0036;
@@ -657,10 +677,10 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
     };
   },
 
-  backpack(a) {
+  backpack(a, over) {
     const r = a.rig;
     const g = r.marks.girth;
-    const skin = skinOf(a);
+    const skin = surfaceOf(a, ["body", "head"], over);
     const J = (n: string): V3 => r.bones[r.index[n]].head;
     const U = J("upperChest");
     const Ch = J("chest");
@@ -823,14 +843,14 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
     };
   },
 
-  watch(a) {
+  watch(a, over) {
     const r = a.rig;
     const g = r.marks.girth;
     const el = r.bones[r.index.leftLowerArm].head;
     const wr = r.bones[r.index.leftHand].head;
     // up the forearm toward the hand: the watch's 3 o'clock
     const dir = norm(sub(wr, el));
-    const skin = skinOf(a, ["body", "handL"]);
+    const skin = surfaceOf(a, ["body", "handL"], over);
     // a little up the forearm from the wrist's joint, the strap round it on its skin
     const at = add(wr, scale(dir, -0.036));
     const palm = r.marks.hands[0].palm;

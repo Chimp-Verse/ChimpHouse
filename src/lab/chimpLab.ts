@@ -25,7 +25,7 @@ import { Chimp, SHELLS } from "../avatar/chimp";
 import { ChimpAnimator, type Motion } from "../avatar/animator";
 import { buildAnatomy } from "../avatar/anatomy";
 import { buildItem } from "../avatar/items";
-import { item, itemColours } from "../avatar/wardrobe";
+import { item, itemColours, wornOver } from "../avatar/wardrobe";
 
 const params = new URLSearchParams(location.search);
 const canvas = document.getElementById("c") as HTMLCanvasElement;
@@ -104,11 +104,17 @@ function build(next: ChimpDna) {
   for (const p of model.parts) if (p.fur) fur[p.name] = p.fur.positions;
   const anatomy = buildAnatomy(dna);
   const wear = params.get("wear")?.split(",").filter(Boolean) ?? Object.values(dna.outfit).map((w) => w!.id);
+  // what the list puts in each slot, for what goes over what (a bandana over the tee)
+  const outfit: Partial<Record<string, { id: string }>> = {};
+  for (const id of wear) {
+    const def = item(id);
+    if (def) outfit[def.slot] = { id };
+  }
   for (const id of wear) {
     const def = item(id);
     if (!def) continue;
     const t1 = performance.now();
-    chimp.wear(def.slot, buildItem(anatomy, fur, id), itemColours(def, dna.outfit[def.slot]?.colors));
+    chimp.wear(def.slot, buildItem(anatomy, fur, id, wornOver(def, outfit)), itemColours(def, dna.outfit[def.slot]?.colors));
     console.log(`[lab] ${id} in ${Math.round(performance.now() - t1)} ms`);
   }
   const shells = params.get("shells");

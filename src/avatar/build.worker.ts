@@ -10,8 +10,8 @@ import { buildModel } from "./model";
 
 type Request =
   | { id: number; kind: "body"; dna: unknown; parts?: PartName[] }
-  /** an item, with where the body's fur grows (for the fur it hides) */
-  | { id: number; kind: "item"; dna: unknown; item: string; fur: Partial<Record<PartName, Float32Array>> };
+  /** an item, with where the body's fur grows (for the fur it hides), and the clothes it is worn over */
+  | { id: number; kind: "item"; dna: unknown; item: string; fur: Partial<Record<PartName, Float32Array>>; over?: string[] };
 
 self.onmessage = (e: MessageEvent<Request>) => {
   const r = e.data;
@@ -28,9 +28,9 @@ self.onmessage = (e: MessageEvent<Request>) => {
     (self as unknown as Worker).postMessage({ id: r.id, model }, transfer);
     return;
   }
-  const item = buildItem(buildAnatomy(dna), r.fur, r.item);
+  const item = buildItem(buildAnatomy(dna), r.fur, r.item, r.over ?? []);
   if (item) {
-    for (const m of item.meshes) [m.positions, m.normals, m.indices, m.bones, m.weights, m.cloth].forEach(give);
+    for (const m of item.meshes) [m.positions, m.normals, m.indices, m.bones, m.weights, m.cloth, m.uvs].forEach(give);
     for (const c of Object.values(item.cover)) give(c);
   }
   (self as unknown as Worker).postMessage({ id: r.id, item }, transfer);

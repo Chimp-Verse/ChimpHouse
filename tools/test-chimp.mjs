@@ -152,6 +152,25 @@ try {
   await waitFor(() => Object.keys(window.__chimp.chimps.describe().mine?.wearing ?? {}).length === 0, null, 20000);
   check(true, "and takes it all off again");
 
+  // every item can be worn: two outfits that between them put on all twelve, each made in the workers
+  const bare = await ev(() => window.__chimp.chimps.dna());
+  for (const [label, outfit] of [
+    ["headphones, shades, chain, hoodie, shorts, backpack, watch", { head: "headphones", eyes: "shades", neck: "chain", top: "hoodie", bottom: "shorts", back: "backpack", wrist: "watch" }],
+    ["beanie, glasses, bandana, tee", { head: "beanie", eyes: "specs", neck: "bandana", top: "tee" }],
+  ]) {
+    const want = Object.fromEntries(Object.entries(outfit).map(([slot, id]) => [slot, { id, colors: [] }]));
+    await ev(([d, o]) => window.__chimp.chimps.setDna({ ...d, outfit: o }), [bare, want]);
+    const worn = await waitFor((o) => {
+      const w = window.__chimp.chimps.describe().mine?.wearing ?? {};
+      return Object.entries(o).every(([slot, id]) => w[slot] === id) && w;
+    }, outfit, 60000).then((h) => h.jsonValue()).catch(() => null);
+    check(!!worn, `it wears ${label}`, JSON.stringify(worn));
+  }
+  await ev(() => window.__chimp.settle(10));
+  await shot("outfit");
+  await ev((d) => window.__chimp.chimps.setDna(d), bare);
+  await waitFor(() => Object.keys(window.__chimp.chimps.describe().mine?.wearing ?? {}).length === 0, null, 20000);
+
   // a preset makes the chimp over, in the clothes it has on
   const plain = await ev(() => window.__chimp.chimps.dna());
   await page.click(".wardrobe-slot:has-text('Head') button:has-text('Beanie')");

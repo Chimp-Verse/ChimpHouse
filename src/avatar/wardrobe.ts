@@ -20,6 +20,8 @@ export interface ItemDef {
   slot: Slot;
   name: string;
   colours: ItemColour[];
+  /** the slots whose clothes it is worn over (a bandana over a tee's neck): it is fitted to them as well as to the chimp */
+  over?: Slot[];
 }
 
 const FABRIC = ["#24272b", "#efe4cc", "#1f6f6c", "#2f8a62", "#d8a133", "#c4552e", "#6a3d7e", "#24365a", "#b8312f", "#78d8aa"];
@@ -33,13 +35,13 @@ export const ITEMS: ItemDef[] = [
   { id: "headphones", slot: "head", name: "Headphones", colours: [{ label: "Band", def: "#24272b", swatches: ["#24272b", "#efe4cc", "#78d8aa", ...METAL] }, { label: "Cups", def: "#78d8aa", swatches: ["#78d8aa", "#24272b", "#efe4cc", "#c4552e", "#d8a133"] }] },
   { id: "shades", slot: "eyes", name: "Shades", colours: [{ label: "Frame", def: "#24272b", swatches: ["#24272b", ...METAL, "#c4552e", "#78d8aa"] }, { label: "Lenses", def: "#1d3b3a", swatches: ["#1d3b3a", "#2a2a2a", "#5a3a1a", "#2f8a62", "#7a2a5a"] }] },
   { id: "specs", slot: "eyes", name: "Glasses", colours: [{ label: "Frame", def: "#6a4128", swatches: ["#6a4128", "#24272b", ...METAL, "#c4552e"] }] },
-  { id: "bandana", slot: "neck", name: "Bandana", colours: [{ label: "Cloth", def: "#b8312f", swatches: FABRIC }, { label: "Pattern", def: "#f3ead8", swatches: ["#f3ead8", "#24272b", "#78d8aa", "#ffc94d", "#24365a"] }] },
-  { id: "chain", slot: "neck", name: "Banana chain", colours: [{ label: "Chain", def: "#ffc94d", swatches: METAL }] },
+  { id: "bandana", slot: "neck", name: "Bandana", colours: [{ label: "Cloth", def: "#b8312f", swatches: FABRIC }, { label: "Pattern", def: "#f3ead8", swatches: ["#f3ead8", "#24272b", "#78d8aa", "#ffc94d", "#24365a"] }], over: ["top"] },
+  { id: "chain", slot: "neck", name: "Banana chain", colours: [{ label: "Chain", def: "#ffc94d", swatches: METAL }], over: ["top"] },
   { id: "tee", slot: "top", name: "ChimpVibe tee", colours: [{ label: "Shirt", def: "#24272b", swatches: FABRIC }, { label: "Print", def: "#78d8aa", swatches: ["#78d8aa", "#c8fce3", "#ffc94d", "#efe4cc", "#24272b"] }] },
   { id: "hoodie", slot: "top", name: "Hoodie", colours: [{ label: "Body", def: "#2f8a62", swatches: FABRIC }, { label: "Cuffs", def: "#24272b", swatches: FABRIC }] },
   { id: "shorts", slot: "bottom", name: "Shorts", colours: [{ label: "Shorts", def: "#24365a", swatches: FABRIC }] },
-  { id: "backpack", slot: "back", name: "Backpack", colours: [{ label: "Pack", def: "#6d8c58", swatches: ["#6d8c58", "#d8a133", "#1f6f6c", "#c4552e", "#24272b", "#efe4cc"] }, { label: "Straps", def: "#6a4128", swatches: LEATHER }] },
-  { id: "watch", slot: "wrist", name: "Watch", colours: [{ label: "Strap", def: "#24272b", swatches: [...LEATHER, "#78d8aa", "#efe4cc"] }, { label: "Case", def: "#c9c9c4", swatches: METAL }] },
+  { id: "backpack", slot: "back", name: "Backpack", colours: [{ label: "Pack", def: "#6d8c58", swatches: ["#6d8c58", "#d8a133", "#1f6f6c", "#c4552e", "#24272b", "#efe4cc"] }, { label: "Straps", def: "#6a4128", swatches: LEATHER }], over: ["top"] },
+  { id: "watch", slot: "wrist", name: "Watch", colours: [{ label: "Strap", def: "#24272b", swatches: [...LEATHER, "#78d8aa", "#efe4cc"] }, { label: "Case", def: "#c9c9c4", swatches: METAL }], over: ["top"] },
 ];
 
 const byId = new Map(ITEMS.map((i) => [i.id, i]));
@@ -51,6 +53,14 @@ export function item(id: string): ItemDef | undefined {
 /** Whether an item exists and goes in that slot (for checking DNA from elsewhere). */
 export function knownItem(slot: Slot, id: string): boolean {
   return byId.get(id)?.slot === slot;
+}
+
+/**
+ * What an item is worn over, as an outfit has it: the ids of the clothes in the slots it goes
+ * over (a bandana over the tee worn), so it is made to fit them. Empty for most.
+ */
+export function wornOver(def: ItemDef, outfit: Partial<Record<Slot, { id: string }>>): string[] {
+  return (def.over ?? []).map((s) => outfit[s]?.id).filter((id): id is string => !!id && !!byId.get(id));
 }
 
 /** An item's colours as worn: the ones given, then its defaults for any not given. */
