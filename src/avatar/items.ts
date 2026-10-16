@@ -15,7 +15,7 @@
 
 import type { Anatomy, PartName } from "./anatomy";
 import { decimate } from "./decimate";
-import { type RawMesh, drape, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, surfaceAlong, toItemMesh, topAt, weighOnBody } from "./fit";
+import { type RawMesh, drape, hitAlong, normalAt, onSkin, pathDistance, rawMesh, ringOnSkin, rope, skinOf, smoothPath, surfaceAlong, toItemMesh, topAt, torusMesh, weighOnBody } from "./fit";
 import { buildGarment } from "./garments";
 import { meshField, settle } from "./mesher";
 import { type PrintArt, printAspect } from "./wordmark";
@@ -544,36 +544,108 @@ const PLANS: Record<string, (a: Anatomy) => Plan> = {
   },
 
   chain(a) {
-    const up = a.rig.bones[a.rig.index.upperChest].head;
-    const g = a.rig.marks.girth;
-    const chain = new Field();
-    // a loop resting on the shoulders and chest, lower in front
-    const c = add(up, [0, 0.105, 0.012]);
-    const axis = norm([0, 1, 0.6]);
-    const R = 0.105 * g;
-    chain.add(Prim.torus(c, axis, R, 0.0042, 0, "chain", 1));
-    const under = Prim.torus(c, axis, R, 0.011, 0, "", 1);
-    // the pendant: a banana hanging from the front of the loop
-    const top = add(c, [0, -R * 0.49, R * 0.86 + 0.01]);
+    const r = a.rig;
+    const g = r.marks.girth;
+    const skin = skinOf(a);
+    const J = (n: string): V3 => r.bones[r.index[n]].head;
+    // the loop: round the base of the neck, over the shoulders' slope and down onto the chest in
+    // front, where the pendant's weight pulls it into a V; found on the skin all the way round
+    const neckBase = add(J("upperChest"), [0, 0.07, -0.006]);
+    const neckTop = add(J("head"), [0, 0.045, 0.004]);
+    // traced round the neck a little out from it, then each point dropped onto the nearest skin: over
+    // the hump behind, on the shoulders' slope just beside the neck, down the chest in front
+    const O = lerp3(neckBase, neckTop, 0.5);
+    const U = J("upperChest")[1];
+    const neckR = 0.09 * g;
+    const N = 72;
+    const at0: V3[] = [];
+    const nrm0: V3[] = [];
+    for (let i = 0; i < N; i++) {
+      const t = (i / N) * Math.PI * 2;
+      const front = Math.max(0, Math.sin(t));
+      const back = Math.max(0, -Math.sin(t));
+      const rho = (neckR + 0.02) * (1 + 0.3 * front);
+      const p = onSkin(skin, [O[0] + rho * Math.cos(t), U + 0.165 - 0.04 * front - 0.075 * front ** 4 + 0.02 * back, O[2] - 0.01 + rho * Math.sin(t)]);
+      at0.push(p);
+      nrm0.push(normalAt(skin, p));
+    }
+    const ring = { at: at0, normal: nrm0 };
+    const LINK_R = 0.0036;
+    const WIRE = 0.00135;
+    const GAP = 0.004;
+    let path = ring.at.map((p, i) => add(p, scale(ring.normal[i], GAP + WIRE * 2.2)));
+    path = smoothPath(path, 6, true);
+    // links along it, a link every 8 mm, each turned a quarter from the last (a cable chain)
+    const chain = rawMesh();
+    const lengths = [0];
+    for (let i = 1; i <= N; i++) lengths.push(lengths[i - 1] + len(sub(path[i % N], path[i - 1])));
+    const total = lengths[N];
+    const count = Math.round(total / 0.0079 / 2) * 2;
+    const pointAt = (d: number): { p: V3; t: V3; n: V3 } => {
+      let i = 0;
+      while (i < N - 1 && lengths[i + 1] < d) i++;
+      const f = (d - lengths[i]) / Math.max(1e-9, lengths[i + 1] - lengths[i]);
+      const p = lerp3(path[i], path[(i + 1) % N], f);
+      return { p, t: norm(sub(path[(i + 1) % N], path[i])), n: norm(lerp3(ring.normal[i], ring.normal[(i + 1) % N], f)) };
+    };
+    for (let k = 0; k < count; k++) {
+      const { p, t, n } = pointAt((k / count) * total);
+      // flat on the chest, then standing up
+      const axis = k % 2 === 0 ? n : norm(cross(t, n));
+      torusMesh(chain, p, axis, t, LINK_R, WIRE, 1.45, 14, 7);
+    }
+    // the pendant: from the loop's lowest point in front, a bail, then a banana hanging on the chest
+    let low = 0;
+    for (let i = 1; i < N; i++) if (path[i][1] < path[low][1]) low = i;
+    const at = path[low];
+    const nOut = ring.normal[low];
+    const side = norm(cross([0, 1, 0], nOut));
+    const bail = rawMesh();
+    torusMesh(bail, add(at, [0, -0.007, 0]), side, [0, 1, 0], 0.0045, 0.0013, 1.2, 14, 7);
+    // the banana: a crescent hanging down and curving to one side, its stalk up in the bail
     const banana = new Field();
-    const p0 = add(top, [-0.012, -0.012, 0.004]);
-    const p1 = add(top, [-0.002, -0.034, 0.008]);
-    const p2 = add(top, [0.016, -0.05, 0.007]);
-    const p3 = add(top, [0.032, -0.056, 0.004]);
-    banana.add(Prim.cone(p0, p1, 0.0045, 0.0075, 0, "banana"));
-    banana.add(Prim.cone(p1, p2, 0.0075, 0.0072, 0, "banana"), 0.004);
-    banana.add(Prim.cone(p2, p3, 0.0072, 0.003, 0, "banana"), 0.004);
-    const link = new Field();
-    link.add(Prim.torus(top, [1, 0, 0], 0.006, 0.0018, 0, "link"));
-    link.add(Prim.cone(top, p0, 0.002, 0.0028, 0, "stalk"), 0.002);
+    const stalk = new Field();
+    const top = add(add(at, [0, -0.014, 0]), scale(nOut, 0.002));
+    const onChest = (p: V3): V3 => {
+      // each point of the banana stood off the chest by its thickness, so it lies on the coat
+      const out = norm([p[0] - O[0], 0, p[2] - J("chest")[2]]);
+      const hit = hitAlong(skin, add(p, scale(out, 0.06)), scale(out, -1), 0.15) ?? p;
+      return add(hit, scale(normalAt(skin, hit), GAP + 0.0085));
+    };
+    const arc: V3[] = [];
+    const SEGS = 7;
+    const LEN = 0.058 * Math.sqrt(g);
+    for (let k = 0; k <= SEGS; k++) {
+      const u = k / SEGS;
+      // down the chest, curving out to the side and back in at the tip
+      arc.push(onChest(add(top, add(scale(side, 0.016 * Math.sin(Math.PI * u * 0.9)), [0, -LEN * u, 0]))));
+    }
+    for (let k = 0; k < SEGS; k++) {
+      const u0 = k / SEGS;
+      const u1 = (k + 1) / SEGS;
+      // fattest a third of the way down, narrowing to the stalk and to the tip
+      const rad = (u: number) => 0.0028 + 0.0058 * Math.sin(Math.PI * Math.min(1, u * 1.05)) ** 0.7;
+      banana.add(Prim.cone(arc[k], arc[k + 1], rad(u0), rad(u1), 0, "banana"), 0.004);
+    }
+    stalk.add(Prim.cone(add(top, [0, 0.004, 0]), arc[0], 0.0019, 0.0026, 0, "stalk"));
+    stalk.add(Prim.sphere(arc[SEGS], 0.0024, 0, "tip"), 0.001);
+    const pendant = [...arc];
     return {
       bone: "upperChest",
       pieces: [
-        { kind: "metal", colour: 0, field: chain, h: 0.0016, tris: 2600 },
-        { kind: "metal", colour: 0, field: link, h: 0.0012, tris: 500 },
-        { kind: "plastic", colour: 0, hex: "#ffd23f", field: banana, h: 0.0016, tris: 1000 },
+        { kind: "plastic", colour: 0, hex: "#f7c934", field: banana, h: 0.0011, tris: 2400 },
+        { kind: "plastic", colour: 0, hex: "#4a3218", field: stalk, h: 0.0009, tris: 600 },
       ],
-      covers: (x, y, z) => inside(under.d(x, y, z), 0.004),
+      meshes: [toItemMesh(chain, "metal", 0, null), toItemMesh(bail, "metal", 0, null)],
+      skinned: true,
+      // the fur under the chain goes; along it, pressed flat so the chain lies on the coat
+      covers: (x, y, z) => {
+        const p: V3 = [x, y, z];
+        const d = pathDistance(path, true, p);
+        let dp = Infinity;
+        for (const q of pendant) dp = Math.min(dp, len(sub(q, p)));
+        return Math.max(d < 0.006 ? 1 : 0.82 * (1 - smoothstep(0.006, 0.026, d)), dp < 0.012 ? 0.85 : 0.82 * (1 - smoothstep(0.012, 0.028, dp)));
+      },
     };
   },
 

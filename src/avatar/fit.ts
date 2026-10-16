@@ -72,6 +72,17 @@ export function hitAlong(field: Field, from: V3, dir: V3, max = 0.4): V3 | null 
   return null;
 }
 
+/** The point of the skin nearest p (from just inside or outside it): stepped along the field's gradient. */
+export function onSkin(field: Field, p: V3, steps = 6): V3 {
+  let q = p;
+  for (let i = 0; i < steps; i++) {
+    const d = field.at(q[0], q[1], q[2]);
+    if (Math.abs(d) < 0.0001) break;
+    q = sub(q, scale(normalAt(field, q), d));
+  }
+  return q;
+}
+
 /** The field's outward normal at p (its gradient). */
 export function normalAt(field: Field, p: V3, e = 0.0006): V3 {
   const [x, y, z] = p;
