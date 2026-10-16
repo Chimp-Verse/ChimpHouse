@@ -158,6 +158,7 @@ const VIEWS: Record<string, { alpha: number; beta: number; radius: number; targe
   torso3: { alpha: Math.PI / 2 - 0.7, beta: 1.35, radius: 1.55, target: at("chest", 0.02) },
   torsoSide: { alpha: Math.PI, beta: 1.42, radius: 1.55, target: at("chest", 0.02) },
   torsoBack: { alpha: -Math.PI / 2 + 0.5, beta: 1.3, radius: 1.55, target: at("chest", 0.02) },
+  hem: { alpha: Math.PI / 2 + 0.3, beta: 1.4, radius: 0.75, target: at("hips", 0.04) },
   wristOut: { alpha: Math.PI - 0.35, beta: 1.25, radius: 0.42, target: at("leftHand", 0.02) },
   wristTop: { alpha: Math.PI / 2 + 0.55, beta: 0.85, radius: 0.42, target: at("leftHand", 0.02) },
   front: { alpha: Math.PI / 2, beta: 1.42, radius: 3.4, target: middle },

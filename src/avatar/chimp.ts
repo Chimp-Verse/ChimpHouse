@@ -466,7 +466,7 @@ export class Chimp {
 
 /** An ink that stands out from a cloth: charcoal on light cloth, near white on dark. */
 function standOut(c: Color3): Color3 {
-  return linear(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.18 ? "#24272b" : "#e8ecf1");
+  return linear(0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b > 0.18 ? "#24272b" : "#dce1e8");
 }
 
 /**

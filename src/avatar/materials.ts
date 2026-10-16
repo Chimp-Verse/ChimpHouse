@@ -443,14 +443,16 @@ float chimpSpecOcc = vChimpCloth.z;
     col = mix(col, thread, rows * step(0.4, fract((vChimpCloth.w - 10.0) / 0.0034)) * 0.85);
   }
   // the print, square on from the front where the cloth faces forward: seen from in front, the
-  // chimp's right (+x) is on the left; red is its main ink, green the one that stands out
-  if (chimpPrintRect.z > 0.0 && vChimpRestN.z > 0.25) {
+  // chimp's right (+x) is on the left; red is its main ink, green the one that stands out. It is
+  // looked up for every pixel and masked to its rectangle, not looked up only inside it: a lookup
+  // that only some pixels make can't tell its size on screen at the rectangle's edge, and draws a
+  // faint frame there
+  if (chimpPrintRect.z > 0.0) {
     vec2 uv = vec2(0.5 - (vChimpRest.x - chimpPrintRect.x) / (2.0 * chimpPrintRect.z), 0.5 + (vChimpRest.y - chimpPrintRect.y) / (2.0 * chimpPrintRect.w));
-    if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0) {
-      vec4 ink = texture2D(chimpPrint, uv);
-      col = mix(col, chimpInk, ink.r * 0.95);
-      col = mix(col, chimpInk2, ink.g * 0.95);
-    }
+    vec4 ink = texture2D(chimpPrint, clamp(uv, 0.0, 1.0));
+    float on = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0) * step(0.25, vChimpRestN.z);
+    col = mix(col, chimpInk, ink.r * 0.95 * on);
+    col = mix(col, chimpInk2, ink.g * 0.95 * on);
   }
   if (chimpFuzz > 0.0) {
     // fibres: a fine speckle, darker deep in
@@ -478,11 +480,11 @@ export function clothMaterial(name: string, scene: Scene, o: { rough?: number; s
   const m = new PBRMaterial(name, scene);
   m.albedoColor = Color3.White();
   m.metallic = o.metal ?? 0;
-  m.roughness = o.rough ?? 0.86;
+  m.roughness = o.rough ?? 0.9;
   m.maxSimultaneousLights = 8;
-  if ((o.sheen ?? 0.22) > 0) {
+  if ((o.sheen ?? 0.12) > 0) {
     m.sheen.isEnabled = true;
-    m.sheen.intensity = o.sheen ?? 0.22;
+    m.sheen.intensity = o.sheen ?? 0.12;
     m.sheen.color = Color3.White();
     m.sheen.roughness = 0.5;
   }
@@ -530,6 +532,10 @@ export function printTexture(scene: Scene, art: PrintArt = "mark"): DynamicTextu
     }
     const size = art === "mark" ? k : STACKED.size * k;
     const tree = canvas(W, H);
+    // only the tree's ink box: the traced mark leaves specks along its square's edges
+    tree.beginPath();
+    tree.rect(ox + 0.12 * size, oy + 0.12 * size, 0.76 * size, 0.76 * size);
+    tree.clip();
     tree.drawImage(img, ox, oy, size, size);
     const word = canvas(W, H);
     if (art === "stacked") drawWord(word, ox + STACKED.textX * k, oy + (STACKED.cap + 100) * k, k, "chimpvibe", 5, "#00ff00", "#ff0000");
@@ -537,8 +543,8 @@ export function printTexture(scene: Scene, art: PrintArt = "mark"): DynamicTextu
     const w = word.getImageData(0, 0, W, H).data;
     const out = (tex.getContext() as CanvasRenderingContext2D).createImageData(W, H);
     for (let i = 0; i < t.length; i += 4) {
-      // mint (green well above red) is the tree; the mark's dark ground is not
-      const mint = Math.max(0, Math.min(1, (t[i + 1] - t[i] - 30) / 60)) * (t[i + 3] / 255);
+      // mint and the apples' paler mint (green above red) are the tree; the mark's dark ground is not
+      const mint = Math.max(0, Math.min(1, (t[i + 1] - t[i] - 12) / 26)) * (t[i + 3] / 255);
       out.data[i] = Math.max(Math.round(mint * 255), (w[i] * w[i + 3]) / 255);
       out.data[i + 1] = (w[i + 1] * w[i + 3]) / 255;
       out.data[i + 2] = 0;

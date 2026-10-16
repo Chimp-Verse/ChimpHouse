@@ -386,13 +386,15 @@ export class Field {
    * The operations that can matter within `half` of a point (a block's centre
    * and half diagonal): those whose shape comes within the band round the
    * surface, plus their blend width. Others leave the field's sign, and its
-   * value near the surface, unchanged there.
+   * value near the surface, unchanged there: a shape added or cut away far off
+   * changes nothing here. A shape the field is kept only within (a meet) always
+   * matters, far off most of all: there it leaves nothing.
    */
   near(cx: number, cy: number, cz: number, half: number, band: number, out: number[]): number[] {
     out.length = 0;
     for (let i = 0; i < this.ops.length; i++) {
       const op = this.ops[i];
-      if (Math.hypot(cx - op.bx, cy - op.by, cz - op.bz) - op.br < half + band + op.k) out.push(i);
+      if (op.mode === Mode.Meet || Math.hypot(cx - op.bx, cy - op.by, cz - op.bz) - op.br < half + band + op.k) out.push(i);
     }
     return out;
   }
