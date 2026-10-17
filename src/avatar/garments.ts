@@ -7,13 +7,20 @@
 // with the chimp, and it says which of the fur it hides, so no hair pokes through it:
 // the fur stops under the cloth and spills out at the cuffs.
 //
+// It is finished as a garment is sewn: what its cloth is (jersey, fleece, twill), its seams
+// (a top's sides, shoulders and armholes; shorts' sides, inside legs, middle seam and fly),
+// its hems turned up and stitched twice, and the folds it falls into (a top's drape from
+// the chest, the creases round sleeves and legs, the gathers under a waistband), each
+// worked out per vertex from the chimp's own shape for the cloth material to draw
+// (avatar/materials.ts).
+//
 // Plain numbers and no Babylon: built in the model worker (avatar/build.worker.ts).
 
 import type { Anatomy, PartName } from "./anatomy";
-import type { ItemMesh, ItemModel } from "./items";
+import type { Fabric, ItemMesh, ItemModel } from "./items";
 import { decimate } from "./decimate";
 import { meshField, settle } from "./mesher";
-import { Field, Mode, Prim, type V3, add, norm, scale, smoothstep, sub } from "./sdf";
+import { Field, Mode, Prim, type V3, add, cross, dot, norm, scale, smoothstep, sub } from "./sdf";
 import { printAspect } from "./wordmark";
 
 /** What a garment is made of: which of the body's shapes, grown how far, and where it is cut. */
@@ -44,6 +51,21 @@ interface Pattern {
    * the sleeves or legs, round the hem, round the waist.
    */
   trims?: { collar?: number; cuffs?: number; hem?: number; waist?: number };
+  /** what it is made of (its trims are ribbed knit) */
+  fabric: Fabric;
+  /**
+   * how deep it falls into folds (metres, as the shading takes them): its drape (a top's, from the
+   * chest down; shorts' gathers under the waistband) and the creases round its sleeves or legs
+   */
+  folds: { drape: number; creases: number };
+  /** its bottom edge (a top) or its legs' ends (shorts) turned up inside and stitched twice */
+  hemmed?: boolean;
+  /**
+   * how its three seams are made (ItemMesh seamStyle): its sides and shoulders (a top) or sides and
+   * inside legs (shorts); its armholes, or the middle seam front and back; a stitched outline (a
+   * pocket's, a fly's)
+   */
+  seams: [number, number, number, number];
 }
 
 const TORSO = ["pelvis", "belly", "ribs", "shoulders", "hump", "glute", "deltoid"];
@@ -60,6 +82,11 @@ const PATTERNS: Record<string, Pattern> = {
     tris: 6400,
     print: { y: 0.055, size: 0.058 },
     trims: { collar: 0.015, cuffs: 0.012 },
+    fabric: "jersey",
+    folds: { drape: 0.011, creases: 0.008 },
+    hemmed: true,
+    // plain seams at the sides and shoulders, and round the armholes
+    seams: [1, 1, 0, 1],
   },
   hoodie: {
     trunk: TORSO.filter((t) => t !== "glute"),
@@ -71,8 +98,24 @@ const PATTERNS: Record<string, Pattern> = {
     extras: hoodieExtras,
     tris: 8200,
     trims: { cuffs: 0.034, hem: 0.042 },
+    fabric: "fleece",
+    folds: { drape: 0.013, creases: 0.012 },
+    // and the pocket stitched on round its edge
+    seams: [1, 1, 2, 1],
   },
-  shorts: { trunk: ["pelvis", "glute", "belly"], leg: { tags: ["thigh", "quads"], to: 0.4 }, ease: 0.011, waist: 0.095, tris: 3800, trims: { waist: 0.026 } },
+  shorts: {
+    trunk: ["pelvis", "glute", "belly"],
+    leg: { tags: ["thigh", "quads"], to: 0.4 },
+    ease: 0.011,
+    waist: 0.095,
+    tris: 3800,
+    trims: { waist: 0.026 },
+    fabric: "twill",
+    folds: { drape: 0.009, creases: 0.011 },
+    hemmed: true,
+    // plain seams at the sides and inside the legs; the middle seam stitched twice; the fly's curve stitched
+    seams: [1, 3, 4, 0],
+  },
 };
 
 export const GARMENTS = Object.keys(PATTERNS);
@@ -113,7 +156,8 @@ function shapeOf(anatomy: Anatomy, pat: Pattern) {
   const hemY = pat.hem !== undefined ? hips[1] + pat.hem : null;
   const waistY = pat.waist !== undefined ? hips[1] + pat.waist : null;
   const neckline = pat.neck ? Prim.ellipsoid(add(J("neck"), [0, 0.03 - pat.neck.drop, 0.022]), [0.078 * rig.marks.girth * pat.neck.width, 0.07, 0.078 * rig.marks.girth * pat.neck.width * 1.05], 0, "neckline", [0, -0.35, 1]) : null;
-  const limbs: { prims: Prim[]; tags: string[]; isArm: boolean; p: V3; dir: V3; up: V3 }[] = [];
+  /** each sleeve or leg: its shapes, where it ends (p) and the way it runs there, and its joints (root, the elbow or knee, the far end) */
+  const limbs: { prims: Prim[]; tags: string[]; isArm: boolean; p: V3; dir: V3; up: V3; root: V3; mid: V3; end: V3; l1: number; l2: number }[] = [];
   for (const op of body.field.ops) {
     if (op.mode !== Mode.Limb || !op.sub) continue;
     const prims = op.sub.prims();
@@ -130,8 +174,14 @@ function shapeOf(anatomy: Anatomy, pat: Pattern) {
     const l2 = Math.hypot(...sub(b, m));
     const at = spec.to * (l1 + l2);
     const [p, dir] = at <= l1 ? [add(a, scale(norm(sub(m, a)), at)), norm(sub(m, a))] : [add(m, scale(norm(sub(b, m)), at - l1)), norm(sub(b, m))];
-    limbs.push({ prims, tags: spec.tags, isArm, p, dir, up: Math.abs(dir[1]) > 0.9 ? [0, 0, 1] : [0, 1, 0] });
+    limbs.push({ prims, tags: spec.tags, isArm, p, dir, up: Math.abs(dir[1]) > 0.9 ? [0, 0, 1] : [0, 1, 0], root: a, mid: m, end: b, l1, l2 });
   }
+  /** a sleeve or leg alone, as it is grown (to tell which of the garment a point is on) */
+  const limbField = (L: (typeof limbs)[number]) => {
+    const f = new Field();
+    for (const q of L.prims) if (L.tags.includes(q.tag)) f.add(q.inflate(pat.ease), 0.024);
+    return f;
+  };
   /** the whole garment, every shape grown `more` past the ease (its trims stand that proud of it), cut where it is cut */
   const garmentOf = (more: number) => {
     const f = new Field();
@@ -149,8 +199,10 @@ function shapeOf(anatomy: Anatomy, pat: Pattern) {
     }
     return f;
   };
-  return { rig, body, J, hips, hemY, waistY, neckline, limbs, garmentOf };
+  return { rig, body, J, hips, hemY, waistY, neckline, limbs, garmentOf, trunkOf, limbField };
 }
+
+type Shape = ReturnType<typeof shapeOf>;
 
 /**
  * The outside of a garment as worn by this chimp (its trims included), for what is worn over
@@ -165,37 +217,44 @@ export function garmentField(anatomy: Anatomy, id: string): Field | null {
 export function buildGarment(anatomy: Anatomy, furPositions: Partial<Record<PartName, Float32Array>>, id: string): ItemModel | null {
   const pat = PATTERNS[id];
   if (!pat) return null;
-  const { rig, J, hemY, waistY, neckline, limbs, garmentOf } = shapeOf(anatomy, pat);
+  const shape = shapeOf(anatomy, pat);
+  const { rig, J, hips, hemY, waistY, neckline, limbs, garmentOf, trunkOf } = shape;
   const field = garmentOf(0);
-  /** the trims: a field each (the garment a little proud, kept only round its edge), where to mesh it, and its triangles */
-  const trims: { field: Field; lo: V3; hi: V3; tris: number }[] = [];
-  const trim = (region: Prim, lo: V3, hi: V3, tris: number) => {
+  // the middle of its depth at a height, for what goes round it there (a band's ribs, a hem's stitches)
+  const trunk0 = trunkOf(0);
+  const middle = (y: number) => middleAt(trunk0, y, hips[2]);
+  /**
+   * the trims: a field each (the garment a little proud, kept only round its edge), where to mesh
+   * it, its triangles, and the ring it goes round (its ribs run across it)
+   */
+  const trims: { field: Field; lo: V3; hi: V3; tris: number; ring: { c: V3; axis: V3 } }[] = [];
+  const trim = (region: Prim, lo: V3, hi: V3, tris: number, ring: { c: V3; axis: V3 }) => {
     const t = new Field();
     t.add(garmentOf(PROUD));
     t.meet(region, 0.002);
-    trims.push({ field: t, lo, hi, tris });
+    trims.push({ field: t, lo, hi, tris, ring });
   };
   const W = 0.4;
   if (hemY !== null && pat.trims?.hem) {
     const w = pat.trims.hem;
-    trim(Prim.box([0, hemY + w / 2, 0], [2, w / 2, 2], 0.004, 0, "hemBand"), [-W, hemY - 0.01, -W], [W, hemY + w + 0.01, W], 2600);
+    trim(Prim.box([0, hemY + w / 2, 0], [2, w / 2, 2], 0.004, 0, "hemBand"), [-W, hemY - 0.01, -W], [W, hemY + w + 0.01, W], 2600, { c: [0, hemY, middle(hemY)], axis: [0, 1, 0] });
   }
   if (waistY !== null && pat.trims?.waist) {
     const w = pat.trims.waist;
-    trim(Prim.box([0, waistY - w / 2, 0], [2, w / 2, 2], 0.004, 0, "waistBand"), [-W, waistY - w - 0.01, -W], [W, waistY + 0.01, W], 2200);
+    trim(Prim.box([0, waistY - w / 2, 0], [2, w / 2, 2], 0.004, 0, "waistBand"), [-W, waistY - w - 0.01, -W], [W, waistY + 0.01, W], 2200, { c: [0, waistY, middle(waistY)], axis: [0, 1, 0] });
   }
   if (neckline && pat.trims?.collar) {
-    // a ribbed crew collar round the opening
+    // a ribbed crew collar round the opening (which leans forward, as the neckline does)
     const c: V3 = [neckline.cx, neckline.cy, neckline.cz];
     const r = Math.max(neckline.rx, neckline.ry, neckline.rz) + pat.trims.collar + 0.02;
-    trim(neckline.inflate(pat.trims.collar), [c[0] - r, c[1] - r, c[2] - r], [c[0] + r, c[1] + r, c[2] + r], 1400);
+    trim(neckline.inflate(pat.trims.collar), [c[0] - r, c[1] - r, c[2] - r], [c[0] + r, c[1] + r, c[2] + r], 1400, { c, axis: norm([0, 0.944, 0.33]) });
   }
   if (pat.trims?.cuffs) {
     // each sleeve's (or leg's) end, ribbed
     const w = pat.trims.cuffs;
     for (const L of limbs) {
       const c = add(L.p, scale(L.dir, -w / 2));
-      trim(Prim.box(c, [0.09, 0.09, w / 2], 0.003, 0, "cuffBand", L.dir, L.up), [c[0] - 0.12, c[1] - 0.12, c[2] - 0.12], [c[0] + 0.12, c[1] + 0.12, c[2] + 0.12], Math.round(600 + 26000 * w));
+      trim(Prim.box(c, [0.09, 0.09, w / 2], 0.003, 0, "cuffBand", L.dir, L.up), [c[0] - 0.12, c[1] - 0.12, c[2] - 0.12], [c[0] + 0.12, c[1] + 0.12, c[2] + 0.12], Math.round(600 + 26000 * w), { c: L.p, axis: L.dir });
     }
   }
 
@@ -207,10 +266,17 @@ export function buildGarment(anatomy: Anatomy, furPositions: Partial<Record<Part
   const drop = new Set(pat.leg ? arms : legs);
   const main = meshGarment(anatomy, field, pat.tris, 0.0068, 0, undefined, undefined, drop);
   if (!main) return null;
+  sew(anatomy, pat, shape, middle, main.mesh);
   const meshes: ItemMesh[] = [main.mesh];
   for (const t of trims) {
     const m = meshGarment(anatomy, t.field, t.tris, 0.0034, 1, [t.lo, t.hi], main.mesh);
-    if (m) meshes.push(m.mesh);
+    if (!m) continue;
+    // ribbed knit, its ribs running across the band, round its ring
+    const P = m.mesh.positions;
+    const frame = ringFrame(t.ring.axis);
+    for (let v = 0; v < P.length / 3; v++) m.mesh.cloth[v * 4 + 3] = 10 + roundRing(frame, t.ring.c, [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]);
+    m.mesh.fabric = "rib";
+    meshes.push(m.mesh);
   }
 
   // the fur it hides: whatever grows inside it; just outside its edges the fur is pressed down, so a
@@ -348,11 +414,190 @@ function nearestVertex(m: ItemMesh): (p: V3) => number {
 function hoodieExtras(a: Anatomy, f: Field) {
   const { rig } = a;
   const neck = rig.bones[rig.index.neck].head;
-  const spine = rig.bones[rig.index.spine].head;
   const g = rig.marks.girth;
   f.add(Prim.ellipsoid(add(neck, [0, 0.035, -0.074]), [0.085 * g, 0.042, 0.05], 0, "hood", [0, 0.5, -1]), 0.03);
   for (const s of [-1, 1]) f.add(Prim.ellipsoid(add(neck, [s * 0.07 * g, 0.022, -0.035]), [0.04, 0.036, 0.055], 0, "hood", [s, 0.3, -0.4]), 0.03);
+  const spine = rig.bones[rig.index.spine].head;
   f.add(Prim.ellipsoid(add(spine, [0, -0.01, 0.112 * g]), [0.1 * g, 0.055, 0.02], 0, "pocket", [0, 0, 1]), 0.012);
+}
+
+/**
+ * A trapezoid's signed distance (after Inigo Quilez), in its plane: its middle at the origin, `r1`
+ * half as wide at its foot as it is, `r2` at its top, `he` half as tall.
+ */
+function trapezoid(x: number, y: number, r1: number, r2: number, he: number): number {
+  const k2x = r2 - r1;
+  const k2y = 2 * he;
+  const ax = Math.abs(x);
+  const cax = ax - Math.min(ax, y < 0 ? r1 : r2);
+  const cay = Math.abs(y) - he;
+  const t = Math.max(0, Math.min(1, ((r2 - ax) * k2x + (he - y) * k2y) / (k2x * k2x + k2y * k2y)));
+  const cbx = ax - r2 + k2x * t;
+  const cby = y - he + k2y * t;
+  const s = cbx < 0 && cay < 0 ? -1 : 1;
+  return s * Math.sqrt(Math.min(cax * cax + cay * cay, cbx * cbx + cby * cby));
+}
+
+/** The middle of a garment's depth at a height: halfway between its front and back where x is 0 (the centre of what goes round it there). */
+function middleAt(f: Field, y: number, zc: number): number {
+  const find = (from: number, step: number) => {
+    let z = from;
+    for (let i = 0; i < 60 && f.at(0, y, z) > 0; i++) z += step;
+    return z;
+  };
+  const front = find(zc + 0.4, -0.008);
+  const back = find(zc - 0.4, 0.008);
+  return back < front ? (front + back) / 2 : zc;
+}
+
+/** Two directions square to an axis, the first toward the front: for going round a ring about it. */
+function ringFrame(axis: V3): { e1: V3; e2: V3 } {
+  let e1 = sub([0, 0, 1], scale(axis, axis[2]));
+  if (Math.hypot(...e1) < 1e-4) e1 = [1, 0, 0];
+  e1 = norm(e1);
+  return { e1, e2: norm(cross(axis, e1)) };
+}
+
+/** How far round a ring about `c` a point is (metres along it, from its front; it wraps at the back). */
+function roundRing(frame: { e1: V3; e2: V3 }, c: V3, p: V3): number {
+  const v = sub(p, c);
+  const x = dot(v, frame.e1);
+  const y = dot(v, frame.e2);
+  return Math.atan2(y, x) * Math.hypot(x, y);
+}
+
+/**
+ * Sew a garment: per vertex, the folds it falls into, its seams (signed distances to each), and its
+ * hem's stitching (how far the edge is, how far round it), for the cloth material to draw.
+ */
+function sew(anatomy: Anatomy, pat: Pattern, shape: Shape, middle: (y: number) => number, mesh: ItemMesh): void {
+  const { J, hips, hemY, waistY, limbs, trunkOf, limbField } = shape;
+  const g = anatomy.rig.marks.girth;
+  const P = mesh.positions;
+  const N = mesh.normals;
+  const n = P.length / 3;
+  const folds = new Float32Array(n * 4);
+  const seams = new Float32Array(n * 4);
+  const trunk = trunkOf(0);
+  const limbF = limbs.map(limbField);
+  const chestY = J("chest")[1];
+  const top = !!pat.arm;
+  // the top of a hem band (a hoodie's), the foot of a waistband (shorts')
+  const bandTop = hemY !== null && pat.trims?.hem ? hemY + pat.trims.hem : null;
+  const bandFoot = waistY !== null ? waistY - (pat.trims?.waist ?? 0) : null;
+  const hemRing = ringFrame([0, 1, 0]);
+  const hemMiddle: V3 = [0, hemY ?? 0, hemY !== null ? middle(hemY) : 0];
+  const limbRings = limbs.map((L) => ringFrame(L.dir));
+  // the fly (shorts'): from under the waistband to just above the crotch, its foot curving in to the middle
+  const flyW = 0.03 * g;
+  const flyTop = bandFoot ?? 0;
+  const flyFoot = hips[1] - 0.015;
+  const flyR = Math.min(0.85 * flyW, (flyW + 0.004) / 2 - 0.001, (flyTop - flyFoot) / 2 - 0.001);
+  // the hoodie's pocket, sewn on across the belly from the hem band up: narrower at its top, its slanting
+  // sides the openings for the hands
+  const pocket = pat.extras && bandTop !== null ? { y0: bandTop + 0.002, y1: bandTop + 0.55 * (chestY - bandTop), r1: 0.115 * g, r2: 0.078 * g } : null;
+  for (let v = 0; v < n; v++) {
+    const p: V3 = [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]];
+    const dT = trunk.at(p[0], p[1], p[2]);
+    let li = -1;
+    let dL = Infinity;
+    limbF.forEach((f, i) => {
+      const d = f.at(p[0], p[1], p[2]);
+      if (d < dL) {
+        dL = d;
+        li = i;
+      }
+    });
+    const L = li >= 0 ? limbs[li] : null;
+    // on a sleeve or leg rather than the trunk; and how far from where they join (folds fade there)
+    const onLimb = !!L && dL < dT;
+    const join = L ? smoothstep(0.003, 0.02, Math.abs(dT - dL)) : 1;
+    // how far along the limb from its root, and the way it runs there
+    let along = 0;
+    let axis: V3 = [0, 1, 0];
+    if (L) {
+      const u1 = norm(sub(L.mid, L.root));
+      const u2 = norm(sub(L.end, L.mid));
+      const t1 = Math.max(0, Math.min(L.l1, dot(sub(p, L.root), u1)));
+      const t2 = Math.max(0, Math.min(L.l2, dot(sub(p, L.mid), u2)));
+      const d1 = Math.hypot(...sub(p, add(L.root, scale(u1, t1))));
+      const d2 = Math.hypot(...sub(p, add(L.mid, scale(u2, t2))));
+      along = d2 < d1 && t2 > 0 ? L.l1 + t2 : t1;
+      const k = smoothstep(L.l1 - 0.03, L.l1 + 0.03, along);
+      axis = norm(add(scale(u1, 1 - k), scale(u2, k)));
+    }
+    // a top's armhole: where its sleeve meets its body, halfway between the two (> 0 on the sleeve)
+    const armhole = top && L ? (dT - dL) / 2 : -1;
+
+    // the folds: a sleeve's or leg's creases round it, most at the elbow and the armpit, or the crotch;
+    // a top's drape falling from the chest, bunched over a hem band; shorts' gathers under the waistband
+    let depth: number;
+    let mode = 1;
+    if (onLimb && L) {
+      mode = -1;
+      if (top) {
+        const elbow = Math.exp(-(((along - L.l1) / 0.06) ** 2));
+        const pit = 1 - smoothstep(0, 0.09, along);
+        depth = pat.folds.creases * (0.45 + 0.8 * elbow + 0.5 * pit) * smoothstep(0.004, 0.025, armhole);
+      } else depth = pat.folds.creases * (0.55 + 0.7 * (1 - smoothstep(0, 0.12, along))) * join;
+    } else {
+      axis = [0, 1, 0];
+      if (top) {
+        const fall = smoothstep(chestY + 0.01, (hemY ?? hips[1]) + 0.05, p[1]);
+        const blouse = bandTop !== null ? 1 - smoothstep(bandTop + 0.005, bandTop + 0.07, p[1]) : 0;
+        depth = pat.folds.drape * (0.15 + fall + 0.7 * blouse) * smoothstep(0.004, 0.025, -armhole);
+      } else {
+        const gather = bandFoot !== null ? 1 - smoothstep(bandFoot - 0.004, bandFoot - 0.05, p[1]) : 0;
+        depth = pat.folds.drape * (0.25 + 1.1 * gather) * join;
+      }
+    }
+    folds.set([axis[0] * depth, axis[1] * depth, axis[2] * depth, mode], v * 4);
+
+    // the seams. 1: where the front meets the back, as the cloth turns from facing forward to facing
+    // back (a top's sides and over its shoulders; shorts' sides, then down each leg its outside and its
+    // inside, and under the crotch): the normal's forward part, by about how round the body is there
+    const s1 = N[v * 3 + 2] * 0.09 * g;
+    // 2: a top's armholes; shorts' middle seam, front and back
+    const s2 = top ? armhole : p[0];
+    // 3: a pocket's outline (> 0 on the pocket); the fly's curve; far off elsewhere
+    let s3 = top ? -0.05 : 0.05;
+    let run = p[1];
+    if (pocket && !onLimb && N[v * 3 + 2] > 0.3) {
+      // its outline on the belly, its corners rounded
+      s3 = -(trapezoid(p[0], p[1] - (pocket.y0 + pocket.y1) / 2, pocket.r1 - 0.008, pocket.r2 - 0.008, (pocket.y1 - pocket.y0) / 2 - 0.008) - 0.008);
+      run = 0.8 * p[0] + p[1];
+    } else if (!top && N[v * 3 + 2] > 0.25 && bandFoot !== null) {
+      // on the wearer's left: a box from just past the middle out to the curve, its foot rounded
+      const qx = Math.abs(-p[0] - (flyW - 0.004) / 2) - (flyW + 0.004) / 2 + flyR;
+      const qy = Math.abs(p[1] - (flyTop + flyFoot) / 2) - (flyTop - flyFoot) / 2 + flyR;
+      s3 = Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - flyR;
+    }
+    seams.set([s1, s2, s3, run], v * 4);
+
+    // the hem: turned up and stitched twice, at a top's foot or a leg's end: how far the edge is, how far round
+    if (pat.hemmed) {
+      let edge = 1;
+      let round = 0;
+      if (top && !onLimb && hemY !== null) {
+        edge = p[1] - hemY;
+        round = roundRing(hemRing, hemMiddle, p);
+      } else if (!top && onLimb && L) {
+        edge = dot(sub(L.p, p), L.dir);
+        round = roundRing(limbRings[li], L.p, p);
+      }
+      mesh.cloth[v * 4 + 1] = edge;
+      mesh.cloth[v * 4 + 3] = 10 + round;
+    }
+  }
+  mesh.fabric = pat.fabric;
+  mesh.folds = folds;
+  mesh.seamLines = seams;
+  mesh.seamStyle = pat.seams;
+  if (pat.hemmed) {
+    // two rows, 9 and 15.5 mm in from the edge; the hem turned up 2.2 cm inside
+    mesh.stitch = [0.009, 0.0065, 2, 0.003];
+    mesh.hem = 0.022;
+  }
 }
 
 /** How shut in a point of cloth is (folds under the arms, the hood's roll): as the skin's is worked out. */

@@ -183,12 +183,16 @@ export function rawMesh(): RawMesh {
  * tube (a circle). At each point the section lies square to the path, its "up" the
  * way `up[i]` points (the skin's normal, for a strap lying on it). `profile` gives the
  * section's points and their normals in (across, up) terms. Closed paths join round;
- * open ones are capped.
+ * open ones are capped. `edges` keeps, for stitching along its sides (a strap's), how far
+ * each point is from the nearer side and how far along the path.
  */
-export function sweep(out: RawMesh, path: V3[], up: V3[], profile: { p: [number, number]; n: [number, number] }[], closed: boolean, shade?: (i: number, k: number) => number): void {
+export function sweep(out: RawMesh, path: V3[], up: V3[], profile: { p: [number, number]; n: [number, number] }[], closed: boolean, shade?: (i: number, k: number) => number, edges = false): void {
   const n = path.length;
   const base = out.positions.length / 3;
   const m = profile.length;
+  const side = Math.max(...profile.map((q) => Math.abs(q.p[0])));
+  const run: number[] = [0];
+  for (let i = 1; i < n; i++) run.push(run[i - 1] + len(sub(path[i], path[i - 1])));
   const frames: { t: V3; u: V3; b: V3 }[] = [];
   for (let i = 0; i < n; i++) {
     const prev = path[closed ? (i - 1 + n) % n : Math.max(0, i - 1)];
@@ -209,6 +213,10 @@ export function sweep(out: RawMesh, path: V3[], up: V3[], profile: { p: [number,
       const nn = norm(add(scale(b, pn[0]), scale(u, pn[1])));
       out.normals.push(nn[0], nn[1], nn[2]);
       out.open.push(shade ? shade(i, k) : 1);
+      if (edges) {
+        out.edge.push(side - Math.abs(p[0]));
+        out.along.push(run[i]);
+      }
     }
   }
   const rows = closed ? n : n - 1;
@@ -231,12 +239,20 @@ export function sweep(out: RawMesh, path: V3[], up: V3[], profile: { p: [number,
       out.positions.push(path[i][0], path[i][1], path[i][2]);
       out.normals.push(t[0] * s, t[1] * s, t[2] * s);
       out.open.push(shade ? shade(i, 0) : 1);
+      if (edges) {
+        out.edge.push(side);
+        out.along.push(run[i]);
+      }
       const ring = out.positions.length / 3;
       for (let k = 0; k < m; k++) {
         const v = base + i * m + k;
         out.positions.push(out.positions[v * 3], out.positions[v * 3 + 1], out.positions[v * 3 + 2]);
         out.normals.push(t[0] * s, t[1] * s, t[2] * s);
         out.open.push(out.open[v]);
+        if (edges) {
+          out.edge.push(out.edge[v]);
+          out.along.push(out.along[v]);
+        }
       }
       for (let k = 0; k < m; k++) {
         const k2 = (k + 1) % m;
@@ -247,7 +263,11 @@ export function sweep(out: RawMesh, path: V3[], up: V3[], profile: { p: [number,
   }
 }
 
-/** A flat strap's section: `width` across, `thick` through, its edges rounded. */
+/**
+ * A flat strap's section: `width` across, `thick` through, its edges rounded; a point in the
+ * middle of each flat face, so what is worked out across it (how far a side is) can rise to
+ * the middle and fall again.
+ */
 export function strapProfile(width: number, thick: number): { p: [number, number]; n: [number, number] }[] {
   const r = Math.min(thick / 2, width / 2);
   const hw = width / 2 - r;
@@ -261,6 +281,8 @@ export function strapProfile(width: number, thick: number): { p: [number, number
       const a = a0 + (j / 4) * Math.PI;
       out.push({ p: [cx + r * Math.cos(a), r * Math.sin(a)], n: [Math.cos(a), Math.sin(a)] });
     }
+    // across the face to come: its middle
+    out.push({ p: [0, cx > 0 ? r : -r], n: [0, cx > 0 ? 1 : -1] });
   }
   return out;
 }

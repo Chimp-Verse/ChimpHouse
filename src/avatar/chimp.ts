@@ -26,8 +26,8 @@ import {
   type AbstractMesh,
 } from "@babylonjs/core";
 import type { ChimpDna, Slot } from "./dna";
-import type { ItemModel } from "./items";
-import { type ChimpClothPlugin, type ChimpFurPlugin, type ChimpSkinPlugin, clothMaterial, dialTexture, furMaterial, linear, printTexture, skinMaterial } from "./materials";
+import type { ItemMesh, ItemModel } from "./items";
+import { type ChimpClothPlugin, type ChimpFurPlugin, type ChimpSkinPlugin, FABRICS, clothMaterial, dialTexture, furMaterial, linear, printTexture, skinMaterial } from "./materials";
 import type { ChimpModel } from "./model";
 import type { Rig } from "./rig";
 import type { PartName } from "./anatomy";
@@ -39,7 +39,7 @@ interface Worn {
   printInk?: number;
   meshes: Mesh[];
   /** each mesh's material, and what to colour it: the item's colour n, or a colour of its own */
-  dressed: { mesh: Mesh; material: PBRMaterial; cloth: ChimpClothPlugin | null; colour: number; hex?: string; kind: string }[];
+  dressed: { mesh: Mesh; material: PBRMaterial; cloth: ChimpClothPlugin | null; colour: number; hex?: string; kind: string; sheenTint: number }[];
   cover: ItemModel["cover"];
 }
 
@@ -334,6 +334,9 @@ export class Chimp {
         if (im.uvs) vd.uvs = im.uvs;
         vd.applyToMesh(mesh, false);
         mesh.setVerticesData("chimpCloth", im.cloth, false, 4);
+        // a garment's folds and seams
+        if (im.folds) mesh.setVerticesData("chimpFold", im.folds, false, 4);
+        if (im.seamLines) mesh.setVerticesData("chimpSeam", im.seamLines, false, 4);
         if (im.bone) {
           // made in the rest pose's space: carried by its bone, from the bone's joint
           const at = this.rig.bones[this.rig.index[im.bone]].head;
@@ -341,17 +344,19 @@ export class Chimp {
           mesh.position.set(-at[0], -at[1], -at[2]);
           this.prepare(mesh, false);
         } else this.prepare(mesh);
-        const { material, cloth } = this.itemMaterial(im.kind, `${this.root.name} ${item.id} ${i}`, item);
+        const { material, cloth } = this.itemMaterial(im, `${this.root.name} ${item.id} ${i}`, item);
         if (cloth) {
           if (im.seams) cloth.seams.set(...im.seams);
-          if (im.knit !== undefined) cloth.knit = im.knit ? 1 : 0;
-          cloth.fuzz = im.fuzz ?? 0;
+          cloth.fuzz = Math.max(cloth.fuzz, im.fuzz ?? 0);
           cloth.pattern = item.pattern ?? 0;
-          if (im.fuzz) cloth.weave = 0;
+          cloth.setSewn(!!im.folds, !!im.seamLines);
+          if (im.seamStyle) cloth.seamStyle.set(...im.seamStyle);
+          if (im.stitch) cloth.stitch.set(...im.stitch);
+          cloth.hem = im.hem ?? 0;
         }
         mesh.material = material;
         w.meshes.push(mesh);
-        w.dressed.push({ mesh, material, cloth, colour: im.colour, hex: im.hex, kind: im.kind });
+        w.dressed.push({ mesh, material, cloth, colour: im.colour, hex: im.hex, kind: im.kind, sheenTint: im.kind === "cloth" ? FABRICS[im.fabric ?? "plain"].sheenTint : 0 });
         this.meshes.push(mesh);
       });
       this.worn.set(slot, w);
@@ -375,6 +380,8 @@ export class Chimp {
         // the print: its main ink one of the item's colours, or one that stands out from the cloth; its second always that
         d.cloth.printColour = w.printInk !== undefined && colours[w.printInk] ? linear(colours[w.printInk]) : standOut(main);
         d.cloth.printColour2 = standOut(main);
+        // the fibres' sheen: the cloth's own colour, lighter
+        if (d.material.sheen.isEnabled) d.material.sheen.color = Color3.Lerp(main, Color3.White(), d.sheenTint);
       } else if (d.kind !== "dial") d.material.albedoColor = main;
     }
   }
@@ -386,12 +393,11 @@ export class Chimp {
     return out;
   }
 
-  /** A material for a piece of an item: cloth and plastic coloured and woven, metal, tinted glass, or a glowing screen. */
-  private itemMaterial(kind: string, name: string, item: ItemModel): { material: PBRMaterial; cloth: ChimpClothPlugin | null } {
+  /** A material for a piece of an item: cloth (as its fabric is) and plastic, coloured; metal, tinted glass, or a glowing screen. */
+  private itemMaterial(im: ItemMesh, name: string, item: ItemModel): { material: PBRMaterial; cloth: ChimpClothPlugin | null } {
+    const kind = im.kind;
     if (kind === "cloth" || kind === "plastic") {
-      const { material, cloth } = clothMaterial(name, this.scene, kind === "plastic" ? { rough: 0.32, sheen: 0, } : {});
-      if (kind === "plastic") cloth.weave = 0;
-      cloth.knit = item.knit ? 1 : 0;
+      const { material, cloth } = clothMaterial(name, this.scene, kind === "plastic" ? "plastic" : (im.fabric ?? "plain"));
       if (item.print) {
         cloth.printRect.set(...item.print);
         cloth.print = printTexture(this.scene, item.printArt);

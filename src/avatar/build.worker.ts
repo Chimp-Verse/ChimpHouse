@@ -30,7 +30,7 @@ self.onmessage = (e: MessageEvent<Request>) => {
   }
   const item = buildItem(buildAnatomy(dna), r.fur, r.item, r.over ?? []);
   if (item) {
-    for (const m of item.meshes) [m.positions, m.normals, m.indices, m.bones, m.weights, m.cloth, m.uvs].forEach(give);
+    for (const m of item.meshes) [m.positions, m.normals, m.indices, m.bones, m.weights, m.cloth, m.uvs, m.folds, m.seamLines].forEach(give);
     for (const c of Object.values(item.cover)) give(c);
   }
   (self as unknown as Worker).postMessage({ id: r.id, item }, transfer);

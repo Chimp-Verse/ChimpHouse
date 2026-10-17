@@ -23,6 +23,14 @@ import { Field, Mode, Prim, type V3, add, cross, dot, len, lerp3, norm, scale, s
 
 export type PieceKind = "cloth" | "plastic" | "metal" | "glass" | "light" | "dial";
 
+/**
+ * What a piece of cloth is made of: how it takes the light (a sheen, its roughness) and its
+ * surface's grain (avatar/materials.ts FABRICS). Jersey for a tee; fleece for a hoodie; twill
+ * for shorts and a cap; ribbed knit for cuffs, collars and waistbands; chunky knit for a
+ * beanie; plain cotton for a bandana; canvas for a pack; webbing for straps; leather.
+ */
+export type Fabric = "jersey" | "fleece" | "twill" | "rib" | "knit" | "plain" | "canvas" | "webbing" | "leather";
+
 export interface ItemMesh {
   kind: PieceKind;
   /** which of the item's colours: 0 its first, 1 its second (bands carry the second regardless) */
@@ -40,11 +48,34 @@ export interface ItemMesh {
   cloth: Float32Array;
   /** a crown's panel seams: the axis they meet on (x, z), how many, their turn; or a knitted hat's ribs round it (avatar/materials.ts) */
   seams?: [number, number, number, number];
-  /** knitted (ribs rather than a weave), for this piece rather than the whole item; yarn's fuzz */
-  knit?: boolean;
+  /** yarn's fuzz (a bobble): 0 none, 1 a fine speckle of fibres */
   fuzz?: number;
   /** where its picture is laid (a watch's dial, avatar/materials.ts dialTexture) */
   uvs?: Float32Array;
+  /** what the cloth is made of (cloth only; plain cotton if not said) */
+  fabric?: Fabric;
+  /**
+   * per vertex, the cloth's folds: the axis they lie by, scaled by how deep they are (metres), and
+   * which way they run: w > 0 along the axis (a top's drape, falling from the chest), w < 0 round
+   * it (the creases round a sleeve or a leg). None where the axis is 0.
+   */
+  folds?: Float32Array;
+  /**
+   * per vertex, signed distances (metres) to three seams, 0 on the seam (see `seamStyle`), and
+   * how far along them it is (w), for their stitches
+   */
+  seamLines?: Float32Array;
+  /**
+   * how each of the three seams is made: 0 there is none, 1 a plain seam (a crease), 2 a crease
+   * stitched once beside it (on its positive side), 3 a crease stitched twice beside it, 4 a row
+   * of stitches with no crease (a fly's); and (w) 1 when the first seam stops where the second's
+   * distance turns positive (a top's side and shoulder seams stop at the armholes)
+   */
+  seamStyle?: [number, number, number, number];
+  /** rows of stitches along its edges (cloth's y and w): the first row's distance in, between rows, how many, a stitch's length (metres) */
+  stitch?: [number, number, number, number];
+  /** a hem turned up inside: how deep (metres), for the step it makes in the cloth */
+  hem?: number;
 }
 
 export interface ItemModel {
@@ -59,8 +90,6 @@ export interface ItemModel {
   printInk?: number;
   /** a printed pattern all over it, in its second colour (1: a bandana's paisley and border) */
   pattern?: number;
-  /** knitted (a beanie): ribs rather than a weave */
-  knit?: boolean;
 }
 
 /** A piece of a worn item: its shapes, the grid it is meshed on, how many triangles it keeps. */
@@ -75,10 +104,10 @@ interface Piece {
   bands?: Prim[];
   /** or a region of it in the second colour: 1 in it (a beanie's cuff) */
   bandAt?: (x: number, y: number, z: number) => number;
-  /** panel seams (a cap's crown), knitting, fuzz: see ItemMesh */
+  /** panel seams (a cap's crown), fuzz, what the cloth is: see ItemMesh */
   seams?: [number, number, number, number];
-  knit?: boolean;
   fuzz?: number;
+  fabric?: Fabric;
 }
 
 interface Plan {
@@ -94,7 +123,6 @@ interface Plan {
   covers?: (x: number, y: number, z: number) => number;
   print?: [number, number, number, number];
   printArt?: PrintArt;
-  knit?: boolean;
 }
 
 /**
@@ -109,7 +137,7 @@ export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartNam
   const meshes: ItemMesh[] = [];
   for (const piece of plan.pieces) {
     const m = meshPiece(piece);
-    if (m) meshes.push({ ...m, kind: piece.kind, colour: piece.colour, hex: piece.hex, bone: plan.bone, seams: piece.seams, knit: piece.knit, fuzz: piece.fuzz });
+    if (m) meshes.push({ ...m, kind: piece.kind, colour: piece.colour, hex: piece.hex, bone: plan.bone, seams: piece.seams, fuzz: piece.fuzz, fabric: piece.fabric });
   }
   meshes.push(...(plan.meshes ?? []));
   if (plan.skinned) for (let i = 0; i < meshes.length; i++) meshes[i] = weighOnBody(anatomy, meshes[i]);
@@ -125,7 +153,7 @@ export function buildItem(anatomy: Anatomy, furPositions: Partial<Record<PartNam
       if (any) cover[part] = c;
     }
   }
-  return { id, meshes, cover, print: plan.print, printArt: plan.printArt, knit: plan.knit, pattern: plan.pattern };
+  return { id, meshes, cover, print: plan.print, printArt: plan.printArt, pattern: plan.pattern };
 }
 
 /** Mesh a piece: on its grid, simplified, settled on its surface; its bands and creases worked out. */
@@ -362,8 +390,9 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
     return {
       bone: "head",
       // six panels, the front one whole (its seams either side of it)
-      pieces: [{ kind: "cloth", colour: 0, field: crown, h: 0.0022, tris: 5200, bands: [button], seams: [C[0], C[2] - 0.012 * hk, 6, Math.PI / 6] }],
-      meshes: [toItemMesh(peak, "cloth", 1, "head", 0)],
+      pieces: [{ kind: "cloth", colour: 0, field: crown, h: 0.0022, tris: 5200, bands: [button], seams: [C[0], C[2] - 0.012 * hk, 6, Math.PI / 6], fabric: "twill" }],
+      // the peak's rows of stitches: every 4.2 mm in from 3.5 mm, five of them
+      meshes: [{ ...toItemMesh(peak, "cloth", 1, "head", 0), fabric: "twill", stitch: [0.0035, 0.0042, 5, 0.0034] }],
       covers: (x, y, z) => {
         const over = band.over(y, z);
         const skullIn = inside(inSkull(x, y, z), 0.004);
@@ -424,9 +453,9 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
           // the cuff in the second colour; ribs round the hat, 84 of them
           bandAt: (_x, y, z) => 1 - smoothstep(CUFF - 0.002, CUFF + 0.002, band.over(y, z)),
           seams: [C[0], C[2] - 0.02 * hk, -84, 0],
-          knit: true,
+          fabric: "knit",
         },
-        { kind: "cloth", colour: 1, field: bobble, h: 0.0015, tris: 3400, fuzz: 1 },
+        { kind: "cloth", colour: 1, field: bobble, h: 0.0015, tris: 3400, fuzz: 1, fabric: "knit" },
       ],
       covers: (x, y, z) => {
         const over = band.over(y, z);
@@ -466,7 +495,7 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
       pieces: [
         { kind: "plastic", colour: 0, field: band, h: 0.0022, tris: 2400 },
         { kind: "plastic", colour: 1, field: cups, h: 0.0025, tris: 3000 },
-        { kind: "cloth", colour: 0, field: cushions, h: 0.0022, tris: 1600, bands: [] },
+        { kind: "cloth", colour: 0, field: cushions, h: 0.0022, tris: 1600, bands: [], fabric: "leather" },
       ],
       // the hair under the band and the cushions goes; round them it is pressed down, so the band
       // sits on the head rather than sinking into a shaggy coat
@@ -549,8 +578,8 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
     const sheetPts = [...flap.points, ...ends.flatMap((e) => e.points)];
     return {
       bone: "neck",
-      pieces: [{ kind: "cloth", colour: 0, field: knot, h: 0.0016, tris: 2600 }],
-      meshes: [toItemMesh(roll, "cloth", 0, null), toItemMesh(flap.raw, "cloth", 0, null), ...ends.map((e) => toItemMesh(e.raw, "cloth", 0, null))],
+      pieces: [{ kind: "cloth", colour: 0, field: knot, h: 0.0016, tris: 2600, fabric: "plain" }],
+      meshes: [roll, flap.raw, ...ends.map((e) => e.raw)].map((m) => ({ ...toItemMesh(m, "cloth", 0, null), fabric: "plain" as const })),
       skinned: true,
       pattern: 1,
       covers: (x, y, z) => {
@@ -794,7 +823,7 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
       path = smoothPath(path, 3, false);
       // its underside, against the body, sees less light
       const prof = strapProfile(WIDTH, THICK);
-      sweep(straps, path, normals, prof, false, (_i, k) => (prof[k].p[1] < 0 ? 0.55 : 1));
+      sweep(straps, path, normals, prof, false, (_i, k) => (prof[k].p[1] < 0 ? 0.55 : 1), true);
       strapPaths.push(path);
       // a slider on the strap low on the chest, where its length is set
       const at = Math.round(dense.length * 0.52);
@@ -814,7 +843,7 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
       2,
       false,
     );
-    sweep(straps, chestPath, acrossN, strapProfile(WIDTH * 0.45, THICK * 0.8), false);
+    sweep(straps, chestPath, acrossN, strapProfile(WIDTH * 0.45, THICK * 0.8), false, undefined, true);
     const mid = chestPath[8];
     buckles.add(Prim.box(add(mid, scale(acrossN[8], 0.003)), [0.014, 0.009, 0.004], 0.003, 0, "clip", acrossN[8], [0, 1, 0]));
     strapPaths.push(chestPath);
@@ -824,12 +853,13 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
     return {
       bone: "upperChest",
       pieces: [
-        { kind: "cloth", colour: 0, field: pack, h: 0.004, tris: 5200, bands: [pocket] },
-        { kind: "cloth", colour: 1, field: handle, h: 0.0018, tris: 700 },
+        { kind: "cloth", colour: 0, field: pack, h: 0.004, tris: 5200, bands: [pocket], fabric: "canvas" },
+        { kind: "cloth", colour: 1, field: handle, h: 0.0018, tris: 700, fabric: "webbing" },
         { kind: "plastic", colour: 0, hex: "#1d1f22", field: pulls, h: 0.0012, tris: 500 },
         { kind: "plastic", colour: 0, hex: "#1d1f22", field: buckles, h: 0.0012, tris: 900 },
       ],
-      meshes: [weighOnBody(a, toItemMesh(straps, "cloth", 1, null)), toItemMesh(zips, "plastic", 0, "upperChest", 0, "#2a2c30")],
+      // the straps' webbing stitched along both edges
+      meshes: [weighOnBody(a, { ...toItemMesh(straps, "cloth", 1, null), fabric: "webbing", stitch: [0.0032, 0.003, 1, 0.003] }), toItemMesh(zips, "plastic", 0, "upperChest", 0, "#2a2c30")],
       covers: (x, y, z) => {
         const p: V3 = [x, y, z];
         // under the pack's back: what lies within its outline, behind the body
@@ -884,7 +914,7 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
     });
     const strap = rawMesh();
     const prof = strapProfile(WIDTH, THICK);
-    sweep(strap, path, ring.normal, prof, true, (_i, k) => (prof[k].p[1] < 0 ? 0.5 : 1));
+    sweep(strap, path, ring.normal, prof, true, (_i, k) => (prof[k].p[1] < 0 ? 0.5 : 1), true);
     const top = add(c, scale(n, H / 2));
     // a flat cylinder (a rounded cone cut to a slab: a round cone is capped with half-spheres), its top
     // hollowed for the dial and its edges softened; the bezel round the glass a little proud
@@ -916,7 +946,8 @@ const PLANS: Record<string, (a: Anatomy, over: string[]) => Plan> = {
         { kind: "metal", colour: 1, field: kase, h: 0.0006, tris: 3000 },
         { kind: "glass", colour: 0, hex: "#e8f4f2", field: crystal, h: 0.0006, tris: 700 },
       ],
-      meshes: [toItemMesh(strap, "cloth", 0, "leftLowerArm"), toItemMesh(dial, "dial", 0, "leftLowerArm"), toItemMesh(buckle, "metal", 1, "leftLowerArm")],
+      // a leather strap, stitched along its edges
+      meshes: [{ ...toItemMesh(strap, "cloth", 0, "leftLowerArm"), fabric: "leather", stitch: [0.0018, 0.002, 1, 0.0022] }, toItemMesh(dial, "dial", 0, "leftLowerArm"), toItemMesh(buckle, "metal", 1, "leftLowerArm")],
       // the fur under the strap and the case goes; round them, pressed flat so the watch sits on the arm
       covers: (x, y, z) => {
         const p: V3 = [x, y, z];

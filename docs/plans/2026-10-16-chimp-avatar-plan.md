@@ -48,7 +48,7 @@ The clothes are ChimpVerse's too: the ChimpVibe tee carries the tree mark (from 
 | `src/avatar/decimate.ts` | Quadric-error simplification (Garland and Heckbert), with a cap on edge length so the joints keep rings to bend on |
 | `src/avatar/model.ts` | One chimp's geometry: each part meshed, simplified to its budget, settled and painted, and its fur carrier |
 | `src/avatar/build.worker.ts`, `builder.ts` | Building in two workers side by side, each making some of the parts, and kept by geometry key (12 bodies, 12 items) |
-| `src/avatar/materials.ts` | Babylon PBR materials with plugins, so a chimp is lit as the house is: the skin (painted from each vertex), the fur (shells), cloth (two colours, a weave or knit, a print). All fade with a dither |
+| `src/avatar/materials.ts` | Babylon PBR materials with plugins, so a chimp is lit as the house is: the skin (painted from each vertex), the fur (shells), cloth (two colours; what it is made of, for its sheen and grain; its folds, seams and stitching; a print). All fade with a dither |
 | `src/avatar/chimp.ts` | A chimp in the scene: the bone nodes driving the Babylon skeleton, the skinned skin, the fur shells (thin instances, one draw call a part), eyes and lids, and what it wears |
 | `src/avatar/animator.ts` | Procedural animation: the gait from a walk through a jog to a run, feet placed by two-bone IK and kept still while they bear weight, each on the ground under it (a step of the stairs), stepping round when it turns on the spot, the stoop, sway, twist, lean, arm swing, breathing, glances, blinks and the look |
 | `src/avatar/wardrobe.ts` | The items, by slot, with their colours |
@@ -137,7 +137,9 @@ A Blender groom can be converted to these: its flow as the carrier's flow, its d
 - **Worn on a bone** (a cap, glasses): a mesh in rest-pose space, carried by its bone (`head`, `neck`, `upperChest`, `leftLowerArm`).
 - **Fitted** (a tee): skinned to the same skeleton.
 - Each is fitted to the chimp it is made for, from that chimp's own shapes: a hat's crown is its skull grown a centimetre, its band set over the brow ridge found on its head; a strap, a collar or a watch's band follows the skin found along its path (`avatar/fit.ts`). So every item fits every build, belly and head the DNA makes.
-- Each carries `chimpCloth`: on a band (the second colour), how far the edge is and how far along it (for stitching along it, as on a cap's peak), crease shade. A cap's panel seams and a knitted hat's ribs are drawn round its axis (`seams` on the mesh).
+- Each carries `chimpCloth`: on a band (the second colour), how far the edge is and how far along it (for stitching along it, as on a cap's peak, a hem or a strap; round a ribbed band, for its ribs), crease shade. A cap's panel seams and a knitted hat's ribs are drawn round its axis (`seams` on the mesh).
+- Each piece of cloth says what it is made of (`fabric`: jersey, fleece, twill, ribbed knit, chunky knit, plain cotton, canvas, webbing, leather): how it takes the light (a soft sheen, its roughness, little sharp reflection) and the grain drawn on it, which fades to the cloth's own roughness where it is finer than the pixels (`FABRICS` in `materials.ts`).
+- A garment also carries `chimpFold`, the folds it falls into (the axis they lie by, scaled by their depth, and whether they run along it, a drape, or round it, a sleeve's creases), and `chimpSeam`, signed distances to three seams and how far along them, with how each is made (`seamStyle`: a plain seam, top-stitched once or twice, a row of stitches). They are worked out per vertex from the chimp's shape (`sew` in `garments.ts`): a top's side and shoulder seams run where the cloth turns from facing forward to facing back, its armholes where the sleeve meets the body. The shading draws them; a garment modelled in Blender can sculpt its folds into the mesh and keep its seams as these attributes or a normal map.
 - Over the fur, an item says how much of it it covers: up to about 0.8 the fur is pressed down, shorter the more (round a strap, under a peak); fully covered, under cloth, there is none.
 - Each also needs a mask of the fur it hides. In Blender that's a vertex group on the fur carrier, or a volume the code can test.
 - An item modelled for the default chimp fits others through the skeleton's proportions. Garments whose wearers change shape a lot need shape keys too.
@@ -168,6 +170,7 @@ Until then, the generator is cheap to keep. It builds any chimp in about a secon
   - the jaw moving with voice once ChimpVerse has it (the jaw bone and the mouth's line are there).
 - **Clothes:**
   - more items, and more patterns (the bandana has the first);
+  - creases that deepen as an elbow or a knee bends (the folds lie on the cloth as it rests now, and move with it);
   - colours for every part of an item;
   - a mirror in the house for the wardrobe.
 - **Identity and moderation:**

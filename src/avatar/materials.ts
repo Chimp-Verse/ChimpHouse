@@ -14,6 +14,7 @@
 
 import { Color3, Constants, DynamicTexture, MaterialPluginBase, PBRMaterial, RawTexture3D, Scene, Texture, Vector4, type MaterialDefines, type UniformBuffer } from "@babylonjs/core";
 import { type PrintArt, STACKED, drawWord, printAspect } from "./wordmark";
+import type { Fabric } from "./items";
 
 /** The DNA's colours, as the materials want them (linear). */
 export interface ChimpColours {
@@ -281,16 +282,158 @@ finalSpecularScaled *= chimpSpecOcc;
   }
 }
 
+/** How a fabric takes the light, and which grain the cloth shader gives it (see FABRICS). */
+export interface FabricLook {
+  /** the shader's grain: 1 jersey, 2 fleece, 3 twill, 4 ribbed knit, 5 chunky knit, 6 plain weave, 7 canvas, 8 webbing, 9 leather */
+  grain: number;
+  rough: number;
+  /** the soft sheen of fibres in a grazing light: how strong, how spread, and how near white (0: the cloth's own colour, lighter) */
+  sheen: number;
+  sheenRough: number;
+  sheenTint: number;
+  /** its reflection head-on, as a share of a smooth dielectric's 4% (fibres scatter most of it away) */
+  f0: number;
+  /** its folds' sizes, repeats per metre: a drape's along it and across it, creases' along a limb and round it */
+  folds: [number, number, number, number];
+  /** yarn's fuzz: a fine speckle of fibres, seen close to */
+  fuzz: number;
+}
+
 /**
- * Clothes and the things a chimp wears: two colours (the body of the thing, and
- * its bands: cuffs, hems, a cap's button), a woven or knitted surface laid on from the
- * rest pose's position (so it stays put on the cloth as the chimp moves), a print (the
- * ChimpVibe tree and word on a tee's chest) projected from the front, and stitching:
- * the seams between a cap's panels, rows along a peak's edge.
+ * Each fabric. Cotton jersey is matt with a soft sheen; fleece is softer and sheenier, its folds
+ * broader; twill a little firmer and smoother; knits the most matt; canvas and webbing (nylon) a
+ * little glossier; leather glossier still, with no sheen.
+ */
+export const FABRICS: Record<Fabric, FabricLook> = {
+  jersey: { grain: 1, rough: 0.9, sheen: 0.35, sheenRough: 0.45, sheenTint: 0.2, f0: 0.45, folds: [7, 12, 18, 6], fuzz: 0 },
+  fleece: { grain: 2, rough: 0.95, sheen: 0.55, sheenRough: 0.55, sheenTint: 0.3, f0: 0.35, folds: [6, 10, 14, 5], fuzz: 0.3 },
+  twill: { grain: 3, rough: 0.82, sheen: 0.35, sheenRough: 0.38, sheenTint: 0.3, f0: 0.55, folds: [7, 12, 16, 6], fuzz: 0 },
+  rib: { grain: 4, rough: 0.92, sheen: 0.35, sheenRough: 0.45, sheenTint: 0.2, f0: 0.45, folds: [5, 21, 24, 7], fuzz: 0 },
+  knit: { grain: 5, rough: 0.97, sheen: 0.5, sheenRough: 0.6, sheenTint: 0.3, f0: 0.35, folds: [5, 18, 20, 6], fuzz: 0.25 },
+  plain: { grain: 6, rough: 0.86, sheen: 0.4, sheenRough: 0.4, sheenTint: 0.3, f0: 0.5, folds: [5, 22, 24, 7], fuzz: 0 },
+  canvas: { grain: 7, rough: 0.84, sheen: 0.25, sheenRough: 0.4, sheenTint: 0.25, f0: 0.6, folds: [5, 18, 20, 6], fuzz: 0 },
+  webbing: { grain: 8, rough: 0.74, sheen: 0.3, sheenRough: 0.35, sheenTint: 0.25, f0: 0.7, folds: [5, 18, 20, 6], fuzz: 0 },
+  leather: { grain: 9, rough: 0.5, sheen: 0, sheenRough: 0.3, sheenTint: 0, f0: 1, folds: [5, 18, 20, 6], fuzz: 0 },
+};
+
+/** Gradient noise with its derivatives (after Inigo Quilez): the value in x, its gradient in yzw. */
+const NOISE = /* glsl */ `
+vec3 chimpHash3(vec3 p) {
+  p = vec3(dot(p, vec3(127.1, 311.7, 74.7)), dot(p, vec3(269.5, 183.3, 246.1)), dot(p, vec3(113.5, 271.9, 124.6)));
+  return -1.0 + 2.0 * fract(sin(p) * 43758.5453123);
+}
+vec4 chimpNoised(vec3 x) {
+  vec3 i = floor(x);
+  vec3 w = fract(x);
+  vec3 u = w * w * w * (w * (w * 6.0 - 15.0) + 10.0);
+  vec3 du = 30.0 * w * w * (w * (w - 2.0) + 1.0);
+  vec3 ga = chimpHash3(i + vec3(0.0, 0.0, 0.0));
+  vec3 gb = chimpHash3(i + vec3(1.0, 0.0, 0.0));
+  vec3 gc = chimpHash3(i + vec3(0.0, 1.0, 0.0));
+  vec3 gd = chimpHash3(i + vec3(1.0, 1.0, 0.0));
+  vec3 ge = chimpHash3(i + vec3(0.0, 0.0, 1.0));
+  vec3 gf = chimpHash3(i + vec3(1.0, 0.0, 1.0));
+  vec3 gg = chimpHash3(i + vec3(0.0, 1.0, 1.0));
+  vec3 gh = chimpHash3(i + vec3(1.0, 1.0, 1.0));
+  float va = dot(ga, w - vec3(0.0, 0.0, 0.0));
+  float vb = dot(gb, w - vec3(1.0, 0.0, 0.0));
+  float vc = dot(gc, w - vec3(0.0, 1.0, 0.0));
+  float vd = dot(gd, w - vec3(1.0, 1.0, 0.0));
+  float ve = dot(ge, w - vec3(0.0, 0.0, 1.0));
+  float vf = dot(gf, w - vec3(1.0, 0.0, 1.0));
+  float vg = dot(gg, w - vec3(0.0, 1.0, 1.0));
+  float vh = dot(gh, w - vec3(1.0, 1.0, 1.0));
+  return vec4(
+    va + u.x * (vb - va) + u.y * (vc - va) + u.z * (ve - va) + u.x * u.y * (va - vb - vc + vd) + u.y * u.z * (va - vc - ve + vg) + u.z * u.x * (va - vb - ve + vf) + (-va + vb + vc - vd + ve - vf - vg + vh) * u.x * u.y * u.z,
+    ga + u.x * (gb - ga) + u.y * (gc - ga) + u.z * (ge - ga) + u.x * u.y * (ga - gb - gc + gd) + u.y * u.z * (ga - gc - ge + gg) + u.z * u.x * (ga - gb - ge + gf) + (-ga + gb + gc - gd + ge - gf - gg + gh) * u.x * u.y * u.z +
+      du * (vec3(vb, vc, ve) - va + u.yzx * vec3(va - vb - vc + vd, va - vc - ve + vg, va - vb - ve + vf) + u.zxy * vec3(va - vb - ve + vf, va - vb - vc + vd, va - vc - ve + vg) + u.yzx * u.zxy * (-va + vb + vc - vd + ve - vf - vg + vh)));
+}
+`;
+
+/** The cloth shader's helpers: a thin line's coverage, a fabric's grain, a seam's look. */
+const CLOTH_HELPERS = /* glsl */ `
+// how much of a line, hw either side of 0, covers a pixel w across: a line finer than a pixel fades rather than flickers
+float chimpLine(float d, float hw, float w) {
+  w = max(w, 1e-6);
+  return (1.0 - smoothstep(hw - 0.5 * w, hw + 0.5 * w, abs(d))) * min(1.0, 2.0 * hw / w);
+}
+// a fabric's grain where it lies across a plane (u across the cloth, v down it, metres), as its slopes
+// along u and v; faded out where it is finer than the pixels (px metres across), and (lost) how much was
+vec2 chimpGrain2(float g, vec2 q, float px, out float lost) {
+  const float TAU = 6.2831853;
+  vec2 s = vec2(0.0);
+  lost = 0.0;
+  if (g < 0.5) return s;
+  if (g < 2.5) {
+    // jersey (and, softer, fleece): fine wales down the cloth, faint courses across them
+    float f = 1.0 - smoothstep(0.2, 0.45, px / 0.0012);
+    float k = g < 1.5 ? 0.15 : 0.07;
+    s = vec2(cos(q.x * TAU / 0.0012), 0.35 * cos(q.y * TAU / 0.001)) * k * f;
+    lost = 1.0 - f;
+  } else if (g < 3.5) {
+    // twill: ribs rising to the right
+    float f = 1.0 - smoothstep(0.2, 0.45, px / 0.0016);
+    float c = cos((q.x + 0.6 * q.y) * TAU / 0.0016) * 0.22 * f;
+    s = vec2(c, 0.6 * c);
+    lost = 1.0 - f;
+  } else if (g > 5.5 && g < 7.5) {
+    // plain weave, fine (cotton) or coarse (canvas): threads across and along
+    float P = g < 6.5 ? 0.0009 : 0.0021;
+    float f = 1.0 - smoothstep(0.2, 0.45, px / P);
+    s = vec2(cos(q.x * TAU / P), cos(q.y * TAU / P)) * (g < 6.5 ? 0.15 : 0.3) * f;
+    lost = 1.0 - f;
+  }
+  return s;
+}
+// a seam's look at d metres from it (w metres across a pixel) in style s (avatar/items.ts seamStyle), with
+// run how far along it (rw across a pixel): its height's slope along d (x), its crease's shadow (y), its thread (z)
+vec3 chimpSeamLook(float d, float w, float s, float run, float rw) {
+  vec3 o = vec3(0.0);
+  if (s < 0.5 || w > 0.02) return o;
+  float ad = abs(d);
+  if (s < 3.5) {
+    // the crease where it is sewn (1.1 mm, 0.45 mm deep), and a ridge either side (the seam's allowance under it)
+    float c = d / 0.0011;
+    float crease = exp(-c * c);
+    float t0 = clamp((ad - 0.0008) / 0.0014, 0.0, 1.0);
+    float t1 = clamp((ad - 0.0035) / 0.004, 0.0, 1.0);
+    float r0 = t0 * t0 * (3.0 - 2.0 * t0);
+    float r1 = 1.0 - t1 * t1 * (3.0 - 2.0 * t1);
+    float dr = sign(d) * (6.0 * t0 * (1.0 - t0) / 0.0014 * r1 - r0 * 6.0 * t1 * (1.0 - t1) / 0.004);
+    o.x = (0.00045 * 2.0 * c * crease / 0.0011 + 0.00022 * dr) * (1.0 - smoothstep(0.0012, 0.003, w));
+    o.y = 0.3 * crease * (1.0 - 0.6 * smoothstep(0.0012, 0.004, w));
+  }
+  if (s > 1.5 && s < 2.5) {
+    // a patch sewn on (a pocket): its double cloth stands a little proud of the cloth round it
+    float t = clamp((d + 0.0015) / 0.003, 0.0, 1.0);
+    o.x += 0.0006 * 6.0 * t * (1.0 - t) / 0.003 * (1.0 - smoothstep(0.0012, 0.003, w));
+  }
+  // its stitches: one row 4 mm to its positive side (2), two at 3 and 9 mm (3), or one on it (4)
+  float rows = 0.0;
+  if (s > 1.5 && s < 2.5) rows = chimpLine(d - 0.004, 0.0003, w);
+  else if (s > 2.5 && s < 3.5) rows = max(chimpLine(d - 0.003, 0.0003, w), chimpLine(d - 0.009, 0.0003, w));
+  else if (s > 3.5) rows = chimpLine(d, 0.0003, w);
+  o.z = rows * mix(0.58, step(0.42, fract(run / 0.003)), 1.0 - smoothstep(0.15, 0.35, rw / 0.003)) * (1.0 - step(0.02, rw)) * mix(1.0, 0.35, smoothstep(0.0006, 0.0015, w));
+  return o;
+}
+`;
+
+/**
+ * Clothes and the things a chimp wears: two colours (the body of the thing, and its bands:
+ * cuffs, hems, a cap's button); what the cloth is (FABRICS), for how it takes the light and
+ * the grain of its surface (a tee's jersey, a pair of shorts' twill, ribbed cuffs, a pack's
+ * canvas, a strap's webbing, leather), laid on from the rest pose's position so it stays put
+ * on the cloth as the chimp moves; the folds it falls into; its seams, hems and stitching;
+ * a print (the ChimpVibe tree and word on a tee's chest) projected from the front; and a
+ * pattern all over (a bandana's). The grain, the folds and the seams are drawn as the light
+ * catches them (the surface's normal is tipped by their slopes) and fade, to the cloth's
+ * own roughness, where they are finer than the pixels.
  *
- * The mesh's chimpCloth attribute says, per vertex: on a band (x), how far the cloth's
- * edge is in metres (y: for stitching along it), how open to the light it is (z), and
- * how far along the edge it is in metres, plus 10 (w: 0 for no stitching along an edge).
+ * The mesh's chimpCloth attribute says, per vertex: on a band (x), how far the cloth's edge
+ * is in metres (y: for stitching along it), how open to the light it is (z), and how far
+ * along the edge (or round a ribbed band) it is in metres, plus 10 (w: 0 for neither). A
+ * garment's also carry its folds (chimpFold) and its seams (chimpSeam): avatar/items.ts
+ * ItemMesh folds and seamLines.
  */
 export class ChimpClothPlugin extends MaterialPluginBase {
   main = new Color3(0.1, 0.1, 0.1);
@@ -309,14 +452,22 @@ export class ChimpClothPlugin extends MaterialPluginBase {
   fuzz = 0;
   /** a printed pattern all over, in the band colour: 0 none, 1 a bandana's paisley, dots and border */
   pattern = 0;
-  /** the weave's size: repeats per metre, and 0 woven, 1 knitted ribs */
-  weave = 260;
-  knit = 0;
+  /** the fabric's grain (FabricLook grain; 0 none: plastic) and its folds' sizes */
+  grain = 0;
+  foldSizes = new Vector4(5, 21, 24, 7);
+  /** rows of stitches along its edges: the first's distance in, between rows, how many (0 none), a stitch's length */
+  stitch = new Vector4(0, 0, 0, 0.003);
+  /** how each of a garment's three seams is made, and its rule (avatar/items.ts seamStyle) */
+  seamStyle = new Vector4(0, 0, 0, 0);
+  /** a hem turned up inside: how deep (metres; 0 none) */
+  hem = 0;
   fade = 1;
   private printTex: Texture | null = null;
+  private hasFolds = false;
+  private hasSeams = false;
 
   constructor(material: PBRMaterial) {
-    super(material, "ChimpCloth", 220, { CHIMPCLOTH: false, CHIMPPRINT: false });
+    super(material, "ChimpCloth", 220, { CHIMPCLOTH: false, CHIMPPRINT: false, CHIMPFOLD: false, CHIMPSEAM: false });
     this._enable(true);
   }
 
@@ -335,6 +486,21 @@ export class ChimpClothPlugin extends MaterialPluginBase {
     this.printTex = t;
   }
 
+  /** Whether its mesh carries folds (chimpFold) and seams (chimpSeam): a garment's does. */
+  setSewn(folds: boolean, seams: boolean): void {
+    if (folds === this.hasFolds && seams === this.hasSeams) return;
+    this.hasFolds = folds;
+    this.hasSeams = seams;
+    this.markAllDefinesAsDirty();
+  }
+
+  /** Take on a fabric's grain and folds (the material's light it takes in clothMaterial). */
+  setFabric(look: FabricLook): void {
+    this.grain = look.grain;
+    this.foldSizes.set(...look.folds);
+    this.fuzz = Math.max(this.fuzz, look.fuzz);
+  }
+
   getClassName(): string {
     return "ChimpClothPlugin";
   }
@@ -342,10 +508,14 @@ export class ChimpClothPlugin extends MaterialPluginBase {
   prepareDefines(defines: MaterialDefines): void {
     defines.CHIMPCLOTH = true;
     defines.CHIMPPRINT = !!this.printTex;
+    defines.CHIMPFOLD = this.hasFolds;
+    defines.CHIMPSEAM = this.hasSeams;
   }
 
   getAttributes(attributes: string[]): void {
     attributes.push("chimpCloth");
+    if (this.hasFolds) attributes.push("chimpFold");
+    if (this.hasSeams) attributes.push("chimpSeam");
   }
 
   getSamplers(samplers: string[]): void {
@@ -363,11 +533,15 @@ export class ChimpClothPlugin extends MaterialPluginBase {
         { name: "chimpFuzz", size: 1, type: "float" },
         { name: "chimpPattern", size: 1, type: "float" },
         { name: "chimpPrintRect", size: 4, type: "vec4" },
-        { name: "chimpWeave", size: 1, type: "float" },
-        { name: "chimpKnit", size: 1, type: "float" },
+        { name: "chimpGrain", size: 1, type: "float" },
+        { name: "chimpFoldSizes", size: 4, type: "vec4" },
+        { name: "chimpStitch", size: 4, type: "vec4" },
+        { name: "chimpSeamStyle", size: 4, type: "vec4" },
+        { name: "chimpHem", size: 1, type: "float" },
         { name: "chimpClothFade", size: 1, type: "float" },
       ],
-      fragment: "uniform vec3 chimpMain; uniform vec3 chimpBand; uniform vec3 chimpInk; uniform vec3 chimpInk2; uniform vec4 chimpSeams; uniform float chimpFuzz; uniform float chimpPattern; uniform vec4 chimpPrintRect; uniform float chimpWeave; uniform float chimpKnit; uniform float chimpClothFade;",
+      fragment:
+        "uniform vec3 chimpMain; uniform vec3 chimpBand; uniform vec3 chimpInk; uniform vec3 chimpInk2; uniform vec4 chimpSeams; uniform float chimpFuzz; uniform float chimpPattern; uniform vec4 chimpPrintRect; uniform float chimpGrain; uniform vec4 chimpFoldSizes; uniform vec4 chimpStitch; uniform vec4 chimpSeamStyle; uniform float chimpHem; uniform float chimpClothFade;",
     };
   }
 
@@ -380,8 +554,11 @@ export class ChimpClothPlugin extends MaterialPluginBase {
     ubo.updateFloat("chimpFuzz", this.fuzz);
     ubo.updateFloat("chimpPattern", this.pattern);
     ubo.updateVector4("chimpPrintRect", this.printRect);
-    ubo.updateFloat("chimpWeave", this.weave);
-    ubo.updateFloat("chimpKnit", this.knit);
+    ubo.updateFloat("chimpGrain", this.grain);
+    ubo.updateVector4("chimpFoldSizes", this.foldSizes);
+    ubo.updateVector4("chimpStitch", this.stitch);
+    ubo.updateVector4("chimpSeamStyle", this.seamStyle);
+    ubo.updateFloat("chimpHem", this.hem);
     ubo.updateFloat("chimpClothFade", this.fade);
     if (this.printTex) ubo.setTexture("chimpPrint", this.printTex);
   }
@@ -389,21 +566,84 @@ export class ChimpClothPlugin extends MaterialPluginBase {
   getCustomCode(shaderType: string): { [point: string]: string } | null {
     if (shaderType === "vertex")
       return {
-        CUSTOM_VERTEX_DEFINITIONS: "#ifdef CHIMPCLOTH\nattribute vec4 chimpCloth;\nvarying vec4 vChimpCloth;\nvarying vec3 vChimpRest;\nvarying vec3 vChimpRestN;\n#endif",
-        CUSTOM_VERTEX_UPDATE_POSITION: "#ifdef CHIMPCLOTH\nvChimpCloth = chimpCloth;\nvChimpRest = positionUpdated;\nvChimpRestN = normalUpdated;\n#endif",
+        CUSTOM_VERTEX_DEFINITIONS: `#ifdef CHIMPCLOTH
+attribute vec4 chimpCloth;
+varying vec4 vChimpCloth;
+varying vec3 vChimpRest;
+varying vec3 vChimpRestN;
+#ifdef CHIMPFOLD
+attribute vec4 chimpFold;
+varying vec4 vChimpFold;
+#endif
+#ifdef CHIMPSEAM
+attribute vec4 chimpSeam;
+varying vec4 vChimpSeam;
+#endif
+#endif`,
+        CUSTOM_VERTEX_UPDATE_POSITION: `#ifdef CHIMPCLOTH
+vChimpCloth = chimpCloth;
+vChimpRest = positionUpdated;
+vChimpRestN = normalUpdated;
+#ifdef CHIMPFOLD
+vChimpFold = chimpFold;
+#endif
+#ifdef CHIMPSEAM
+vChimpSeam = chimpSeam;
+#endif
+#endif`,
       };
     return {
-      CUSTOM_FRAGMENT_DEFINITIONS: `#ifdef CHIMPCLOTH\n#ifdef CHIMPPRINT\nuniform sampler2D chimpPrint;\n#endif\nvarying vec4 vChimpCloth;\nvarying vec3 vChimpRest;\nvarying vec3 vChimpRestN;\n${DITHER}\n#endif`,
+      CUSTOM_FRAGMENT_DEFINITIONS: `#ifdef CHIMPCLOTH
+#ifdef CHIMPPRINT
+uniform sampler2D chimpPrint;
+#endif
+varying vec4 vChimpCloth;
+varying vec3 vChimpRest;
+varying vec3 vChimpRestN;
+#ifdef CHIMPFOLD
+varying vec4 vChimpFold;
+#endif
+#ifdef CHIMPSEAM
+varying vec4 vChimpSeam;
+#endif
+${DITHER}
+${NOISE}
+${CLOTH_HELPERS}
+#endif`,
       CUSTOM_FRAGMENT_UPDATE_ALPHA: /* glsl */ `#ifdef CHIMPCLOTH
+// how things change across the pixel, wanted before anything is discarded (a pixel's neighbours make them)
+vec3 chimpDpx = dFdx(vPositionW);
+vec3 chimpDpy = dFdy(vPositionW);
+vec3 chimpDrx = dFdx(vChimpRest);
+vec3 chimpDry = dFdy(vChimpRest);
+vec4 chimpDcx = dFdx(vChimpCloth);
+vec4 chimpDcy = dFdy(vChimpCloth);
+#ifdef CHIMPSEAM
+vec4 chimpDsx = dFdx(vChimpSeam);
+vec4 chimpDsy = dFdy(vChimpSeam);
+#endif
 if (chimpClothFade < 0.999 && chimpBayer(gl_FragCoord.xy) > chimpClothFade) discard;
 float chimpSpecOcc = vChimpCloth.z;
+// roughness the grain gives where it is too fine to draw
+float chimpRoughAdd = 0.0;
 {
+  vec3 rn = normalize(vChimpRestN);
+  // a pixel's size on the cloth, metres
+  float px = max(length(chimpDrx), length(chimpDry));
+  // the cloth's height, by its slopes: in rest space (grain, folds), and per pixel (seams, ribs, hems: their
+  // distances' change across it), metres
+  vec3 grad = vec3(0.0);
+  float hx = 0.0;
+  float hy = 0.0;
+  // how deep in a fold's valley (0 out on the cloth), and how much is thread
+  float cavity = 0.0;
+  float stitches = 0.0;
   float band = vChimpCloth.x;
   vec3 col = mix(chimpMain, chimpBand, smoothstep(0.35, 0.65, band));
   if (chimpPattern > 0.5) {
     // a bandana's print, in the second colour: paisley drops in staggered rows, dots between, a
     // border line just inside the cloth's edge (y: how far the edge is; far away on the roll and knot)
-    vec3 pn = abs(normalize(vChimpRestN));
+    vec3 pn = abs(rn);
     vec2 p = (pn.x > max(pn.y, pn.z) ? vChimpRest.zy : pn.y > pn.z ? vChimpRest.xz : vChimpRest.xy) / 0.017;
     vec2 cell = floor(p);
     vec2 f = fract(p) - 0.5;
@@ -425,20 +665,90 @@ float chimpSpecOcc = vChimpCloth.z;
     }
     col = mix(col, chimpBand, ink * 0.92);
   }
-  // the weave: fine threads across and along, from the rest pose's position on the plane it faces most;
-  // knitted things (and every band) have ribs instead
-  vec3 an = abs(normalize(vChimpRestN));
-  vec2 q = an.x > max(an.y, an.z) ? vChimpRest.zy : an.y > an.z ? vChimpRest.xz : vChimpRest.xy;
-  q *= chimpWeave;
-  float woven = 0.5 + 0.25 * (sin(q.x * 6.2832) + sin(q.y * 6.2832));
-  float ribs = 0.5 + 0.5 * sin(q.x * 6.2832 * 0.32);
+  // the grain, laid on from the planes the cloth faces (blended where it turns between them): a top's
+  // wales run down it, a twill's ribs rise to the right
+  {
+    vec3 an = rn * rn;
+    an *= an;
+    an /= max(an.x + an.y + an.z, 1e-5);
+    float l0;
+    float l1;
+    float l2;
+    vec2 gx = chimpGrain2(chimpGrain, vChimpRest.zy, px, l0);
+    vec2 gy = chimpGrain2(chimpGrain, vChimpRest.xz, px, l1);
+    vec2 gz = chimpGrain2(chimpGrain, vChimpRest.xy, px, l2);
+    grad += an.x * vec3(0.0, gx.y, gx.x) + an.y * vec3(gy.x, 0.0, gy.y) + an.z * vec3(gz.x, gz.y, 0.0);
+    chimpRoughAdd += 0.05 * (an.x * l0 + an.y * l1 + an.z * l2);
+  }
+  if (chimpGrain > 3.5 && chimpGrain < 4.5 && vChimpCloth.w > 5.0) {
+    // ribbed knit: ribs across the band, every 3.2 mm round it (not across where its count wraps round)
+    float a = vChimpCloth.w - 10.0;
+    float aw = length(vec2(chimpDcx.w, chimpDcy.w));
+    float f = (1.0 - smoothstep(0.2, 0.45, aw / 0.0032)) * (1.0 - step(0.02, aw));
+    float ph = a * 6.2831853 / 0.0032;
+    float dh = 0.00011 * 6.2831853 / 0.0032 * cos(ph) * f;
+    hx += dh * chimpDcx.w;
+    hy += dh * chimpDcy.w;
+    col *= 1.0 - 0.08 * f * (0.5 - 0.5 * sin(ph));
+    chimpRoughAdd += 0.04 * (1.0 - f);
+  }
+  if (chimpGrain > 7.5 && chimpGrain < 8.5) {
+    // webbing: fine ribs along the strap, so across its width
+    float e = vChimpCloth.y;
+    float ew = length(vec2(chimpDcx.y, chimpDcy.y));
+    float f = 1.0 - smoothstep(0.2, 0.45, ew / 0.0011);
+    float dh = 0.00005 * 6.2831853 / 0.0011 * cos(e * 6.2831853 / 0.0011) * f;
+    hx += dh * chimpDcx.y;
+    hy += dh * chimpDcy.y;
+    chimpRoughAdd += 0.04 * (1.0 - f);
+  }
+  if (chimpGrain > 8.5) {
+    // leather: a fine pebbled grain, its tops a little smoother
+    vec4 n = chimpNoised(vChimpRest * 1400.0);
+    float f = 1.0 - smoothstep(0.2, 0.45, px * 1400.0);
+    grad += 0.00003 * 1400.0 * n.yzw * f;
+    col *= 1.0 + 0.05 * n.x * f;
+    chimpRoughAdd += 0.03 * (1.0 - f) - 0.08 * n.x * f;
+  }
   if (chimpSeams.z < 0.0) {
     // a knitted hat's ribs run round it, closing in to its crown (and fading there, where they'd crowd)
     vec2 d = vChimpRest.xz - chimpSeams.xy;
-    ribs = mix(0.5, 0.5 + 0.5 * sin(atan(d.x, d.y) * -chimpSeams.z), smoothstep(0.006, 0.022, length(d)));
+    float r2 = max(dot(d, d), 1e-6);
+    float N = -chimpSeams.z;
+    float th = atan(d.x, d.y) * N;
+    float f = (1.0 - smoothstep(0.2, 0.45, px * N / (6.2831853 * sqrt(r2)))) * smoothstep(0.006, 0.022, sqrt(r2));
+    grad += 0.00025 * N * cos(th) * vec3(d.y, 0.0, -d.x) / r2 * f;
+    col *= 1.0 - 0.14 * f * (0.5 - 0.5 * sin(th));
   }
-  float knit = max(chimpKnit, smoothstep(0.35, 0.65, band));
-  col *= mix(mix(0.9, 1.06, woven), mix(0.78, 1.08, ribs), knit);
+#ifdef CHIMPFOLD
+  {
+    // the folds it falls into: ridged noise, stretched to run along its axis (a drape) or round it (creases)
+    float depth = length(vChimpFold.xyz);
+    if (depth > 0.00005) {
+      vec3 ax = vChimpFold.xyz / depth;
+      vec2 fq = vChimpFold.w > 0.0 ? chimpFoldSizes.xy : chimpFoldSizes.zw;
+      float t = dot(vChimpRest, ax);
+      vec3 q = (vChimpRest - t * ax) * fq.y + ax * (t * fq.x);
+      vec4 n1 = chimpNoised(q);
+      vec4 n2 = chimpNoised(q * 2.03 + vec3(5.2, 1.3, 2.7));
+      float nn = n1.x + 0.4 * n2.x;
+      vec3 gq = n1.yzw + 0.812 * n2.yzw;
+      float ga = dot(gq, ax);
+      vec3 gp = fq.y * (gq - ga * ax) + fq.x * ga * ax;
+      // folds smaller than a few pixels go
+      float f = 1.0 - smoothstep(0.15, 0.45, px * max(fq.x, fq.y));
+      grad += depth * gp * f;
+      cavity = smoothstep(-0.05, -0.5, nn) * smoothstep(0.0006, 0.004, depth) * f;
+    }
+  }
+#endif
+  // cloth's colour isn't quite even (the yarn's own, the dye's), nor, close to, is a fuzzy yarn's
+  if (chimpGrain > 0.5) col *= 1.0 + 0.045 * chimpNoised(vChimpRest * 47.0 + vec3(13.1, 7.7, 3.3)).x;
+  if (chimpFuzz > 0.0) {
+    vec3 fc = floor(vChimpRest * 1500.0);
+    float n = fract(sin(dot(fc, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+    col *= 1.0 + chimpFuzz * 0.7 * mix(-0.1, n - 0.6, 1.0 - smoothstep(0.0007, 0.0018, px));
+  }
   // thread: darker than the cloth, or lighter on dark cloth
   vec3 thread = dot(col, vec3(0.3, 0.59, 0.11)) > 0.05 ? col * 0.5 : mix(col, vec3(0.6), 0.4);
   // a crown's panel seams: a soft crease where two panels meet, a row of stitches beside it
@@ -449,15 +759,44 @@ float chimpSpecOcc = vChimpCloth.z;
     float across = a * length(d);
     float dash = step(0.42, fract((length(d) - vChimpRest.y) / 0.0034));
     col *= 1.0 - 0.4 * (1.0 - smoothstep(0.0003, 0.0013, across));
-    col = mix(col, thread, (1.0 - smoothstep(0.00022, 0.00055, abs(across - 0.0026))) * dash * step(0.006, length(d)) * 0.85);
+    stitches = max(stitches, (1.0 - smoothstep(0.00022, 0.00055, abs(across - 0.0026))) * dash * step(0.006, length(d)));
   }
-  // rows of stitches along an edge (a cap's peak): every 4.2 mm in from 3.5 mm, dashed along it
-  if (vChimpCloth.w > 5.0) {
-    float k = (vChimpCloth.y - 0.0035) / 0.0042;
-    float row = abs(fract(k + 0.5) - 0.5) * 0.0042;
-    float rows = (1.0 - smoothstep(0.0002, 0.0005, row)) * step(-0.5, k) * step(k, 4.5);
-    col = mix(col, thread, rows * step(0.4, fract((vChimpCloth.w - 10.0) / 0.0034)) * 0.85);
+#ifdef CHIMPSEAM
+  {
+    // a garment's seams: creases where it is sewn, and its top-stitching
+    float rw = length(vec2(chimpDsx.w, chimpDsy.w));
+    vec3 a = chimpSeamLook(vChimpSeam.x, length(vec2(chimpDsx.x, chimpDsy.x)), chimpSeamStyle.x, vChimpSeam.w, rw);
+    // a top's side and shoulder seams stop at its armholes
+    if (chimpSeamStyle.w > 0.5) a *= step(vChimpSeam.y, 0.0);
+    vec3 b = chimpSeamLook(vChimpSeam.y, length(vec2(chimpDsx.y, chimpDsy.y)), chimpSeamStyle.y, vChimpSeam.w, rw);
+    vec3 c = chimpSeamLook(vChimpSeam.z, length(vec2(chimpDsx.z, chimpDsy.z)), chimpSeamStyle.z, vChimpSeam.w, rw);
+    hx += a.x * chimpDsx.x + b.x * chimpDsx.y + c.x * chimpDsx.z;
+    hy += a.x * chimpDsy.x + b.x * chimpDsy.y + c.x * chimpDsy.z;
+    col *= (1.0 - a.y) * (1.0 - b.y) * (1.0 - c.y);
+    stitches = max(stitches, max(a.z, max(b.z, c.z)));
   }
+#endif
+  if (vChimpCloth.w > 5.0 && chimpStitch.z > 0.5) {
+    // rows of stitches along an edge (a peak's, a hem's, a strap's), dashed along it
+    float e = vChimpCloth.y;
+    float ew = length(vec2(chimpDcx.y, chimpDcy.y));
+    float rw = length(vec2(chimpDcx.w, chimpDcy.w));
+    float rows = 0.0;
+    for (int k = 0; k < 5; k++) {
+      if (float(k) > chimpStitch.z - 0.5) break;
+      rows = max(rows, chimpLine(e - chimpStitch.x - float(k) * chimpStitch.y, 0.0003, ew));
+    }
+    float dash = mix(0.58, step(0.42, fract((vChimpCloth.w - 10.0) / chimpStitch.w)), 1.0 - smoothstep(0.15, 0.35, rw / chimpStitch.w));
+    stitches = max(stitches, rows * dash * (1.0 - step(0.02, rw)) * mix(1.0, 0.35, smoothstep(0.0006, 0.0015, ew)));
+    if (chimpHem > 0.0) {
+      // where the hem's turned-up edge ends inside: a soft step down, from double cloth to single
+      float t = clamp((e - chimpHem + 0.0015) / 0.003, 0.0, 1.0);
+      float dh = -0.00035 * 6.0 * t * (1.0 - t) / 0.003;
+      hx += dh * chimpDcx.y;
+      hy += dh * chimpDcy.y;
+    }
+  }
+  col = mix(col, thread, stitches * 0.85);
   // the print, square on from the front where the cloth faces forward: seen from in front, the
   // chimp's right (+x) is on the left; red is its main ink, green the one that stands out. It is
   // looked up for every pixel and masked to its rectangle, not looked up only inside it: a lookup
@@ -472,14 +811,24 @@ float chimpSpecOcc = vChimpCloth.z;
     col = mix(col, chimpInk2, ink.g * 0.95 * on);
   }
 #endif
-  if (chimpFuzz > 0.0) {
-    // fibres: a fine speckle, darker deep in
-    vec3 f = floor(vChimpRest * 1500.0);
-    float n = fract(sin(dot(f, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-    col *= 1.0 + chimpFuzz * (n - 0.6) * 0.7;
-  }
-  surfaceAlbedo = col * mix(0.45, 1.0, vChimpCloth.z);
+  // the folds' valleys and the creases see less of the light, and less of the sky's reflection
+  surfaceAlbedo = col * mix(0.45, 1.0, vChimpCloth.z) * (1.0 - 0.3 * cavity);
+  chimpSpecOcc *= 1.0 - 0.5 * cavity;
+  chimpRoughAdd += 0.04 * stitches;
+  // tip the surface's normal by the height's slope (bump mapping without tangents: the height's change
+  // across the pixel, against the surface's own; after Mikkelsen)
+  float dhx = dot(grad, chimpDrx) + hx;
+  float dhy = dot(grad, chimpDry) + hy;
+  vec3 r1 = cross(chimpDpy, normalW);
+  vec3 r2 = cross(normalW, chimpDpx);
+  float det = dot(chimpDpx, r1);
+  if (abs(det) > 1e-14) normalW = normalize(normalW - (dhx * r1 + dhy * r2) / det);
 }
+#endif`,
+      // what the grain smooths over where it is too fine to draw, it makes a little rougher
+      "!float roughness=reflectivityOut\\.roughness;": `float roughness=reflectivityOut.roughness;
+#ifdef CHIMPCLOTH
+roughness = clamp(roughness + chimpRoughAdd, 0.0, 1.0);
 #endif`,
       CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: /* glsl */ `#ifdef CHIMPCLOTH
 #ifdef REFLECTION
@@ -493,20 +842,33 @@ finalSpecularScaled *= chimpSpecOcc;
   }
 }
 
-/** A PBR material with the cloth plugin: matte, with a soft sheen as fabric has. */
-export function clothMaterial(name: string, scene: Scene, o: { rough?: number; sheen?: number; metal?: number } = {}): { material: PBRMaterial; cloth: ChimpClothPlugin } {
+/**
+ * A PBR material with the cloth plugin, as a fabric takes the light: matt, a soft sheen at
+ * grazing angles (the fibres'), and little of the sharp reflection a smooth surface has. Plastic
+ * (a frame, a cup) is smoother and has no sheen.
+ */
+export function clothMaterial(name: string, scene: Scene, fabric: Fabric | "plastic" = "plain"): { material: PBRMaterial; cloth: ChimpClothPlugin } {
   const m = new PBRMaterial(name, scene);
   m.albedoColor = Color3.White();
-  m.metallic = o.metal ?? 0;
-  m.roughness = o.rough ?? 0.9;
+  m.metallic = 0;
   m.maxSimultaneousLights = 8;
-  if ((o.sheen ?? 0.12) > 0) {
-    m.sheen.isEnabled = true;
-    m.sheen.intensity = o.sheen ?? 0.12;
-    m.sheen.color = Color3.White();
-    m.sheen.roughness = 0.5;
+  const cloth = new ChimpClothPlugin(m);
+  if (fabric === "plastic") {
+    m.roughness = 0.32;
+    return { material: m, cloth };
   }
-  return { material: m, cloth: new ChimpClothPlugin(m) };
+  const look = FABRICS[fabric];
+  m.roughness = look.rough;
+  m.metallicF0Factor = look.f0;
+  if (look.sheen > 0) {
+    m.sheen.isEnabled = true;
+    m.sheen.intensity = look.sheen;
+    m.sheen.color = Color3.White();
+    m.sheen.roughness = look.sheenRough;
+    m.sheen.albedoScaling = true;
+  }
+  cloth.setFabric(look);
+  return { material: m, cloth };
 }
 
 const prints = new Map<string, DynamicTexture>();

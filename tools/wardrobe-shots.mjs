@@ -7,9 +7,11 @@
 //   node tools/wardrobe-shots.mjs tee,backpack torso3,torsoSide,torsoBack Classic,Big
 // Items are worn together (comma-separated ids from avatar/wardrobe.ts). Views are the
 // lab's (headFront, head3, headSide, headBack, neckFront, neck3, neckBack, torsoFront,
-// torso3, torsoSide, torsoBack, wristOut, wristTop, front, three, side, back…); a view
+// torso3, torsoSide, torsoBack, hem, legsFront, legs3, legsBack, wristOut, wristTop, front,
+// three, side, back…); a view
 // can carry a pose, "torso3@walk:0.4" (0.4 s into a walk). The chimp stands in its
-// idle pose otherwise. SIZE sets each tile's pixels (default 360).
+// idle pose otherwise. SIZE sets each tile's pixels (default 360); TINT the items' colours
+// (TINT="tee:efe4cc|78d8aa,shorts:d8a133"), else each wears its own.
 import { chromium } from "playwright";
 import sharp from "sharp";
 import { mkdir } from "node:fs/promises";
@@ -29,7 +31,7 @@ try {
   const page = await browser.newPage({ viewport: { width: SIZE * 2, height: SIZE * 2 } });
   page.on("pageerror", (e) => console.log("[pageerror]", e.message));
   page.on("console", (m) => (m.type() === "error" || (m.type() === "log" && m.text().startsWith("[lab]"))) && console.log(m.text().slice(0, 300)));
-  await page.goto(`${URL}/chimp.html?wear=${items}&t=2`);
+  await page.goto(`${URL}/chimp.html?wear=${items}&t=2${process.env.TINT ? `&tint=${encodeURIComponent(process.env.TINT)}` : ""}`);
   await page.waitForFunction(() => window.__lab?.ready === true, null, { timeout: 180000 });
   const bodies = bodiesArg ? bodiesArg.split(",") : await page.evaluate(() => window.__lab.bodies());
   const tiles = [];

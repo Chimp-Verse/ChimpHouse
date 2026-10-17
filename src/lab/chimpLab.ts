@@ -110,11 +110,13 @@ function build(next: ChimpDna) {
     const def = item(id);
     if (def) outfit[def.slot] = { id };
   }
+  // ?tint=tee:efe4cc|78d8aa,shorts:d8a133: an item's colours, instead of its own
+  const tints = new Map((params.get("tint") ?? "").split(",").filter(Boolean).map((t) => [t.split(":")[0], (t.split(":")[1] ?? "").split("|").map((h) => `#${h}`)]));
   for (const id of wear) {
     const def = item(id);
     if (!def) continue;
     const t1 = performance.now();
-    chimp.wear(def.slot, buildItem(anatomy, fur, id, wornOver(def, outfit)), itemColours(def, dna.outfit[def.slot]?.colors));
+    chimp.wear(def.slot, buildItem(anatomy, fur, id, wornOver(def, outfit)), itemColours(def, tints.get(id) ?? dna.outfit[def.slot]?.colors));
     console.log(`[lab] ${id} in ${Math.round(performance.now() - t1)} ms`);
   }
   const shells = params.get("shells");
@@ -165,6 +167,10 @@ const VIEWS: Record<string, { alpha: number; beta: number; radius: number; targe
   torsoSide: { alpha: Math.PI, beta: 1.42, radius: 1.55, target: at("chest", 0.02) },
   torsoBack: { alpha: -Math.PI / 2 + 0.5, beta: 1.3, radius: 1.55, target: at("chest", 0.02) },
   hem: { alpha: Math.PI / 2 + 0.3, beta: 1.4, radius: 0.75, target: at("hips", 0.04) },
+  // the hips and thighs: what shorts cover
+  legsFront: { alpha: Math.PI / 2 + 0.15, beta: 1.5, radius: 1.0, target: at("hips", -0.06) },
+  legs3: { alpha: Math.PI / 2 - 0.75, beta: 1.45, radius: 1.0, target: at("hips", -0.06) },
+  legsBack: { alpha: -Math.PI / 2 + 0.45, beta: 1.42, radius: 1.0, target: at("hips", -0.06) },
   wristOut: { alpha: Math.PI - 0.35, beta: 1.25, radius: 0.42, target: at("leftHand", 0.02) },
   wristTop: { alpha: Math.PI / 2 + 0.55, beta: 0.85, radius: 0.42, target: at("leftHand", 0.02) },
   front: { alpha: Math.PI / 2, beta: 1.42, radius: 3.4, target: middle },
