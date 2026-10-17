@@ -2,7 +2,7 @@
 
 ## Editing the house
 
-Until the cut-over to Blender (phase 5 of `docs/plans/2026-10-02-blender-switch-plan.md`, recorded in its Status line), the code in `src/world/` is the master copy of the house. Make every change there, then regenerate the Blender files: `node tools/export-house.mjs` (with `npm run dev` running), then `tools/blender/build_blend.py -- art/ChimpHouse.blend art/test/house --rooms art/rooms` (the full command is in the README). The build rewrites every file in `art/`, so a change made only in a `.blend` file is lost at the next build. Until the cut-over those generated files stay out of git (`.gitignore` lists them); they are committed once, at the cut-over, as the starting master copy.
+Until the cut-over to Blender (phase 5 of `docs/plans/2026-10-02-blender-switch-plan.md`, recorded in its Status line), the code in `src/world/` is the master copy of the house. Make every change there, then regenerate the Blender files: `node tools/export-house.mjs` (with `npm run dev` running with the builder's tools on: `VITE_ENABLE_FLY_IN=true`, see the README's "Developer-only fly-in camera and builder's tools"; without it the page has no export hooks), then `tools/blender/build_blend.py -- art/ChimpHouse.blend art/test/house --rooms art/rooms` (the full command is in the README). The build rewrites every file in `art/`, so a change made only in a `.blend` file is lost at the next build. Until the cut-over those generated files stay out of git (`.gitignore` lists them); they are committed once, at the cut-over, as the starting master copy.
 
 After the cut-over the Blender files are the master copy, and each edit goes in the one file that owns it:
 

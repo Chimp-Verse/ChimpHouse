@@ -171,6 +171,14 @@ export const VIEWPOINTS: Viewpoint[] = [
   },
 ];
 
+/**
+ * Where every visitor arrives as their chimp (engine/preview.ts): in the entry hall three metres
+ * inside the open front doors, on the near half of the rug (the camera clear of the doorway), facing into the hall and the atrium,
+ * looking a little down at the chimp from behind it. The walker stands the chimp on the floor
+ * under this eye point; the camera goes behind it, back towards the doors.
+ */
+export const SPAWN: Pose = V(0, 1.6, 3.0, 0, 10, 1.15);
+
 export function findView(id: string | null | undefined): Viewpoint | undefined {
   return VIEWPOINTS.find((v) => v.id === id);
 }

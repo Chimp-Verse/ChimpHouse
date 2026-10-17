@@ -3,9 +3,10 @@ import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
 import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
-import { VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
+import { SPAWN, VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
+import { DEV_TOOLS_ENABLED, FLY_IN_ENABLED } from "./devFlags";
 import { Lighting } from "./lighting";
 import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
@@ -141,6 +142,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
 
   const controller: PreviewController = {
     goTo(id) {
+      // the viewpoint tour is the fly-in camera's (engine/devFlags.ts)
+      if (!FLY_IN_ENABLED) return;
       const v = findView(id);
       if (!v) return;
       applyView(v, !CAPTURE && !v.pose.ortho);
@@ -172,12 +175,14 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     setWalking(v) {
       if (store.get().focus) return;
       if (!v) {
+        // without the fly-in camera (engine/devFlags.ts) a visitor is always their chimp
+        if (!FLY_IN_ENABLED) return;
         controller.setWardrobe(false);
         fly.walker = null;
         store.set({ walking: false, blocked: null });
         return;
       }
-      if (fly.isOrtho) {
+      if (FLY_IN_ENABLED && fly.isOrtho) {
         flash("Walk mode needs a 3D view: pick a viewpoint or fly first");
         return;
       }
@@ -195,7 +200,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       }
       fly.walker = walker;
       store.set({ walking: true });
-      flash(fly.firstPerson ? "Walking, from your chimp's eyes · V to see it · F to fly" : "Walking as your chimp · V for its eyes · C to dress it · F to fly");
+      const orFly = FLY_IN_ENABLED ? " · F to fly" : "";
+      flash(fly.firstPerson ? `Walking, from your chimp's eyes · V to see it${orFly}` : `Walking as your chimp · V for its eyes · C to dress it${orFly}`);
     },
     avatars,
     setChimp: (dna) => avatars.setDna(dna),
@@ -238,9 +244,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     foosball,
     snacks,
     async downloadRoom(id) {
+      // the builder's tools (engine/devFlags.ts): visitors can't export the house
+      if (!DEV_TOOLS_ENABLED) return;
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
-        flash("Fly into a room to download it");
+        flash(FLY_IN_ENABLED ? "Fly into a room to download it" : "Walk into a room to download it");
         return;
       }
       flash(`Exporting ${room.name}…`);
@@ -262,6 +270,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       flash(`Downloaded ${room.id}.glb (${(blob.size / 1e6).toFixed(1)} MB)`);
     },
     async copyReport() {
+      if (!DEV_TOOLS_ENABLED) return "";
       const text = report();
       try {
         await navigator.clipboard.writeText(text);
@@ -321,7 +330,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   marker.renderingGroupId = 2;
   marker.setEnabled(false);
   canvas.addEventListener("pointerdown", (e) => {
-    if (!(e.altKey || store.get().inspectMode) || e.button !== 0) return;
+    if (!DEV_TOOLS_ENABLED || !(e.altKey || store.get().inspectMode) || e.button !== 0) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
     // CSS pixels: Babylon scales them by the hardware scaling level itself (engine/focus.ts pickPoint)
@@ -348,7 +357,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (s.focus) return;
     // dressing the chimp: only the wardrobe's own keys (C or Esc to close it)
     if (s.wardrobe && e.code !== "KeyC" && e.code !== "Escape") return;
-    const v = VIEWPOINTS.find((vp) => vp.key === e.key);
+    // viewpoints, F, G, O and [ ] are the fly-in camera's (engine/devFlags.ts)
+    const v = FLY_IN_ENABLED ? VIEWPOINTS.find((vp) => vp.key === e.key) : undefined;
     if (v) controller.goTo(v.id);
     else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
@@ -375,16 +385,17 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyV" && s.walking) controller.toggleView();
     else if (e.code === "KeyC" && s.walking) controller.setWardrobe(!s.wardrobe);
     else if (e.code === "Escape" && s.wardrobe) controller.setWardrobe(false);
-    else if (e.code === "KeyN") controller.setNight(!s.night);
-    else if (e.code === "KeyF") controller.setWalking(!s.walking);
-    else if (e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
-    else if (e.code === "KeyU") controller.setUpperHidden(!s.upperHidden);
-    else if (e.code === "KeyG") controller.setPlanOverlay(!s.planOverlay);
-    else if (e.code === "KeyO") store.set({ refOverlay: s.refOverlay === "off" ? "thumb" : s.refOverlay === "thumb" ? "full" : "off" });
+    else if (FLY_IN_ENABLED && e.code === "KeyF") controller.setWalking(!s.walking);
+    // N, R, U, I and P are the builder's tools (engine/devFlags.ts)
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyN") controller.setNight(!s.night);
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyU") controller.setUpperHidden(!s.upperHidden);
+    else if (FLY_IN_ENABLED && e.code === "KeyG") controller.setPlanOverlay(!s.planOverlay);
+    else if (FLY_IN_ENABLED && e.code === "KeyO") store.set({ refOverlay: s.refOverlay === "off" ? "thumb" : s.refOverlay === "thumb" ? "full" : "off" });
     else if (e.code === "KeyH" || e.key === "?") store.set({ help: !s.help });
-    else if (e.code === "KeyI") store.set({ inspectMode: !s.inspectMode });
-    else if (e.code === "KeyP") void controller.copyReport();
-    else if (e.code === "BracketRight" || e.code === "BracketLeft") {
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyI") store.set({ inspectMode: !s.inspectMode });
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyP") void controller.copyReport();
+    else if (FLY_IN_ENABLED && (e.code === "BracketRight" || e.code === "BracketLeft")) {
       const i = VIEWPOINTS.findIndex((vp) => vp.id === s.viewId);
       const n = (i + (e.code === "BracketRight" ? 1 : -1) + VIEWPOINTS.length) % VIEWPOINTS.length;
       controller.goTo(VIEWPOINTS[n].id);
@@ -393,54 +404,80 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
 
   // ------------------------------------------------ initial view
   controller.setQuality((params.get("quality") as Quality) || (CAPTURE ? "high" : "high"));
-  const startView = findView(params.get("view"));
-  if (params.get("night") === "1") controller.setNight(true);
+  if (DEV_TOOLS_ENABLED && params.get("night") === "1") controller.setNight(true);
   else lighting.refreshEnvironment();
-  if (startView) applyView(startView, false);
-  else if (!fly.restoreSaved()) applyView(VIEWPOINTS[0], false);
-  if (params.get("pose")) {
-    try {
-      fly.setPose(JSON.parse(params.get("pose")!));
-    } catch {
-      /* ignore */
+  // the fly-in camera (engine/devFlags.ts) starts flying where the address or the last visit says,
+  // as the house's tools and browser tests open it; everyone else arrives as their chimp
+  if (FLY_IN_ENABLED && (params.has("view") || params.has("pose") || CAPTURE)) {
+    const startView = findView(params.get("view"));
+    if (startView) applyView(startView, false);
+    else if (!fly.restoreSaved()) applyView(VIEWPOINTS[0], false);
+    if (params.get("pose")) {
+      try {
+        fly.setPose(JSON.parse(params.get("pose")!));
+      } catch {
+        /* ignore */
+      }
     }
+  } else {
+    if (import.meta.env.DEV && !FLY_IN_ENABLED && (params.has("view") || params.has("pose")))
+      console.error("[ChimpHouse] ?view= and ?pose= are the fly-in camera's, which is off: you arrive as your chimp at the spawn point. Start the dev server with VITE_ENABLE_FLY_IN=true (README: Developer-only fly-in camera and builder's tools).");
+    spawn();
   }
   window.addEventListener("resize", () => {
     engine.resize();
     if (fly.isOrtho) fly.applyOrtho();
   });
 
+  /** This visitor arrives as their chimp: standing at the spawn point in the entry hall, walking, the camera behind it. */
+  function spawn() {
+    fly.setPose(SPAWN);
+    controller.setWalking(true);
+    if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", SPAWN);
+  }
+
+  /** The house's export hooks, for the builder's tools only (engine/devFlags.ts). */
+  function devHooks() {
+    return {
+      downloadRoom: (id: string) => controller.downloadRoom(id),
+      auditZone: async (id: string, level?: string) => (await import("./exportRoom")).auditZone(scene, id, level),
+      /** Download one zone of the house as `<level>-<zone>.glb` (or `<zone>.glb`), for the Blender build. */
+      downloadZone: async (id: string, level?: string) => {
+        const { exportZone } = await import("./exportRoom");
+        exporting = true;
+        try {
+          const blob = await exportZone(scene, id, level, world.ctx.lights);
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${level ? `${level}-` : ""}${id}.glb`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        } finally {
+          exporting = false;
+        }
+      },
+      houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
+      zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
+    };
+  }
+
   // ------------------------------------------------ automation hook (capture tool)
   const waiters: { until: number; resolve: () => void }[] = [];
   const hook = {
     ready: false,
+    /** whether this page has the developer-only fly-in camera (engine/devFlags.ts): read-only, nothing here turns it on */
+    flyIn: FLY_IN_ENABLED,
     scene,
+    // goTo and setWalking(false) do nothing without the fly-in camera, and setPose refuses a plan view
     goTo: (id: string) => controller.goTo(id),
-    views: () => VIEWPOINTS.map((v) => ({ id: v.id, ref: v.refName ?? null })),
+    views: () => (FLY_IN_ENABLED ? VIEWPOINTS.map((v) => ({ id: v.id, ref: v.refName ?? null })) : []),
     settle: (n: number) => new Promise<void>((resolve) => waiters.push({ until: frames + n, resolve })),
     whenReady: () => scene.whenReadyAsync(),
     setNight: (n: boolean) => controller.setNight(n),
     setPose: (p: Parameters<typeof fly.setPose>[0]) => fly.setPose(p),
     setWalking: (v: boolean) => controller.setWalking(v),
-    downloadRoom: (id: string) => controller.downloadRoom(id),
-    auditZone: async (id: string, level?: string) => (await import("./exportRoom")).auditZone(scene, id, level),
-    /** Download one zone of the house as `<level>-<zone>.glb` (or `<zone>.glb`), for the Blender build. */
-    downloadZone: async (id: string, level?: string) => {
-      const { exportZone } = await import("./exportRoom");
-      exporting = true;
-      try {
-        const blob = await exportZone(scene, id, level, world.ctx.lights);
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${level ? `${level}-` : ""}${id}.glb`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-      } finally {
-        exporting = false;
-      }
-    },
-    houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
-    zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
+    // the export hooks the Blender build's tools use (tools/export-house.mjs, export-room, audit-items): builder's tools only
+    ...(DEV_TOOLS_ENABLED ? devHooks() : {}),
     walker: () => fly.walker,
     /** the chimps: this visitor's (where it is, which way it faces) and the others it has heard of */
     chimps: {

@@ -1,3 +1,4 @@
+import { DEV_TOOLS_ENABLED, FLY_IN_ENABLED } from "../engine/devFlags";
 import { PreviewController } from "../engine/preview";
 import { PreviewState, Quality, VIEWER } from "../engine/store";
 import { store } from "../engine/store";
@@ -57,28 +58,43 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         </div>
         {!holding && <div className="theatre-hint">Pick up a remote from the stand under the screen to choose or control what's showing.</div>}
         {s.theatreError && <div className="theatre-error">{s.theatreError}</div>}
-        <div className="section">Viewpoints</div>
-        {VIEWPOINTS.map((v) => (
-          <button key={v.id} className={s.viewId === v.id ? "active" : ""} onClick={() => ctl.goTo(v.id)}>
-            <span>{v.label}</span>
-            {v.key && <kbd>{v.key}</kbd>}
-          </button>
-        ))}
+        {/* the viewpoint tour and walk/fly are the fly-in camera's (engine/devFlags.ts) */}
+        {FLY_IN_ENABLED && (
+          <>
+            <div className="section">Viewpoints</div>
+            {VIEWPOINTS.map((v) => (
+              <button key={v.id} className={s.viewId === v.id ? "active" : ""} onClick={() => ctl.goTo(v.id)}>
+                <span>{v.label}</span>
+                {v.key && <kbd>{v.key}</kbd>}
+              </button>
+            ))}
+          </>
+        )}
         <div className="section">Display</div>
-        <Toggle on={s.walking} label="Walk mode" k="F" onClick={() => ctl.setWalking(!s.walking)} />
+        {FLY_IN_ENABLED && <Toggle on={s.walking} label="Walk mode" k="F" onClick={() => ctl.setWalking(!s.walking)} />}
         <Toggle on={s.walking && s.firstPerson} label="From your chimp's eyes" k="V" onClick={() => (s.walking ? ctl.toggleView() : ctl.setWalking(true))} />
         <Toggle on={s.wardrobe} label="Dress your chimp" k="C" onClick={() => ctl.setWardrobe(!s.wardrobe)} />
-        <Toggle on={s.night} label="Night" k="N" onClick={() => ctl.setNight(!s.night)} />
-        <Toggle on={s.roofHidden} label="Hide roofs" k="R" onClick={() => ctl.setRoofHidden(!s.roofHidden)} />
-        <Toggle on={s.upperHidden} label="Hide upper level" k="U" onClick={() => ctl.setUpperHidden(!s.upperHidden)} />
-        <Toggle on={s.planOverlay} label="Floor-plan overlay" k="G" onClick={() => ctl.setPlanOverlay(!s.planOverlay)} />
-        <Toggle
-          on={s.refOverlay !== "off"}
-          label={`Reference: ${s.refOverlay}`}
-          k="O"
-          onClick={() => store.set({ refOverlay: s.refOverlay === "off" ? "thumb" : s.refOverlay === "thumb" ? "full" : "off" })}
-        />
-        <Toggle on={s.inspectMode} label="Inspect on click" k="I" onClick={() => store.set({ inspectMode: !s.inspectMode })} />
+        {/* night and the cutaways are builder's tools (engine/devFlags.ts) */}
+        {DEV_TOOLS_ENABLED && (
+          <>
+            <Toggle on={s.night} label="Night" k="N" onClick={() => ctl.setNight(!s.night)} />
+            <Toggle on={s.roofHidden} label="Hide roofs" k="R" onClick={() => ctl.setRoofHidden(!s.roofHidden)} />
+            <Toggle on={s.upperHidden} label="Hide upper level" k="U" onClick={() => ctl.setUpperHidden(!s.upperHidden)} />
+          </>
+        )}
+        {/* the plan overlay and reference images go with the plan views and viewpoints */}
+        {FLY_IN_ENABLED && (
+          <>
+            <Toggle on={s.planOverlay} label="Floor-plan overlay" k="G" onClick={() => ctl.setPlanOverlay(!s.planOverlay)} />
+            <Toggle
+              on={s.refOverlay !== "off"}
+              label={`Reference: ${s.refOverlay}`}
+              k="O"
+              onClick={() => store.set({ refOverlay: s.refOverlay === "off" ? "thumb" : s.refOverlay === "thumb" ? "full" : "off" })}
+            />
+          </>
+        )}
+        {DEV_TOOLS_ENABLED && <Toggle on={s.inspectMode} label="Inspect on click" k="I" onClick={() => store.set({ inspectMode: !s.inspectMode })} />}
         <div className="quality">
           {(["low", "medium", "high"] as Quality[]).map((q) => (
             <button key={q} className={s.quality === q ? "active" : ""} onClick={() => ctl.setQuality(q)}>
@@ -86,12 +102,17 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
             </button>
           ))}
         </div>
-        <button className="copy" onClick={() => void ctl.copyReport()}>
-          Copy view details <kbd>P</kbd>
-        </button>
-        <button className="copy" onClick={() => void ctl.downloadRoom()}>
-          Download this room (.glb)
-        </button>
+        {/* change requests and the Blender export are builder's tools (engine/devFlags.ts) */}
+        {DEV_TOOLS_ENABLED && (
+          <>
+            <button className="copy" onClick={() => void ctl.copyReport()}>
+              Copy view details <kbd>P</kbd>
+            </button>
+            <button className="copy" onClick={() => void ctl.downloadRoom()}>
+              Download this room (.glb)
+            </button>
+          </>
+        )}
       </div>
 
       {s.picked && (
@@ -111,7 +132,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {view?.ref && s.refOverlay === "full" && <img className="ref-full" src={view.ref} alt={view.refName} />}
 
-      {!s.pointerLocked && !s.walking && (
+      {FLY_IN_ENABLED && !s.pointerLocked && !s.walking && (
         <div className="hint">
           Click to fly · <b>WASD</b> move · <b>E/Space</b> up · <b>Q/C</b> down · <b>Shift</b> fast · wheel = speed · right-drag to look ·{" "}
           <b>F</b> walk · <b>Alt-click</b> inspect · <b>H</b> help
@@ -119,7 +140,18 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · wheel to bring the camera in or out · <b>V</b> your chimp's eyes · <b>C</b> dress your chimp · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote, pick up a plush or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · wheel to bring the camera in or out · <b>V</b> your chimp's eyes · <b>C</b> dress your chimp · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote, pick up a plush or use the lift ·{" "}
+          {FLY_IN_ENABLED && (
+            <>
+              <b>F</b> fly ·{" "}
+            </>
+          )}
+          {DEV_TOOLS_ENABLED && (
+            <>
+              <b>Alt-click</b> inspect ·{" "}
+            </>
+          )}
+          <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
@@ -219,16 +251,21 @@ function StatusPanel({ s }: { s: PreviewState }) {
   return (
     <div className="panel status">
       <div className="title">
-        ChimpHouse <span>preview</span>
+        ChimpHouse {DEV_TOOLS_ENABLED && <span>preview</span>}
       </div>
       <div className="area">{s.area}</div>
-      <div className="coords">
-        x {s.pos[0]} · y {s.pos[1]} · z {s.pos[2]} · {s.heading}°
-      </div>
-      <div className="perf">
-        {s.fps} fps · {s.drawCalls} draws · {s.walking ? "walking" : `speed ${s.speed}`}
-      </div>
-      {s.walking && s.blocked && <div className="bumped">Bumped into {s.blocked}</div>}
+      {/* where the camera is, the frame rate and what stops the walker: the builder's readout (engine/devFlags.ts) */}
+      {DEV_TOOLS_ENABLED && (
+        <>
+          <div className="coords">
+            x {s.pos[0]} · y {s.pos[1]} · z {s.pos[2]} · {s.heading}°
+          </div>
+          <div className="perf">
+            {s.fps} fps · {s.drawCalls} draws · {s.walking ? "walking" : `speed ${s.speed}`}
+          </div>
+          {s.walking && s.blocked && <div className="bumped">Bumped into {s.blocked}</div>}
+        </>
+      )}
     </div>
   );
 }
@@ -247,16 +284,25 @@ function Help({ onClose }: { onClose: () => void }) {
   return (
     <div className="help" onClick={onClose}>
       <div className="help-card" onClick={(e) => e.stopPropagation()}>
-        <h2>Flying around ChimpHouse</h2>
+        <h2>{FLY_IN_ENABLED ? "Flying around ChimpHouse" : "Walking around ChimpHouse"}</h2>
         <table>
           <tbody>
             <tr><td>Click the view</td><td>Capture the mouse to look around (Esc releases)</td></tr>
             <tr><td>Right-drag</td><td>Look around without capturing the mouse</td></tr>
-            <tr><td>W A S D / arrows</td><td>Fly forward, left, back, right</td></tr>
-            <tr><td>E or Space / Q or C</td><td>Up / down</td></tr>
-            <tr><td>Shift / Alt (held)</td><td>Four times faster / slower</td></tr>
-            <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
-            <tr><td>F</td><td>Walk as your chimp (walls, furniture, stairs and gravity) / fly</td></tr>
+            {FLY_IN_ENABLED ? (
+              <>
+                <tr><td>W A S D / arrows</td><td>Fly forward, left, back, right</td></tr>
+                <tr><td>E or Space / Q or C</td><td>Up / down</td></tr>
+                <tr><td>Shift / Alt (held)</td><td>Four times faster / slower</td></tr>
+                <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
+                <tr><td>F</td><td>Walk as your chimp (walls, furniture, stairs and gravity) / fly</td></tr>
+              </>
+            ) : (
+              <>
+                <tr><td>W A S D / arrows</td><td>Walk your chimp forward, left, back, right (walls, furniture, stairs and gravity)</td></tr>
+                <tr><td>Shift / Alt (held)</td><td>Run / walk slowly</td></tr>
+              </>
+            )}
             <tr><td>Wheel (walking)</td><td>Bring the camera in to your chimp, or further out behind it; all the way in is from its eyes</td></tr>
             <tr><td>V (walking)</td><td>See from your chimp's eyes, or from behind it</td></tr>
             <tr><td>C (walking)</td><td>Dress your chimp: its body, face, fur and clothes. Kept for your next visit, and everyone sees it</td></tr>
@@ -273,16 +319,24 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>Foosball: wheel or 1–4, right button or Shift, Esc</td><td>Pick another rod (goalie, defence, midfield, attack) / lift your men while held / leave the table</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>E (at the snack machine)</td><td>Step up to it, or press the key you point at; type a code (A–E, then 1–6), then push the flap (click it, or Enter) to take your snack; E eats it</td></tr>
-            <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
-            <tr><td>N</td><td>Day / night</td></tr>
-            <tr><td>R / U</td><td>Hide roofs / hide the upper level</td></tr>
-            <tr><td>G</td><td>Floor-plan overlay (in plan views)</td></tr>
-            <tr><td>O</td><td>Reference image: thumbnail → overlay → off</td></tr>
-            <tr><td>Alt-click or I</td><td>Inspect: name the object under the cursor</td></tr>
-            <tr><td>P</td><td>Copy viewpoint, camera and inspected object for a change request</td></tr>
+            {FLY_IN_ENABLED && <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>}
+            {DEV_TOOLS_ENABLED && <tr><td>N</td><td>Day / night</td></tr>}
+            {DEV_TOOLS_ENABLED && <tr><td>R / U</td><td>Hide roofs / hide the upper level</td></tr>}
+            {FLY_IN_ENABLED && (
+              <>
+                <tr><td>G</td><td>Floor-plan overlay (in plan views)</td></tr>
+                <tr><td>O</td><td>Reference image: thumbnail → overlay → off</td></tr>
+              </>
+            )}
+            {DEV_TOOLS_ENABLED && (
+              <>
+                <tr><td>Alt-click or I</td><td>Inspect: name the object under the cursor</td></tr>
+                <tr><td>P</td><td>Copy viewpoint, camera and inspected object for a change request</td></tr>
+              </>
+            )}
           </tbody>
         </table>
-        <p>To ask for a change, press P and paste the copied details along with what you'd like changed.</p>
+        {DEV_TOOLS_ENABLED && <p>To ask for a change, press P and paste the copied details along with what you'd like changed.</p>}
         <button onClick={onClose}>Close</button>
       </div>
     </div>

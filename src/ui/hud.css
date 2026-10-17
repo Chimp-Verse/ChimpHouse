@@ -241,11 +241,15 @@ kbd {
   transform: translateX(-50%);
   background: var(--panel);
   border: 1px solid var(--edge);
-  border-radius: 999px;
+  border-radius: 16px;
   padding: 7px 16px;
   font-size: 12px;
   color: var(--muted);
-  white-space: nowrap;
+  /* the whole line readable on any window: it wraps rather than running off both edges */
+  width: max-content;
+  max-width: calc(100vw - 40px);
+  box-sizing: border-box;
+  text-align: center;
   pointer-events: none;
 }
 

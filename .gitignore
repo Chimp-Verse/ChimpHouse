@@ -10,3 +10,9 @@ art/ChimpHouse.blend
 art/materials.blend
 art/rooms/
 art/textures/
+# Each developer's own env files: where developer-only flags such as VITE_ENABLE_FLY_IN go
+# (README: Developer-only fly-in camera), so no file that turns them on is committed.
+# .env.example and a mode's own file (.env.lan for the LAN demo) can still be committed.
+.env
+.env.development
+.env*.local

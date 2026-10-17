@@ -1,6 +1,6 @@
 # ChimpHouse 3D preview
 
-A fly-through preview of ChimpHouse, built from `chimphouse-description.md` and the concept art in `Reference Images/`. It uses the stack recommended in `docs/research/2026-10-01-chimpverse-technology-stack.md`: TypeScript, Vite and a React DOM HUD around a Babylon.js (WebGL2) scene.
+A walk-through preview of ChimpHouse, built from `chimphouse-description.md` and the concept art in `Reference Images/`. It uses the stack recommended in `docs/research/2026-10-01-chimpverse-technology-stack.md`: TypeScript, Vite and a React DOM HUD around a Babylon.js (WebGL2) scene.
 
 This is a look-and-layout preview, with the first room activities (the arcade, the theatre, the Game Room's machines) and chimp avatars: every visitor walks the house as a chimp they shape and dress, and sees every other visitor's. There is no voice yet. The house, its furniture, its jungle setting and the chimps are generated procedurally in code, so changes are quick to make and hot-reload in the browser.
 
@@ -11,40 +11,64 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-The first load takes a few seconds while textures are painted and shaders compile.
+The first load takes a few seconds while textures are painted and shaders compile. You arrive as your chimp, walking, at the spawn point in the entry hall just inside the front doors (`SPAWN` in `src/world/viewpoints.ts`), with the camera behind it. There is no step before it: your chimp is the one you dressed last time, or the default chimp on a first visit.
 
-## Flying around
+## Getting around
 
 | Input | Action |
 | --- | --- |
 | Click the view | Capture the mouse to look around (Esc releases it) |
 | Right-drag | Look around without capturing the mouse |
-| W A S D / arrow keys | Fly forward, left, back and right |
-| E or Space / Q or C | Fly up / down |
-| Shift / Alt (held) | Four times faster / slower |
-| Mouse wheel | Change flying speed (zoom in plan views) |
-| F | Walk mode on / off (see below) |
-| 1–9, 0, `[` `]` | Jump to viewpoints, previous and next viewpoint |
-| N | Day / night |
-| R / U | Hide roofs / hide the upper level |
-| G | Floor-plan overlay (in the plan views) |
-| O | Reference image: thumbnail, then overlay, then off |
-| Alt-click, or I then click | Inspect: names the object under the cursor |
-| P | Copy the current viewpoint, camera position and inspected object |
+| W A S D / arrow keys | Walk forward, left, back and right |
+| Shift / Alt (held) | Run / walk slowly |
+| Mouse wheel | Bring the camera in to your chimp, or take it further out |
+| V | From your chimp's eyes, or from behind it |
+| C | Dress your chimp (the wardrobe) |
+| E | Use what's in front of you: a cabinet, a game-room machine, the theatre screen, a remote, the lift, a plush, the snack machine |
 | H | Help |
 
-Each reference image has a matching viewpoint, and the reference is shown in the corner so you can compare. The camera position is remembered between reloads.
+The fly-in camera, the viewpoints, the plan views and the builder's tools are for development only: see the next section.
+
+## Developer-only fly-in camera and builder's tools
+
+Flying freely round the house and its grounds, and the builder's tools, are for development only, off by default. The builder's tools are inspecting (**I**, Alt-click), copying the view's details for a change request (**P**), downloading a room as .glb and the export hooks behind `tools/export-house.mjs`, `export-room.mjs` and `audit-items.mjs` (the Blender build needs them), switching to night (**N**), hiding the roofs and the upper level (**R** / **U**), and the status panel's position, fps and draw-call readout and its **Bumped into** line. Visitors see none of them: the status panel shows just ChimpHouse and the room you're in. Both are on only when the development dev server (`npm run dev`) is started with `VITE_ENABLE_FLY_IN=true`. Put that line in `.env.development.local` at the top of the project (`.env.example` shows it):
+
+```sh
+echo VITE_ENABLE_FLY_IN=true >> .env.development.local
+npm run dev
+```
+
+Use `.env.development.local`, not `.env` or `.env.local`: only `npm run dev` reads it. The LAN demo's dev server (mode `lan`) is shown to people outside development and must never fly, and the flag is ignored in any mode other than `development` anyway. Git ignores `.env`, `.env.development` and every `.env*.local`, so no file that turns fly-in on can be committed. A production build (`npm run build`) never has the fly-in camera, even built with the flag: this is deliberate, and the build leaves its code out. The flag is read only from the build-time env (`src/engine/devFlags.ts`), never from the address, storage, cookies or the console, so a visitor can't turn it on.
+
+With it on:
+
+| Input | Action |
+| --- | --- |
+| F | Fly / walk as your chimp |
+| W A S D / arrow keys (flying) | Fly forward, left, back and right |
+| E or Space / Q or C (flying) | Fly up / down |
+| Shift / Alt (held, flying) | Four times faster / slower |
+| Mouse wheel (flying) | Change flying speed (zoom in plan views) |
+| 1–9, 0, `[` `]` | Jump to viewpoints, previous and next viewpoint (also listed in the side panel) |
+| G | Floor-plan overlay (in the plan views) |
+| O | Reference image: thumbnail, then overlay, then off |
+| R / U | Hide roofs / hide the upper level |
+| Alt-click, or I then click | Inspect: names the object under the cursor |
+| P | Copy the current viewpoint, camera position and inspected object |
+
+Each reference image has a matching viewpoint, and the reference is shown in the corner so you can compare. `?view=<id>` (a viewpoint's id from `src/world/viewpoints.ts`), `?pose=<json>` and `?capture=1` open the page flying, as the house's tools and browser tests do; there the camera position is also remembered between reloads. Without these the page still opens as your chimp at the spawn point. Without the flag, `?view=` and `?pose=` are ignored.
+
+The export tools (`export-house.mjs`, `export-room.mjs`, `audit-items.mjs`) and the tools and browser tests that open a viewpoint (`npm run capture`, `tools/test-*.mjs` other than `test-chimp.mjs`, `test-arcade.mjs` and `test-spawn.mjs`, the debug and shot tools) need a dev server with the flag. A test can run its own on another port without the file: `VITE_ENABLE_FLY_IN=true npx vite --port 5183`, then `URL=http://localhost:5183 node tools/test-….mjs`.
 
 ## Walking as your chimp
 
-Press **F** to walk instead of fly: your chimp stands on the floor below the camera, and you move it with gravity, using the same mouse look. W A S D walk (a chimp's jog), Shift runs and Alt walks slowly. Use it to check that the stairs, doorways, corridor, bridge and side entrance work for someone on foot.
+You walk on the floor with gravity, using the same mouse look. W A S D walk (a chimp's jog), Shift runs and Alt walks slowly. Use it to check that the stairs, doorways, corridor, bridge and side entrance work for someone on foot.
 
 - **The camera** follows behind and above your chimp, which turns to face the way it goes and looks where you look; swing the camera round in front of it and it looks at you. Walls cut the camera's distance short at once (it never looks through one) and it eases back out when they clear. The **mouse wheel** brings the camera in or takes it further out; all the way in is your chimp's own eyes. **V** switches between the two.
 - **Reach is your chimp's:** a cabinet, a remote, a button or a click on a screen is within reach of your chimp's eyes, wherever the camera is. Its eyes are about 1.3 m up (a chimp's height, set in the wardrobe); the body that bumps into things stays 1.7 m tall and 0.6 m wide (`AVATAR` in `src/engine/walker.ts`), so every chimp fits through the same doors.
 - Walls, glass, railings and furniture block you, and you slide along them. Stairs and ledges up to 0.3 m are stepped onto. Leaves and plant stems are passed through.
-- Roofs are ignored, so pressing F above the house drops you into the room below.
-- When something stops you, the status panel shows **Bumped into** and the object's name, and **P** includes it in the copied details.
-- Eye-level viewpoints keep you walking. Choosing a viewpoint in the air, or a plan view, switches back to flying.
+- With the builder's tools, when something stops you, the status panel shows **Bumped into** and the object's name, and **P** includes it in the copied details.
+- With the fly-in camera: roofs are ignored, so pressing F above the house drops you into the room below; eye-level viewpoints keep you walking, and one in the air, or a plan view, switches back to flying.
 - `?pov=first` starts walking from your chimp's eyes (the house's older browser tests walk that way).
 
 ## Your chimp
@@ -163,7 +187,7 @@ The theatre screen shows YouTube videos and live streams in YouTube's own player
 
 ### Checking it with real YouTube videos
 
-`tools/test-theatre.mjs` checks the theatre against the stand-in. To check real YouTube, open http://localhost:5173/?view=theatre in your own browser (with `npm run dev` running). Press **F** to walk, go to the stand under the screen, look at a remote and press **E** to pick it up. Then look at the screen and press **E** to watch, paste each of these into the box under the screen and press **Show**:
+`tools/test-theatre.mjs` checks the theatre against the stand-in. To check real YouTube, open http://localhost:5173/?view=theatre in your own browser (with `npm run dev` running and the fly-in camera on, see above). Press **F** to walk, go to the stand under the screen, look at a remote and press **E** to pick it up. Then look at the screen and press **E** to watch, paste each of these into the box under the screen and press **Show**:
 
 | Link | What should happen |
 | --- | --- |
@@ -217,7 +241,7 @@ It only exists in development. A production build has no dev server, so it falls
 
 ## Requesting changes
 
-Fly to the spot, Alt-click the object you want changed and press **P**. Paste the copied text into your request, for example:
+With the builder's tools on (see "Developer-only fly-in camera and builder's tools"), walk or fly to the spot, Alt-click the object you want changed and press **P**. Paste the copied text into your request, for example:
 
 ```
 ChimpHouse preview — last viewpoint "Arrival Lounge"
@@ -280,6 +304,7 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `node tools/test-air-hockey.mjs [look]` | With `npm run dev` running, check the air hockey table in a real browser: the physics and the robot on their own (the glide, rail rebounds, no puck escaping or passing through a mallet, the mallet's speed passing to the puck, goals and posts, the robot saving some shots and scoring), then a visitor walking up, playing the robot with the mouse, scoring and winning a match and a rematch, then two visitors (separate browser contexts) playing each other, the game handed over when one leaves. `look` takes screenshots of the table instead. Screenshots go to `captures/air-hockey-*.png` |
 | `node tools/test-foosball.mjs [pure] [solo]`, `SHARED=1 node tools/test-foosball.mjs duo` | With `npm run dev` running, check the foosball table in a real browser. **pure** checks the physics, rules and robot as pure functions: rolling, walls, corners, goals, no tunnelling at full speed, kicks, lifted men, and the robot stopping slow shots but beaten by some hard angled ones. **solo** plays the robot: the parts found by role, walking up and E, the real mouse sliding the rods and flicking a kick, a click's spin, picking rods, goals and the ball return, a match to 5, Rematch and Esc. **duo** (only with `SHARED=1`: a second page is a second house in memory) has two visitors: the second takes the robot's side, both pages see the same ball and each other's kicks, the host leaving hands over the game, and a closed page frees its side. `URL=` picks the dev server. Screenshots go to `captures/foosball-*.png` |
 | `node tools/test-chimp.mjs` | With `npm run dev` running, check walking as a chimp in a real browser: the chimp stands where the walker is and gives it its eye height, the camera behind it, walking and running turn it the way it goes, the camera never sits beyond a wall, V and back, the wardrobe swings round in front of it and holds it still, its panel dresses the chimp and keeps the outfit, a chimp to start from keeps the clothes on, a cabinet in front of the chimp is in reach with the camera behind, the room's lamps light the chimp while the house's lights are left as they were, it climbs the main stair with each foot on its step, and colours and shapes change. Screenshots go to `captures/chimp-*.png` |
+| `node tools/test-spawn.mjs` | With `npm run dev` running (no fly-in flag), check arriving as your chimp in a real browser: it opens walking as the chimp at the spawn point with the camera behind it; F, the viewpoint keys, the side panel, the console hook, `?view=`, `?pose=` and a saved camera don't reach the fly-in camera; then W, V, the wheel, C's wardrobe, and walking up to a cabinet and playing it. `EXPECT=fly` instead checks a dev server with the flag has fly-in. Screenshots go to `captures/spawn-*.png` (`SHOTS=` elsewhere) |
 | `node tools/test-chimp-sync.mjs` | With `npm run dev` running, check another visitor's chimp: the house in one page and a light visitor (`tools/chimp-visitor.html`: the room server and a chimp walking a circle, no house) in another. The house builds it dressed as its DNA says, shows it with its name, follows it smoothly, and lets it go when its page closes |
 | `node tools/chimp-shots.mjs [out.png] [views] [query]` | With `npm run dev` running, photograph the chimp lab from several views into a contact sheet; a view can carry a pose (`side@walk:2.2`) |
 | `node tools/chimp-house-shots.mjs [out.png] [viewpoints]` | With `npm run dev` running, photograph your chimp in the house, behind and in front, at several viewpoints |

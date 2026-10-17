@@ -1,4 +1,5 @@
 import { Camera, Scene, UniversalCamera, Vector3 } from "@babylonjs/core";
+import { FLY_IN_ENABLED } from "./devFlags";
 import { store } from "./store";
 import { AVATAR, Walker } from "./walker";
 
@@ -27,9 +28,11 @@ const BOOM = { start: 2.7, min: 1.1, max: 6, closest: 0.35, clear: 0.28 };
 const AIM_FAR = 30;
 
 /**
- * Free-fly camera without collisions. Click the canvas to capture the mouse,
- * WASD to move along the view, E/Space up, Q/C down, Shift for speed, wheel
- * adjusts base speed. Right-drag looks around without capturing the mouse.
+ * Free-fly camera without collisions (developer-only: FLY_IN_ENABLED, engine/devFlags.ts).
+ * Click the canvas to capture the mouse, WASD to move along the view, E/Space up,
+ * Q/C down, Shift for speed, wheel adjusts base speed. Right-drag looks around
+ * without capturing the mouse. Without the flag it never flies: it only follows the
+ * walker, or glides to and from a screen in use.
  *
  * With a `walker` set, WASD walks it instead, and the camera follows the chimp:
  * from behind and above it (third person), on a boom that walls cut short, or
@@ -126,7 +129,7 @@ export class FlyCamera {
       (e) => {
         e.preventDefault();
         if (store.get().focus) return;
-        if (this.orthoState) {
+        if (FLY_IN_ENABLED && this.orthoState) {
           this.orthoState.halfHeight = Math.max(4, Math.min(80, this.orthoState.halfHeight * (e.deltaY > 0 ? 1.1 : 0.9)));
           this.applyOrtho();
           return;
@@ -136,6 +139,7 @@ export class FlyCamera {
           this.setBoom(this.boom === 0 ? (e.deltaY > 0 ? BOOM.min : 0) : this.boom * (e.deltaY > 0 ? 1.12 : 0.89));
           return;
         }
+        if (!FLY_IN_ENABLED) return;
         this.baseSpeed = Math.max(0.5, Math.min(80, this.baseSpeed * (e.deltaY > 0 ? 0.85 : 1.18)));
         store.set({ speed: Math.round(this.baseSpeed * 10) / 10 });
       },
@@ -273,7 +277,7 @@ export class FlyCamera {
       const cos = Math.cos(this.yaw);
       this.walker.update(dt, (fx * sin + rx * cos) * k, (fx * cos - rx * sin) * k);
       this.follow(dt);
-    } else if (this.enabled && !this.orthoState) {
+    } else if (FLY_IN_ENABLED && this.enabled && !this.orthoState) {
       const fast = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
       const slow = this.keys.has("AltLeft") || this.keys.has("AltRight");
       const speed = this.baseSpeed * (fast ? 4 : 1) * (slow ? 0.25 : 1);
@@ -290,7 +294,7 @@ export class FlyCamera {
       const blend = 1 - Math.exp(-dt * 10);
       this.velocity = Vector3.Lerp(this.velocity, want, blend);
       if (this.velocity.lengthSquared() > 1e-6) this.camera.position.addInPlace(this.velocity.scale(dt));
-    } else if (this.orthoState) {
+    } else if (FLY_IN_ENABLED && this.orthoState) {
       // pan the plan view with WASD
       const s = this.orthoState.halfHeight * 1.2 * dt;
       let moved = false;
@@ -306,8 +310,8 @@ export class FlyCamera {
       this.eye.copyFrom(this.camera.position);
       this.aim.set(Math.sin(this.yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
     }
-    this.saveTimer += dt;
-    if (this.saveTimer > 0.5) {
+    // the camera is remembered between reloads only for the fly-in camera (restoreSaved)
+    if (FLY_IN_ENABLED && (this.saveTimer += dt) > 0.5) {
       this.saveTimer = 0;
       try {
         localStorage.setItem(POSE_KEY, JSON.stringify(this.getPose()));
@@ -349,6 +353,8 @@ export class FlyCamera {
     this.transition?.done?.();
     this.velocity.setAll(0);
     if (pose.ortho) {
+      // a plan view is the fly-in camera's: refused without it
+      if (!FLY_IN_ENABLED) return;
       this.transition = null;
       this.orthoState = { ...pose.ortho };
       this.camera.position.set(pose.ortho.cx, 120, pose.ortho.cz);
@@ -393,6 +399,7 @@ export class FlyCamera {
   }
 
   restoreSaved(): boolean {
+    if (!FLY_IN_ENABLED) return false;
     try {
       const raw = localStorage.getItem(POSE_KEY);
       if (!raw) return false;
