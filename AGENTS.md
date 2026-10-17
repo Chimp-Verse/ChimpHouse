@@ -36,6 +36,7 @@ Every visitor walks the house as a chimp they shape and dress (`docs/plans/2026-
 - Walking, the camera is behind the chimp. Measure reach and aim from the visitor's eyes, `fly.eye` and `fly.aim` (`viewer` in `engine/flyCamera.ts`), never from `fly.camera`, which is only for what is drawn on the page (an overlay lined up with a screen, what is in view). Browser tests written for walking from the eyes open the page with `?pov=first`.
 - A chimp is lit by lights of its own that copy the room lights where it stands (`ChimpLights` in `engine/lighting.ts`). Never light something that moves by adding it to the room lights' mesh lists or taking it out: each change is a pass over every mesh in the house, a hitch every time it crosses a doorway.
 - Keep the skeleton's VRM bone names and unrotated A-pose rest, and the vertex attributes the materials read: the animation, the wardrobe and a Blender chimp all rely on them.
+- Give every sampler a material plugin declares a texture, or leave the sampler out of the shader with a define (as the cloth's print is, `CHIMPPRINT`). A sampler with nothing bound reads whatever an earlier draw left on its unit; when that is the image being drawn into, WebGL refuses the whole draw call and the mesh silently isn't drawn (it hid the shorts, at random, in the house). `tools/test-chimp.mjs` checks that every piece the chimp wears is drawn.
 
 ## Committing Git LFS files
 

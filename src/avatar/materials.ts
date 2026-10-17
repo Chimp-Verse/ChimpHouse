@@ -313,11 +313,26 @@ export class ChimpClothPlugin extends MaterialPluginBase {
   weave = 260;
   knit = 0;
   fade = 1;
-  print: Texture | null = null;
+  private printTex: Texture | null = null;
 
   constructor(material: PBRMaterial) {
-    super(material, "ChimpCloth", 220, { CHIMPCLOTH: false });
+    super(material, "ChimpCloth", 220, { CHIMPCLOTH: false, CHIMPPRINT: false });
     this._enable(true);
+  }
+
+  /**
+   * The print's artwork (printTexture), or none. Cloth without a print has no print in its
+   * shader at all: a sampler with no texture bound reads whatever an earlier draw left on its
+   * unit, and when that is the very image being drawn into, WebGL refuses the whole draw call
+   * (INVALID_OPERATION), so the garment silently isn't drawn.
+   */
+  get print(): Texture | null {
+    return this.printTex;
+  }
+
+  set print(t: Texture | null) {
+    if (!!t !== !!this.printTex) this.markAllDefinesAsDirty();
+    this.printTex = t;
   }
 
   getClassName(): string {
@@ -326,6 +341,7 @@ export class ChimpClothPlugin extends MaterialPluginBase {
 
   prepareDefines(defines: MaterialDefines): void {
     defines.CHIMPCLOTH = true;
+    defines.CHIMPPRINT = !!this.printTex;
   }
 
   getAttributes(attributes: string[]): void {
@@ -367,7 +383,7 @@ export class ChimpClothPlugin extends MaterialPluginBase {
     ubo.updateFloat("chimpWeave", this.weave);
     ubo.updateFloat("chimpKnit", this.knit);
     ubo.updateFloat("chimpClothFade", this.fade);
-    if (this.print) ubo.setTexture("chimpPrint", this.print);
+    if (this.printTex) ubo.setTexture("chimpPrint", this.printTex);
   }
 
   getCustomCode(shaderType: string): { [point: string]: string } | null {
@@ -377,7 +393,7 @@ export class ChimpClothPlugin extends MaterialPluginBase {
         CUSTOM_VERTEX_UPDATE_POSITION: "#ifdef CHIMPCLOTH\nvChimpCloth = chimpCloth;\nvChimpRest = positionUpdated;\nvChimpRestN = normalUpdated;\n#endif",
       };
     return {
-      CUSTOM_FRAGMENT_DEFINITIONS: `#ifdef CHIMPCLOTH\nuniform sampler2D chimpPrint;\nvarying vec4 vChimpCloth;\nvarying vec3 vChimpRest;\nvarying vec3 vChimpRestN;\n${DITHER}\n#endif`,
+      CUSTOM_FRAGMENT_DEFINITIONS: `#ifdef CHIMPCLOTH\n#ifdef CHIMPPRINT\nuniform sampler2D chimpPrint;\n#endif\nvarying vec4 vChimpCloth;\nvarying vec3 vChimpRest;\nvarying vec3 vChimpRestN;\n${DITHER}\n#endif`,
       CUSTOM_FRAGMENT_UPDATE_ALPHA: /* glsl */ `#ifdef CHIMPCLOTH
 if (chimpClothFade < 0.999 && chimpBayer(gl_FragCoord.xy) > chimpClothFade) discard;
 float chimpSpecOcc = vChimpCloth.z;
@@ -447,6 +463,7 @@ float chimpSpecOcc = vChimpCloth.z;
   // looked up for every pixel and masked to its rectangle, not looked up only inside it: a lookup
   // that only some pixels make can't tell its size on screen at the rectangle's edge, and draws a
   // faint frame there
+#ifdef CHIMPPRINT
   if (chimpPrintRect.z > 0.0) {
     vec2 uv = vec2(0.5 - (vChimpRest.x - chimpPrintRect.x) / (2.0 * chimpPrintRect.z), 0.5 + (vChimpRest.y - chimpPrintRect.y) / (2.0 * chimpPrintRect.w));
     vec4 ink = texture2D(chimpPrint, clamp(uv, 0.0, 1.0));
@@ -454,6 +471,7 @@ float chimpSpecOcc = vChimpCloth.z;
     col = mix(col, chimpInk, ink.r * 0.95 * on);
     col = mix(col, chimpInk2, ink.g * 0.95 * on);
   }
+#endif
   if (chimpFuzz > 0.0) {
     // fibres: a fine speckle, darker deep in
     vec3 f = floor(vChimpRest * 1500.0);

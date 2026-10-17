@@ -34,6 +34,39 @@ try {
   const waitFor = (fn, arg, timeout = 30000) => page.waitForFunction(fn, arg, { timeout, polling: 100 });
   const shot = (name) => page.screenshot({ path: `captures/chimp-${name}.png` });
   const mine = () => ev(() => window.__chimp.chimps.describe().mine);
+  // this visitor's chimp's draw calls over a few frames: how many of its meshes were drawn, and any
+  // WebGL refused (INVALID_OPERATION and the like: the mesh silently isn't there)
+  const draws = () =>
+    ev(() => {
+      const s = window.__chimp.scene;
+      const g = s.getEngine()._gl;
+      const drawn = new Set();
+      const refused = new Set();
+      let current = null;
+      const obs = s.meshes.filter((m) => m.name.startsWith("My chimp")).map((m) => [m, m.onBeforeRenderObservable.add(() => (current = m))]);
+      const orig = {};
+      for (const fn of ["drawElements", "drawElementsInstanced"]) {
+        orig[fn] = g[fn];
+        g[fn] = (...args) => {
+          const m = current;
+          current = null;
+          if (!m) return orig[fn].apply(g, args);
+          while (g.getError() !== g.NO_ERROR);
+          orig[fn].apply(g, args);
+          (g.getError() === g.NO_ERROR ? drawn : refused).add(m.name);
+        };
+      }
+      return new Promise((done) => {
+        let f = 0;
+        const o = s.onAfterRenderObservable.add(() => {
+          if (++f < 4) return;
+          s.onAfterRenderObservable.remove(o);
+          for (const fn of Object.keys(orig)) g[fn] = orig[fn];
+          for (const [m, ob] of obs) m.onBeforeRenderObservable.remove(ob);
+          done({ drawn: drawn.size, refused: [...refused] });
+        });
+      });
+    });
 
   await page.goto(`${URL}/?view=${VIEW}`);
   await waitFor(() => window.__chimp?.ready === true, null, 300000);
@@ -165,6 +198,9 @@ try {
       return Object.entries(o).every(([slot, id]) => w[slot] === id) && w;
     }, outfit, 60000).then((h) => h.jsonValue()).catch(() => null);
     check(!!worn, `it wears ${label}`, JSON.stringify(worn));
+    await ev(() => window.__chimp.settle(8));
+    const d = await draws();
+    check(d.drawn > 20 && d.refused.length === 0, "and every piece of it is drawn", `${d.drawn} meshes drawn${d.refused.length ? `; refused: ${d.refused.join(", ")}` : ""}`);
   }
   await ev(() => window.__chimp.settle(10));
   await shot("outfit");
