@@ -109,12 +109,6 @@ export function stool(ctx: WorldCtx, z: Zone, pos: Vector3, h: number, seatMat: 
   ctx.g(z, seatMat).add(cylinder(0.2, 0.08, 20), xf(pos.x, pos.y + h - 0.09, pos.z));
 }
 
-/** Low upholstered stool with a timber base (arcade). */
-export function lowStool(ctx: WorldCtx, z: Zone, pos: Vector3, seatMat: string): void {
-  ctx.g(z, "panelHoney").add(cylinder(0.2, 0.28, 20), xf(pos.x, pos.y, pos.z), "Stool");
-  ctx.g(z, seatMat).add(lathe([[0.001, 0], [0.23, 0], [0.24, 0.06], [0.22, 0.14], [0.001, 0.15]], 22), xf(pos.x, pos.y + 0.28, pos.z), "Stool");
-}
-
 /** Rounded tub armchair facing -Z in local space. */
 export function armchair(ctx: WorldCtx, z: Zone, pos: Vector3, yaw: number, mat: string, pillow?: string): void {
   const m = xf(pos.x, pos.y, pos.z, yaw);

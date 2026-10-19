@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  A light visitor at the Game Room TV, for tools/test-tv-real.mjs: no house, just the room
+  (engine/room.ts, through the dev server's room server) and ChimpVibe's play page in plain
+  frames. Opened at http://localhost:5173/tools/tv-visitor.html?name=Bo, it can hold a
+  controller in the TV's shared state and play the TV's game as that player, or watch it as a
+  spectator, and logs every embed message its frames send (window.visitor).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>TV visitor</title>
+    <style>
+      body { margin: 0; background: #111; display: flex; flex-wrap: wrap; gap: 4px; }
+      iframe { width: 480px; height: 270px; border: 0; background: #000; }
+    </style>
+  </head>
+  <body>
+    <script type="module" src="./tv-visitor.ts"></script>
+  </body>
+</html>

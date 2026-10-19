@@ -35,7 +35,7 @@ ChimpVibe's side is a separate piece of work, briefed in `~/Git/ChimpVibe/docs/b
 
 ChimpVibe owns this format. If the ChimpVibe session changes it, follow their version.
 
-`GET https://chimpvibe.dev/shared/chimphouse.json`, sent with CORS for ChimpHouse's addresses:
+`GET https://chimpvibe.dev/shared/showcase.json` (renamed from `shared/chimphouse.json`; the format is unchanged), sent with CORS for ChimpHouse's addresses:
 
 ```json
 {

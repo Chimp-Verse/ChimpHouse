@@ -51,17 +51,18 @@ export function monitor(ctx: WorldCtx, z: Zone, m: Matrix, w: number, h: number,
 }
 
 /** Large TV on a low timber media console. Console base at m, TV facing -Z. */
-export function tvConsole(ctx: WorldCtx, z: Zone, m: Matrix, tvW: number, tvH: number, mat: string, consoleW: number): void {
+export function tvConsole(ctx: WorldCtx, z: Zone, m: Matrix, tvW: number, tvH: number, mat: string, consoleW: number, role?: string): Mesh | null {
   const cg = ctx.g(z, "panelHoney");
   cg.add(box(consoleW, 0.5, 0.48), xf(0, 0.25, 0).multiply(m), "Media console");
   ctx.g(z, "timber").add(box(consoleW + 0.04, 0.04, 0.5), xf(0, 0.52, 0).multiply(m), "Media console");
-  screenPanel(ctx, z, xf(0, 0.56 + 0.12 + tvH / 2, 0.05).multiply(m), tvW, tvH, mat, { bezel: 0.025, depth: 0.06, label: "Television" });
+  const screen = screenPanel(ctx, z, xf(0, 0.56 + 0.12 + tvH / 2, 0.05).multiply(m), tvW, tvH, mat, { bezel: 0.025, depth: 0.06, label: "Television", role });
   ctx.g(z, "black").add(box(0.5, 0.05, 0.25), xf(0, 0.565, 0.05).multiply(m), "Television");
   // consoles and controllers
   const dev = ctx.g(z, "black");
   dev.add(softBox(0.36, 0.08, 0.26, 0.02), xf(-consoleW * 0.25, 0.58, -0.05).multiply(m), "Game console");
   dev.add(softBox(0.3, 0.07, 0.22, 0.02), xf(consoleW * 0.25, 0.575, -0.05).multiply(m), "Game console");
   ctx.g(z, "white").add(softBox(0.18, 0.32, 0.08, 0.02), xf(consoleW * 0.38, 0.69, 0).multiply(m), "Game console");
+  return screen;
 }
 
 /** Floor-standing speaker. Base at m, facing -Z. */

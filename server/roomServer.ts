@@ -6,7 +6,9 @@
 // later is told how things stand; passes each change on to everyone else; keeps the room's
 // clock, so timed state (where the car is, how far into the music) is the same for everyone
 // whatever their computer's clock says; and tells everyone when a visitor leaves: their tab
-// closed, or (a crashed tab) went quiet.
+// closed, or (a crashed tab) went quiet. The pages let go of what the visitor held, so when the
+// last one leaves nobody is left to do it: a newcomer is also told who left lately, and lets go
+// of whatever they still hold.
 
 import type { Plugin, ViteDevServer } from "vite";
 
@@ -16,6 +18,8 @@ export const ROOM_EVENT = "chimphouse:room";
 /** A visitor that hasn't said it's here for this long is taken as gone (a background tab's timers slow to about one a minute). */
 const GONE_MS = 90_000;
 const SWEEP_MS = 3000;
+/** How many of the visitors who left a newcomer is told about. */
+const DEPARTED = 100;
 
 interface Version {
   n: number;
@@ -41,22 +45,31 @@ export function roomServer(): Plugin {
     configureServer(server) {
       const topics = new Map<string, { state: unknown; v: Version }>();
       const visitors = new Map<string, { client: Client; seen: number }>();
+      const departed: string[] = [];
       const send = (client: Client, m: ToPage) => client.send(ROOM_EVENT, m);
       const others = (from: string, m: ToPage) => {
         for (const c of server.ws.clients) if (c !== visitors.get(from)?.client) send(c, m);
       };
       const gone = (id: string) => {
         if (!visitors.delete(id)) return;
+        departed.push(id);
+        if (departed.length > DEPARTED) departed.shift();
         for (const c of server.ws.clients) send(c, { kind: "gone", id });
       };
 
       server.ws.on(ROOM_EVENT, (m: FromPage, client: Client) => {
         if (m.kind === "bye") return gone(m.from);
         visitors.set(m.from, { client, seen: Date.now() });
+        // one taken as gone that was only quiet (a background tab) is back
+        const back = departed.indexOf(m.from);
+        if (back >= 0) departed.splice(back, 1);
         if (m.kind === "hello" || m.kind === "here") {
           send(client, { kind: "time", sent: m.sent, t: Date.now() });
-          // a newcomer: how things stand
-          if (m.kind === "hello") for (const [topic, t] of topics) send(client, { kind: "state", topic, state: t.state, v: t.v });
+          // a newcomer: how things stand, and who has left (anything they held is let go of)
+          if (m.kind === "hello") {
+            for (const [topic, t] of topics) send(client, { kind: "state", topic, state: t.state, v: t.v });
+            for (const id of departed) send(client, { kind: "gone", id });
+          }
           return;
         }
         const t = topics.get(m.topic);

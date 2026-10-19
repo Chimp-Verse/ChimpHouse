@@ -15,6 +15,8 @@ import { Arcade } from "./arcade";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
 import { ButtonId, Lift } from "./lift";
+import { GameTv } from "./gameTv";
+import { ME } from "./room";
 import { Remotes } from "./remotes";
 import { Theatre } from "./theatre";
 import { parseYouTube } from "./youtube";
@@ -27,13 +29,14 @@ export interface PreviewController {
   setPlanOverlay(v: boolean): void;
   setQuality(q: Quality): void;
   setWalking(v: boolean): void;
-  /** Play the game at the cabinet in a slot (walk mode), or leave it. */
-  useCabinet(slot: number): Promise<boolean>;
-  leaveCabinet(): Promise<void>;
+  /** The arcade: cabinets for the admitted games, and the games running at them. */
+  readonly arcade: Arcade;
   /** The theatre: what it shows, choosing videos, watching (walk mode) and its player. */
   readonly theatre: Theatre;
   /** The theatre's remotes: whoever holds one controls the theatre. */
   readonly remotes: Remotes;
+  /** The Game Room TV: its controllers, its remote, and the game on it. */
+  readonly tv: GameTv;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -64,15 +67,25 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // using a screen: a cabinet's game, the theatre's video
   const focus = new ScreenFocus(scene, fly, canvas);
   // cabinets for the admitted games; the walker's collisions are rebuilt when they come or go
-  const arcade = new Arcade(scene, world.mats, lighting, fly, focus, canvas, () => {
-    if (walker) walker.world = new CollisionWorld(scene);
-  });
+  const arcade = new Arcade(
+    scene,
+    world.mats,
+    lighting,
+    fly,
+    focus,
+    canvas,
+    () => {
+      if (walker) walker.world = new CollisionWorld(scene);
+    },
+    (msg) => flash(msg, 5000),
+  );
   const theatre = new Theatre(scene, world.mats, fly, focus, canvas);
   const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
-  // a click on a screen, a remote or a lift button in reach uses it, instead of capturing the mouse
-  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || theatre.click(e) || lift.click(e);
+  const tv = new GameTv(scene, world.mats, lighting, fly, focus, canvas, (msg) => flash(msg, 3500));
+  // a click on a screen, a remote, a controller or a lift button in reach uses it, instead of capturing the mouse
+  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || tv.click(e) || theatre.click(e) || lift.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
@@ -149,10 +162,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       store.set({ walking: true });
       flash("Walking at avatar height · F to fly");
     },
-    useCabinet: (slot) => arcade.use(slot),
-    leaveCabinet: () => arcade.leave(),
+    arcade,
     theatre,
     remotes,
+    tv,
     async downloadRoom(id) {
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
@@ -222,9 +235,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     return lines.join("\n");
   }
 
-  function flash(msg: string) {
+  function flash(msg: string, ms = 2200) {
     store.set({ toast: msg });
-    setTimeout(() => store.get().toast === msg && store.set({ toast: null }), 2200);
+    setTimeout(() => store.get().toast === msg && store.set({ toast: null }), ms);
   }
 
   // ------------------------------------------------ picking / inspect
@@ -265,6 +278,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (v) controller.goTo(v.id);
     else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
+    else if (e.code === "KeyE" && s.walking && s.tvPrompt) tv.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
     // a remote's buttons (YouTube's own keys for them), and putting it back
@@ -274,6 +288,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     } else if (e.code === "KeyB" && remotes.held !== null) {
       remotes.putBack();
       flash("The remote is back on the stand");
+    } else if (e.code === "KeyB" && tv.holdingRemote) {
+      tv.putDown("remote");
+      flash("The TV's remote is back on the coffee table");
     }
     else if (e.code === "KeyN") controller.setNight(!s.night);
     else if (e.code === "KeyF") controller.setWalking(!s.walking);
@@ -361,13 +378,59 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     arcade: {
       slots: () => arcade.slotNumbers,
       games: () => arcade.games().map(({ slot, game }) => ({ slot, gameId: game.gameId, name: game.name, playUrl: game.playUrl })),
+      /** the list's entries as loaded (art and play URLs as this page uses them), for setGames */
+      entries: () => arcade.games().map(({ game }) => game),
       source: () => arcade.source,
       ready: () => arcadeReady,
       setGames: (games: Parameters<typeof arcade.setGames>[0]) => arcade.setGames(games),
       refresh: () => arcade.refresh(),
       use: (slot: number) => arcade.use(slot),
-      leave: () => arcade.leave(),
+      stepBack: () => arcade.stepBack(),
+      quit: (slot?: number) => arcade.quit(slot),
+      running: () => arcade.runningGames(),
+      outOfOrder: () => arcade.outOfOrder(),
       screenRect: (slot: number) => arcade.screenRect(slot),
+      /** a cabinet's screen corners on the page (top-left, top-right, bottom-right, bottom-left) */
+      screenQuad: (slot: number) => arcade.screenQuad(slot),
+    },
+    tv: {
+      /** this visitor, as the TV's state names them */
+      me: () => ME,
+      state: () => store.get().tv,
+      catalog: () => store.get().tvCatalog,
+      /** replace the remote's catalogue (in this tab), e.g. with games that fail */
+      setCatalog: (games: import("./store").TvGame[]) => store.set({ tvCatalog: { games, source: "test" } }),
+      take: (item: "controller" | "remote", n?: number) => tv.take(item, n),
+      putDown: (item: "controller" | "remote") => tv.putDown(item),
+      quit: () => tv.quit(),
+      choose: (gameId: string) => tv.choose(gameId),
+      turnOff: () => tv.turnOff(),
+      /** the game's frame in this page: whether it shows, and where */
+      placement: () => tv.placement(),
+      /** watch the TV, standing, and stop */
+      watch: () => tv.watch(),
+      stopWatching: () => tv.stopWatching(),
+      /** the other players' games this visitor watches: who, how each is doing, and whether and where its frame shows */
+      panes: () =>
+        store.get().tvPanes.map((p) => {
+          const el = [...document.querySelectorAll<HTMLIFrameElement>("iframe.tv-watch")].find((f) => f.src === p.src);
+          return { name: p.name, controller: p.controller, state: p.state, note: p.note, src: p.src, shown: p.shown, surface: document.querySelector<HTMLElement>(".tv-surface")?.className, left: el?.style.left, top: el?.style.top, width: el?.style.width, height: el?.style.height };
+        }),
+      /** what the TV shows in the room ("idle" or "game") and how many players it names */
+      card: () => tv.screen?.material && (tv.screen.material as { emissiveTexture?: { metadata?: unknown } }).emissiveTexture?.metadata,
+      /** the TV's corners on the page now (CSS px): bottom-left, bottom-right, top-right, top-left */
+      screenOnPage: () => (tv.screen ? toPage(screenGeometry(tv.screen).corners, scene, canvas) : null),
+      /** each controller's and the remote's spot: number and where it is in the world */
+      spots: () => ({
+        controllers: tv.controllers.spots.map((n) => ({ n: (n.metadata as { slot: number }).slot, at: n.getAbsolutePosition().asArray() })),
+        remote: tv.remote.spots.map((n) => ({ n: (n.metadata as { slot: number }).slot, at: n.getAbsolutePosition().asArray() })),
+      }),
+      /** whether each controller (then the remote) shows on the table */
+      onTable: () =>
+        scene.transformNodes
+          .filter((n) => n.name.startsWith("Game controller ") || n.name === "TV remote")
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((n) => ({ name: n.name, shown: n.isEnabled() })),
     },
     theatre: {
       /** the screen and lightbox found by role, with their corners and size */
@@ -439,6 +502,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     focus.update();
     arcade.update();
     remotes.update();
+    tv.update();
     theatre.update();
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();

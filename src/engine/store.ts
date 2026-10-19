@@ -11,8 +11,25 @@ export interface PickedInfo {
   point: [number, number, number];
 }
 
-/** What a screen in use shows (engine/focus.ts): a game at a cabinet, or the theatre's video. */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" };
+/**
+ * What a screen in use shows (engine/focus.ts): a game at a cabinet, the
+ * theatre's video, or the Game Room TV: seated with a controller to play, or
+ * standing to watch the players (`watching`).
+ */
+export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "tv"; watching?: boolean };
+
+/** A game running at a cabinet: from when it is first played until Quit, whether or not the visitor is at it. */
+export interface RunningGame {
+  slot: number;
+  gameId: string;
+  name: string;
+  author: string;
+  url: string;
+  /** while no one is playing it, when it will quit by itself (Date.now() time); playing it again resets it */
+  quitsAt: number | null;
+  /** its page is being checked as it starts: its frame stays hidden until then */
+  checking: boolean;
+}
 
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
@@ -43,6 +60,93 @@ export interface TheatreState {
 export interface TheatreVideo {
   title: string;
   channel: string;
+}
+
+/** A game the Game Room TV can play: one from ChimpVibe's catalogue. */
+export interface TvGame {
+  /** permanent where ChimpVibe gives it; otherwise "slug:<slug>" */
+  gameId: string;
+  name: string;
+  author: string;
+  /** the play page, as ChimpVibe gives it (engine/gameTv.ts adds embed mode and the player) */
+  playUrl: string;
+  art: string | null;
+  palette: string[];
+}
+
+/** Someone holding a controller or the remote. */
+export interface Holder {
+  id: string;
+  name: string;
+}
+
+/**
+ * The Game Room TV, as one object visitors share (engine/room.ts): the game on it, who holds each controller (a player each, in
+ * controller order: the TV's screen is split between them), and who holds its
+ * remote (they choose the game).
+ */
+export interface TvState {
+  game: TvGame | null;
+  /** counts the games chosen, so choosing the same game again starts it afresh */
+  run: number;
+  /** controller n's holder at n - 1, or null while it is on the table */
+  controllers: (Holder | null)[];
+  /**
+   * controller n's player in the game at n - 1, or null: it keeps playing while
+   * its controller lies on the table, until it quits or someone picks it up
+   */
+  seats: (Seat | null)[];
+  remote: Holder | null;
+}
+
+/**
+ * A player in the TV's game: ChimpVibe's play page joined under `name`, in the
+ * browser of the visitor `host`. Its controller may be on the table. Whoever
+ * picks it up hosts it from then on, joining under the same name (ChimpVibe
+ * can't hand a player from one browser to another, so the game sees a player
+ * leave and one of the same name join), and the old host's game closes.
+ */
+export interface Seat {
+  name: string;
+  host: string;
+  /** taken over from another host: the new host watches it until their own game is in */
+  handover: boolean;
+}
+
+/** The game a player at the TV plays, in a frame in their page (engine/gameTv.ts). */
+export interface TvFrame {
+  /** stable while the same game runs: changing it reloads the frame */
+  key: string;
+  src: string;
+  title: string;
+  /** its page is being checked as it starts: the frame stays hidden until then */
+  checking: boolean;
+}
+
+/**
+ * One of the other players' games on this visitor's TV, watched: ChimpVibe's
+ * spectator mode following that player (engine/gameTv.ts). Seated players see
+ * the others beside their own game, a split screen; anyone else in the Game
+ * Room sees every player's, on the TV as they walk about or square on when
+ * they watch it.
+ */
+export interface TvPane {
+  /** stable while the same game runs and the same player is followed: changing it reloads the frame */
+  key: string;
+  src: string;
+  /** the player followed, and their controller */
+  name: string;
+  controller: number;
+  /**
+   * loading: not yet showing (hidden); showing: following the player; waiting:
+   * the player isn't in the game (yet, or any more), or nobody is playing yet
+   * and it will try again; failed: it can't be watched
+   */
+  state: "loading" | "showing" | "waiting" | "failed";
+  /** its frame said it is showing, and hasn't since failed or gone to try again: it may be seen */
+  shown: boolean;
+  /** what to say about it, in plain words */
+  note: string | null;
 }
 
 /** Where a screen in use is on the page, in CSS pixels. */
@@ -81,9 +185,11 @@ export interface PreviewState {
   pointerLocked: boolean;
   toast: string | null;
   /** walking up to a cabinet: the one that E (or a click on its screen) plays */
-  arcadePrompt: { slot: number; name: string } | null;
+  arcadePrompt: { slot: number; name: string; outOfOrder?: boolean; full?: boolean } | null;
   /** a screen in use (a cabinet's game, the theatre's video): ChimpHouse's own keys and mouse look do nothing meanwhile */
   focus: Focus | null;
+  /** the games running at cabinets, each in its own frame until quit (engine/arcade.ts) */
+  arcadeRunning: RunningGame[];
   /** the screen in use on the page, once the camera is square onto it */
   focusRect: ScreenRect | null;
   theatre: TheatreState;
@@ -100,6 +206,23 @@ export interface PreviewState {
   /** a lift button within reach: E (or a click on it) presses it */
   /** the lift button the walker points at, and what pressing it does */
   liftPrompt: { id: string; label: string } | null;
+  tv: TvState;
+  /** the games the TV's remote can choose from, once loaded, and where they came from */
+  tvCatalog: { games: TvGame[]; source: string } | null;
+  /** this visitor's game failed to connect: their TV shows static, saying so, until the TV is turned off (only theirs: everyone else's is unaffected) */
+  tvFailed: { reason: string } | null;
+  /** this visitor's game at the TV while they hold a controller and a game is on, which engine/gameTv.ts places */
+  tvFrame: TvFrame | null;
+  /** this visitor's game said it is ready (the key of its frame): a seated player's split screen opens once it has */
+  tvReady: string | null;
+  /** the other players' games this visitor watches at the TV, in controller order */
+  tvPanes: TvPane[];
+  /**
+   * at the Game Room's coffee table: E picks up controller n (and sits down to
+   * play) or the remote, or puts the remote down; facing the TV while a game is
+   * on, E watches it
+   */
+  tvPrompt: { action: "take" | "put"; item: "controller" | "remote"; n: number } | { action: "watch"; item: "tv"; n: 0 } | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -132,6 +255,7 @@ class Store {
     toast: null,
     arcadePrompt: null,
     focus: null,
+    arcadeRunning: [],
     focusRect: null,
     theatre: { videoId: null, playing: false, at: 0, since: 0, live: false, remotes: [] },
     theatreVideo: null,
@@ -140,6 +264,13 @@ class Store {
     remotePrompt: null,
     lift: initialLift(Date.now()),
     liftPrompt: null,
+    tv: { game: null, run: 0, controllers: [], seats: [], remote: null },
+    tvCatalog: null,
+    tvFrame: null,
+    tvReady: null,
+    tvPanes: [],
+    tvFailed: null,
+    tvPrompt: null,
   };
   private listeners = new Set<Listener>();
 

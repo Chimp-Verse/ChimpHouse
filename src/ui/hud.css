@@ -25,11 +25,18 @@ body,
 }
 
 .scene {
+  position: relative;
+  z-index: 1;
   width: 100%;
   height: 100%;
   display: block;
   outline: none;
   touch-action: none;
+}
+
+/* the HUD above the scene; a running game seen through a cabinet's screen goes under it (z-index 0, engine/arcade.ts) */
+:where(.app > :not(.scene)) {
+  z-index: 2;
 }
 
 .panel {
@@ -420,6 +427,7 @@ kbd {
 }
 
 /* the game's frame lies over the cabinet's screen (engine/focus.ts), above the frame of UI */
+/* placed by engine/arcade.ts each frame */
 .play-frame {
   position: fixed;
   left: 0;
@@ -429,11 +437,34 @@ kbd {
   border: 0;
   background: #000;
   visibility: hidden;
+  pointer-events: none;
   z-index: 21;
 }
 
-.play-frame.shown {
-  visibility: visible;
+.arcade-running {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 2px;
+  font-size: 12px;
+}
+
+.arcade-running em {
+  font-style: normal;
+  color: var(--mint);
+  font-size: 11px;
+}
+
+.panel .arcade-running button,
+.panel .arcade-running button:hover {
+  background: var(--amber);
+  color: #2a1606;
+  border: 0;
+  border-radius: 999px;
+  padding: 3px 12px;
+  font: 700 11px "Montserrat", sans-serif;
+  cursor: pointer;
 }
 
 /* ------------------------------------------------ a screen in use: the frame of UI round it */
@@ -487,6 +518,25 @@ kbd {
   white-space: nowrap;
 }
 
+.focus-bar .focus-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border-radius: 999px;
+  background: rgba(111, 247, 198, 0.16);
+  border: 1px solid rgba(111, 247, 198, 0.55);
+  color: var(--ink);
+  font-weight: 600;
+  animation: focus-start-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes focus-start-pulse {
+  50% {
+    box-shadow: 0 0 14px rgba(111, 247, 198, 0.45);
+  }
+}
+
 .focus-bar .status {
   margin-left: auto;
   color: var(--amber);
@@ -511,8 +561,13 @@ kbd {
   color: var(--mint);
 }
 
-.focus-bar .leave {
+.focus-bar .focus-actions {
   margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.focus-bar .leave {
   background: var(--amber);
   color: #2a1606;
   border: 0;
@@ -522,7 +577,17 @@ kbd {
   cursor: pointer;
 }
 
-.focus-bar .leave:hover {
+.focus-bar .leave.secondary {
+  background: transparent;
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(255, 214, 160, 0.45);
+}
+
+.focus-bar .leave.secondary:hover {
+  background: rgba(255, 214, 160, 0.12);
+}
+
+.focus-bar .leave:not(.secondary):hover {
   background: #ffc78a;
 }
 
@@ -607,7 +672,8 @@ kbd {
   margin: 2px 2px 0;
 }
 
-.theatre-now {
+.theatre-now,
+.tv-now {
   flex-shrink: 0;
   margin: 0 2px 6px;
   font-weight: 600;
@@ -670,4 +736,198 @@ kbd {
 .panel button.put-back {
   margin-top: 8px;
   color: var(--muted);
+}
+
+/* ------------------------------------------------ the Game Room TV */
+
+/* a player's game, laid over the TV while they sit at it; placed by engine/gameTv.ts each frame */
+.tv-frame {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 1280px;
+  height: 720px;
+  border: 0;
+  background: #000;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 21;
+  /* walking about with its controller down, it is mapped onto the TV in perspective from its corner */
+  transform-origin: 0 0;
+}
+
+/*
+  the TV's picture of the other players' games, watched (ui/TvOverlay.tsx), placed by
+  engine/gameTv.ts each frame: square on over the TV (above the frame of UI), or in
+  perspective under the 3D view ("over", black where no game shows)
+*/
+.tv-surface {
+  position: fixed;
+  left: 0;
+  top: 0;
+  transform-origin: 0 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.tv-surface.over {
+  background: #000;
+}
+
+/* black round the parts at the TV, under this visitor's game (ui/TvOverlay.tsx) */
+.tv-backdrop {
+  position: fixed;
+  background: #000;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.tv-surface > * {
+  position: absolute;
+}
+
+/* another player's game, watched: never takes the keyboard or a click */
+.tv-watch {
+  border: 0;
+  background: #000;
+  pointer-events: none;
+}
+
+/* a player's part of the TV: their tag, and what their game is doing while it doesn't show */
+.tv-part {
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+/* the quarter no one plays in, with three players: the game's card */
+.tv-part.spare {
+  overflow: hidden;
+  background: #0b0d14;
+  align-content: end;
+}
+
+.tv-part.spare img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.5;
+}
+
+.tv-spare-name {
+  position: relative;
+  margin-bottom: 8%;
+  color: #f4f1ff;
+  font: 800 22px "Nunito", sans-serif;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.tv-part-note {
+  max-width: 80%;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: rgba(8, 9, 13, 0.82);
+  color: #e9e3ff;
+  font: 700 13px "Nunito", sans-serif;
+  text-align: center;
+}
+
+.tv-part-note.failed {
+  color: #ff8a73;
+}
+
+.tv-part-tag {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: #08090d;
+  font: 800 12px "Nunito", sans-serif;
+  opacity: 0.9;
+}
+
+/* who is playing, each in their controller's colour */
+.tv-players {
+  display: inline-flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.focus-bar .by .tv-player {
+  padding: 2px 10px;
+  border-radius: 999px;
+  color: #08090d;
+  font: 800 12px "Nunito", sans-serif;
+  text-shadow: none;
+}
+
+.tv-failed {
+  font-style: normal;
+  color: #ff8a73;
+  font-size: 11px;
+}
+
+.tv-count {
+  font-style: normal;
+  color: var(--mint);
+  font-size: 11px;
+}
+
+/* the TV's remote: a game list, Play, Turn off, put it down */
+.tv-remote {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.tv-remote select {
+  flex: 1 1 100%;
+  min-width: 0;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  padding: 6px 8px;
+  color: var(--ink);
+  font: 500 12px "Montserrat", sans-serif;
+}
+
+/* in the bar under the TV: one row */
+.tv-remote.compact {
+  flex-wrap: nowrap;
+}
+
+.tv-remote.compact select {
+  flex: 0 1 220px;
+}
+
+.tv-remote button,
+.panel .tv-remote button {
+  flex: 1;
+  justify-content: center;
+  border: 1px solid var(--edge);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  padding: 6px 10px;
+  font: 600 12px "Montserrat", sans-serif;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tv-remote.compact button {
+  flex: 0 0 auto;
+}
+
+.tv-remote button.main {
+  border-color: rgba(111, 247, 198, 0.5);
+  color: var(--mint);
+}
+
+.tv-remote button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }

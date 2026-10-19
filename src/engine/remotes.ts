@@ -9,39 +9,29 @@
 // `theatre.remotes`), so the room server can share it later, and pass a remote
 // from one visitor to another.
 
-import { Scene, TransformNode, Vector3 } from "@babylonjs/core";
-import { SlotMeta } from "../world/context";
-import { roomAt } from "../world/layout";
+import { Scene } from "@babylonjs/core";
 import { Materials } from "../world/materials/library";
-import { Remote, buildRemote } from "../world/props/remote";
-import { ROLE, ScreenMeta, findAll } from "../world/roles";
+import { buildRemote } from "../world/props/remote";
+import { ROLE } from "../world/roles";
 import { FlyCamera } from "./flyCamera";
-import { pickAt } from "./focus";
+import { Handhelds } from "./handhelds";
 import { Lighting } from "./lighting";
 import { VIEWER, store } from "./store";
 
-/** How near a remote's spot a walker's eye must be to take a remote or set one down (m), and how near the middle of the view the spot must be. */
-const REACH = 2.0;
-const LOOK = Math.cos((30 * Math.PI) / 180);
-
 export class Remotes {
-  private spots: TransformNode[];
-  private models: Remote[];
+  private hh: Handhelds;
 
   constructor(
-    private scene: Scene,
+    scene: Scene,
     mats: Materials,
     lighting: Lighting,
     private fly: FlyCamera,
-    private canvas: HTMLCanvasElement,
+    canvas: HTMLCanvasElement,
     /** shows a short message */
     private flash: (msg: string) => void,
   ) {
-    this.spots = findAll(scene, ROLE.theatreRemoteSpot).filter((n): n is TransformNode => n instanceof TransformNode);
-    for (const s of this.spots) s.computeWorldMatrix(true);
-    this.models = this.spots.map((s) => buildRemote(mats, s, (s.metadata as SlotMeta).slot));
-    for (const m of this.models) lighting.addMeshes(m.meshes, []);
-    store.set({ theatre: { ...store.get().theatre, remotes: this.spots.map(() => null) } });
+    this.hh = new Handhelds(scene, lighting, fly, canvas, ROLE.theatreRemoteSpot, ROLE.theatreRemote, (spot, n) => buildRemote(mats, spot, n));
+    store.set({ theatre: { ...store.get().theatre, remotes: this.hh.spots.map(() => null) } });
   }
 
   /** The remote this visitor holds (1, 2…), or null. */
@@ -56,11 +46,8 @@ export class Remotes {
    */
   update(): void {
     const s = store.get();
-    s.theatre.remotes.forEach((holder, i) => {
-      const root = this.models[i]?.root;
-      if (root && root.isEnabled(false) !== (holder === null)) root.setEnabled(holder === null);
-    });
-    if (this.held !== null && !this.inTheatre()) {
+    this.hh.show((n) => s.theatre.remotes[n - 1] !== null);
+    if (this.held !== null && !this.hh.inRoom()) {
       this.putBack();
       this.flash("You left the theatre, so the remote went back to the stand");
     }
@@ -78,7 +65,7 @@ export class Remotes {
   /** Pick up remote n from the stand, from in the theatre and with no remote in hand. */
   take(n: number): boolean {
     const remotes = [...store.get().theatre.remotes];
-    if (remotes[n - 1] !== null || this.held !== null || !this.inTheatre()) return false;
+    if (remotes[n - 1] !== null || this.held !== null || !this.hh.inRoom()) return false;
     remotes[n - 1] = VIEWER;
     store.set({ theatre: { ...store.get().theatre, remotes }, remotePrompt: null });
     return true;
@@ -96,32 +83,16 @@ export class Remotes {
   /** A canvas click in walk mode on a remote within reach picks it up. */
   click(e: MouseEvent): boolean {
     if (!store.get().walking || store.get().focus) return false;
-    const hit = pickAt(this.scene, this.canvas, e);
-    const md = hit?.mesh.metadata as Partial<ScreenMeta> | undefined;
-    if (!hit || md?.role !== ROLE.theatreRemote || md.slot === undefined || hit.distance > REACH + 0.5) return false;
-    return this.take(md.slot);
+    const n = this.hh.clicked(e);
+    return n !== null && this.take(n);
   }
 
   /** What E would do here: take the remote whose spot is looked at, or, holding one, set it down at the stand. */
   private offer(): { action: "take" | "put"; remote: number } | null {
-    const eye = this.fly.camera.position;
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
-    let best: { n: number; cos: number } | null = null;
-    for (const spot of this.spots) {
-      const to = spot.getAbsolutePosition().subtract(eye);
-      const d = to.length();
-      const cos = Vector3.Dot(fwd, to) / d;
-      if (d <= REACH && cos >= LOOK && (!best || cos > best.cos)) best = { n: (spot.metadata as SlotMeta).slot, cos };
-    }
-    if (!best) return null;
+    const n = this.hh.lookedAt()?.n;
+    if (n === undefined) return null;
     const held = this.held;
     if (held !== null) return { action: "put", remote: held };
-    return store.get().theatre.remotes[best.n - 1] === null ? { action: "take", remote: best.n } : null;
-  }
-
-  /** Whether the camera is in the room the remotes belong to. */
-  private inTheatre(): boolean {
-    const room = (this.spots[0]?.metadata as SlotMeta | undefined)?.room;
-    return !!room && roomAt(this.fly.camera.position)?.id === room;
+    return store.get().theatre.remotes[n - 1] === null ? { action: "take", remote: n } : null;
   }
 }

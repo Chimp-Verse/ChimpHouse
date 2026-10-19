@@ -42,6 +42,16 @@ export const ROLE = {
   /** the car's own doors, which open with the landing's: the left and right leaves */
   liftCarDoorLeft: "lift-car-door-left",
   liftCarDoorRight: "lift-car-door-right",
+  /** the Game Room's TV, where the players on the couch play a ChimpVibe game together, split-screen */
+  gameTvScreen: "game-tv-screen",
+  /** a place on the coffee table where a game controller is kept, numbered with its controller (player 1, 2…) */
+  gameTvControllerSpot: "game-tv-controller-spot",
+  /** a game controller: its holder is a player at the TV. Put on its spot at run time */
+  gameTvController: "game-tv-controller",
+  /** the place on the coffee table where the TV's remote is kept */
+  gameTvRemoteSpot: "game-tv-remote-spot",
+  /** the TV's remote: its holder chooses the game. Put on its spot at run time */
+  gameTvRemote: "game-tv-remote",
 } as const;
 
 type Meta = { role?: string; slot?: number };

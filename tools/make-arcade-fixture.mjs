@@ -1,5 +1,5 @@
 // Make the arcade's stand-in game list, public/arcade/chimphouse.json, in the
-// format ChimpVibe will serve at https://chimpvibe.dev/shared/chimphouse.json
+// format ChimpVibe serves at https://chimpvibe.dev/shared/showcase.json
 // (docs/handoffs/2026-10-06-arcade-cabinets.md), from the live public catalogue.
 // Every live, visible game is in it, in catalogue order: ChimpVibe has no
 // admission list yet.

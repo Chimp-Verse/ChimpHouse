@@ -5,14 +5,17 @@ import { VIEWPOINTS, findView } from "../world/viewpoints";
 import { PlayOverlay } from "./PlayOverlay";
 import { RemotePanel } from "./RemotePanel";
 import { TheatreOverlay } from "./TheatreOverlay";
+import { RemoteControls, TvOverlay } from "./TvOverlay";
 
 export function Hud({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
-  // while a screen is in use, only it and its frame show; the theatre's player stays in
-  // the page throughout (moving or remounting its frame would reload it)
+  // while a screen is in use, only it and its frame show; the theatre's player and the
+  // games running at cabinets stay in the page throughout (moving or remounting their
+  // frames would reload them)
   return (
     <>
       <TheatreOverlay s={s} theatre={ctl.theatre} />
-      {s.focus?.kind === "cabinet" && <PlayOverlay s={s} onLeave={() => void ctl.leaveCabinet()} />}
+      <PlayOverlay s={s} arcade={ctl.arcade} />
+      <TvOverlay s={s} tv={ctl.tv} />
       {!s.focus && <Panels ctl={ctl} s={s} />}
       {s.toast && <div className="toast">{s.toast}</div>}
     </>
@@ -27,6 +30,13 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       <div className="left-stack">
         <StatusPanel s={s} />
         {holding && <RemotePanel ctl={ctl} s={s} />}
+        {ctl.tv.holdingRemote && (
+          <div className="panel remote">
+            <div className="section">TV remote · you choose the Game Room's game</div>
+            <div className="tv-now">{s.tvFailed ? `${s.tv.game?.name ?? "The game"} failed to connect for you: turn the TV off` : s.tv.game ? `On the TV: ${s.tv.game.name}` : "The TV is off: choose a game"}</div>
+            <RemoteControls s={s} tv={ctl.tv} />
+          </div>
+        )}
       </div>
 
       <div className="panel views">
@@ -43,6 +53,47 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         </div>
         {!holding && <div className="theatre-hint">Pick up a remote from the stand under the screen to choose or control what's showing.</div>}
         {s.theatreError && <div className="theatre-error">{s.theatreError}</div>}
+        <div className="section">Game Room TV</div>
+        <div className="tv-now">
+          {s.tvFailed ? (
+            <>
+              {s.tv.game?.name} <em className="tv-failed">failed to connect for you</em>
+            </>
+          ) : s.tv.game ? (
+            <>
+              {s.tv.game.name}
+              <em className="tv-count">
+                {" "}
+                · {s.tv.seats.filter(Boolean).length || "no"} player{s.tv.seats.filter(Boolean).length === 1 ? "" : "s"}
+              </em>
+            </>
+          ) : (
+            "Off"
+          )}
+        </div>
+        {!ctl.tv.holdingRemote && <div className="theatre-hint">{s.tv.remote ? `${s.tv.remote.name} has the remote.` : "Pick up the remote on the coffee table to choose a game."}</div>}
+        {/* this visitor's game plays on with the controller put down */}
+        {s.tv.game && ctl.tv.mySeat !== null && ctl.tv.myController === null && (
+          <div className="arcade-running">
+            <span>
+              {s.tv.game.name} <em>playing on · controller {ctl.tv.mySeat} down</em>
+            </span>
+            <button onClick={() => ctl.tv.quit()}>Quit</button>
+          </div>
+        )}
+        {s.arcadeRunning.length > 0 && (
+          <>
+            <div className="section">Arcade</div>
+            {s.arcadeRunning.map((g) => (
+              <div key={g.slot} className="arcade-running">
+                <span>
+                  {g.name} <em>{g.quitsAt === null ? "running" : `left alone · quits in ${countdown(g.quitsAt)}`}</em>
+                </span>
+                <button onClick={() => void ctl.arcade.quit(g.slot)}>Quit</button>
+              </div>
+            ))}
+          </>
+        )}
         <div className="section">Viewpoints</div>
         {VIEWPOINTS.map((v) => (
           <button key={v.id} className={s.viewId === v.id ? "active" : ""} onClick={() => ctl.goTo(v.id)}>
@@ -103,14 +154,23 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen, take a remote or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · <b>E</b> play a cabinet, watch the screen, take a remote or controller, or use the lift · <b>F</b> fly · <b>Alt-click</b> inspect · <b>H</b> help
         </div>
       )}
       {s.pointerLocked && <div className="crosshair" />}
       {s.walking && s.arcadePrompt && (
         <div className="play-prompt">
-          <kbd>E</kbd>Play {s.arcadePrompt.name}
-          <span>or click its screen</span>
+          {s.arcadePrompt.outOfOrder ? (
+            <>
+              <kbd>E</kbd>Try {s.arcadePrompt.name} again
+              <span>{s.arcadePrompt.full ? "it's full" : "it's out of order"}</span>
+            </>
+          ) : (
+            <>
+              <kbd>E</kbd>Play {s.arcadePrompt.name}
+              <span>or click its screen</span>
+            </>
+          )}
         </div>
       )}
       {s.walking && s.remotePrompt && (
@@ -118,6 +178,13 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
           <kbd>E</kbd>
           {s.remotePrompt.action === "take" ? `Pick up remote ${s.remotePrompt.remote}` : "Put the remote down"}
           <span>{s.remotePrompt.action === "take" ? "to control the screen" : "on the stand"}</span>
+        </div>
+      )}
+      {s.walking && s.tvPrompt && (
+        <div className="play-prompt low">
+          <kbd>E</kbd>
+          {s.tvPrompt.item === "tv" ? `Watch ${s.tv.game?.name ?? "the TV"}` : s.tvPrompt.item === "controller" ? controllerPrompt(s, ctl.tv.mySeat, s.tvPrompt.n) : s.tvPrompt.action === "take" ? "Pick up the TV remote" : "Put the remote down"}
+          <span>{s.tvPrompt.item === "tv" ? "see everyone's game, or click the TV" : s.tvPrompt.item === "controller" ? (s.tv.seats[s.tvPrompt.n - 1] ? "and sit down to play on" : "and sit down to play on the TV") : s.tvPrompt.action === "take" ? "to choose the game" : "on the coffee table"}</span>
         </div>
       )}
       {s.walking && s.theatrePrompt && (
@@ -181,9 +248,11 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>Shift / Alt (held)</td><td>Four times faster / slower</td></tr>
             <tr><td>Mouse wheel</td><td>Change base speed (zoom in plan views)</td></tr>
             <tr><td>F</td><td>Walk at avatar height (walls, furniture, stairs and gravity) / fly</td></tr>
-            <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Leave under the game walks on</td></tr>
+            <tr><td>E (walking)</td><td>Play the arcade cabinet in front of you, or click its screen; Step back under the game leaves it running, Quit ends it</td></tr>
             <tr><td>E (walking, theatre)</td><td>Watch the theatre screen: sit square onto it with YouTube's player over it; Leave walks on</td></tr>
             <tr><td>E (at the stand)</td><td>Pick up a theatre remote, or put yours down: its holder controls the screen</td></tr>
+            <tr><td>E (Game Room coffee table)</td><td>Pick up a controller and sit down to play the TV's game, or the TV remote to choose the game for everyone with a controller</td></tr>
+            <tr><td>E (facing the Game Room TV)</td><td>Watch everyone playing the TV's game</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
             <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>
             <tr><td>N</td><td>Day / night</td></tr>
@@ -199,4 +268,17 @@ function Help({ onClose }: { onClose: () => void }) {
       </div>
     </div>
   );
+}
+
+/** Time left until `at` (a Date.now() time), as m:ss. */
+function countdown(at: number): string {
+  const s = Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** What picking up TV controller n does: a fresh player, your own game again, or taking over the game left playing with it. */
+function controllerPrompt(s: PreviewState, mySeat: number | null, n: number): string {
+  const seat = s.tv.seats[n - 1];
+  if (!seat) return `Pick up controller ${n}`;
+  return mySeat === n ? `Pick up controller ${n} again` : `Take over ${seat.name}'s game`;
 }

@@ -9,7 +9,8 @@
 // frame of UI round the content. Screens are found by role (world/roles.ts) and
 // read from their meshes, never from how the room code builds them.
 
-import { AbstractMesh, Matrix, Mesh, Scene, Vector3, VertexBuffer, Viewport } from "@babylonjs/core";
+import { AbstractMesh, Constants, Matrix, Mesh, Ray, Scene, ShaderMaterial, Vector3, VertexBuffer, Viewport } from "@babylonjs/core";
+import { MeshMeta } from "../world/context";
 import { FlyCamera, Pose } from "./flyCamera";
 import { FocusInfo, ScreenRect, store } from "./store";
 
@@ -85,6 +86,77 @@ export function toPage(points: Vector3[], scene: Scene, canvas: HTMLCanvasElemen
   return points.map((p) => {
     const q = Vector3.Project(p, Matrix.IdentityReadOnly, vp, view);
     return { x: box.left + (q.x * box.width) / rw, y: box.top + (q.y * box.height) / rh };
+  });
+}
+
+type Pt = { x: number; y: number };
+
+/**
+ * The CSS transform that lays a w × h box, from its top-left corner, onto a
+ * quad on the page (top-left, top-right, bottom-right, bottom-left): the
+ * projective map from the unit square onto the quad (Heckbert), scaled to the box.
+ */
+export function quadTransform(w: number, h: number, [p0, p1, p2, p3]: Pt[]): string {
+  const dx1 = p1.x - p2.x;
+  const dx2 = p3.x - p2.x;
+  const dx3 = p0.x - p1.x + p2.x - p3.x;
+  const dy1 = p1.y - p2.y;
+  const dy2 = p3.y - p2.y;
+  const dy3 = p0.y - p1.y + p2.y - p3.y;
+  const det = dx1 * dy2 - dx2 * dy1;
+  const g = (dx3 * dy2 - dx2 * dy3) / det;
+  const k = (dx1 * dy3 - dx3 * dy1) / det;
+  const a = p1.x - p0.x + g * p1.x;
+  const b = p3.x - p0.x + k * p3.x;
+  const d = p1.y - p0.y + g * p1.y;
+  const e = p3.y - p0.y + k * p3.y;
+  // column by column: x' = a u + b v + p0.x, y' = d u + e v + p0.y, w' = g u + k v + 1, with u = x / w, v = y / h
+  return `matrix3d(${[a / w, d / w, 0, g / w, b / h, e / h, 0, k / h, 0, 0, 1, 0, p0.x, p0.y, 0, 1].join(",")})`;
+}
+
+/** The share of a convex quad's area that lies inside a box. */
+export function onPage(quad: Pt[], box: { left: number; top: number; right: number; bottom: number }): number {
+  const area = (pts: Pt[]) => Math.abs(pts.reduce((s, p, i) => s + p.x * pts[(i + 1) % pts.length].y - pts[(i + 1) % pts.length].x * p.y, 0)) / 2;
+  // clip to each side of the box in turn (Sutherland–Hodgman)
+  let pts = quad;
+  const sides: [(p: Pt) => number, (a: Pt, b: Pt) => Pt][] = [
+    [(p) => p.x - box.left, (a, b) => lerpAt(a, b, (box.left - a.x) / (b.x - a.x))],
+    [(p) => box.right - p.x, (a, b) => lerpAt(a, b, (box.right - a.x) / (b.x - a.x))],
+    [(p) => p.y - box.top, (a, b) => lerpAt(a, b, (box.top - a.y) / (b.y - a.y))],
+    [(p) => box.bottom - p.y, (a, b) => lerpAt(a, b, (box.bottom - a.y) / (b.y - a.y))],
+  ];
+  for (const [inside, cross] of sides) {
+    const out: Pt[] = [];
+    pts.forEach((p, i) => {
+      const q = pts[(i + 1) % pts.length];
+      if (inside(p) >= 0) out.push(p);
+      if (inside(p) >= 0 !== inside(q) >= 0) out.push(cross(p, q));
+    });
+    pts = out;
+    if (!pts.length) return 0;
+  }
+  return area(pts) / Math.max(1e-6, area(quad));
+}
+
+function lerpAt(a: Pt, b: Pt, t: number): Pt {
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+}
+
+/**
+ * Nothing between the eye and a screen: rays to its centre and to just inside
+ * its corners meet the screen first. Only the screen's own room is tested:
+ * whatever can stand between a viewer in that room and its screen is in the
+ * room, and the house's terrain and trees, which every ray crosses, would make
+ * each ray some fifty times slower.
+ */
+export function nothingInTheWay(scene: Scene, eye: Vector3, screen: Mesh, g: ScreenGeometry): boolean {
+  const { room, level } = screen.metadata as MeshMeta;
+  const pickable = (m: AbstractMesh) => m.isPickable && m.isEnabled() && m.isVisible && (m.metadata as MeshMeta | undefined)?.room === room && (m.metadata as MeshMeta).level === level;
+  const from = eye.clone();
+  return [g.centre, ...g.corners.map((c) => Vector3.Lerp(c, g.centre, 0.04))].every((t) => {
+    const d = t.subtract(from);
+    const dist = d.length();
+    return scene.pickWithRay(new Ray(from, d.scaleInPlace(1 / dist), dist + 0.5), pickable)?.pickedMesh === screen;
   });
 }
 
@@ -208,4 +280,29 @@ export class ScreenFocus {
     const was = store.get().focusRect;
     if (!was || Math.abs(r.x - was.x) > 0.5 || Math.abs(r.y - was.y) > 0.5 || Math.abs(r.w - was.w) > 0.5 || Math.abs(r.h - was.h) > 0.5) store.set({ focusRect: r });
   }
+}
+
+const holes = new WeakMap<Scene, ShaderMaterial>();
+
+/**
+ * The material that draws a screen as a hole in the canvas, for content laid
+ * under the canvas in perspective (a cabinet's game, the Game Room TV's players
+ * as a walker sees them): it writes transparent black, and depth, so nearer
+ * things still draw over it and the page shows through what is left.
+ */
+export function screenHoleMaterial(scene: Scene): ShaderMaterial {
+  let m = holes.get(scene);
+  if (m) return m;
+  m = new ShaderMaterial(
+    "screenHole",
+    scene,
+    {
+      vertexSource: "precision highp float; attribute vec3 position; uniform mat4 worldViewProjection; void main() { gl_Position = worldViewProjection * vec4(position, 1.0); }",
+      fragmentSource: "precision highp float; void main() { gl_FragColor = vec4(0.0); }",
+    },
+    { attributes: ["position"], uniforms: ["worldViewProjection"] },
+  );
+  m.alphaMode = Constants.ALPHA_DISABLE;
+  holes.set(scene, m);
+  return m;
 }

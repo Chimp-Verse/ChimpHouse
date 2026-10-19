@@ -1,8 +1,8 @@
-// This visitor, and the state visitors share. Shared state (the lift's, engine/liftState.ts)
-// goes through the room server (server/roomServer.ts), which runs inside the dev server and
-// reaches every page it serves, on this computer or across the home network. Each page is a
-// visitor of its own: open the preview in two windows, or on two computers, and both see the
-// same lift.
+// This visitor, and the state visitors share. Shared state (the lift's, engine/liftState.ts, and
+// the Game Room TV's, engine/gameTv.ts) goes through the room server (server/roomServer.ts),
+// which runs inside the dev server and reaches every page it serves, on this computer or across
+// the home network. Each page is a visitor of its own: open the preview in two windows, or on
+// two computers, and both see the same lift and the same players at the TV.
 //
 // Each topic is one object, replaced whole, the newest version winning. The server keeps the
 // newest of each, so a visitor who arrives later is told how things stand, and it keeps the

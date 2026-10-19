@@ -2,18 +2,19 @@
 // cabinet slots, one along the north wall under the 3D ChimpVibe sign and one
 // along the south glass, filled at run time with the cabinets of the games
 // admitted to ChimpHouse (engine/arcade.ts); a console lounge facing the big TV in the round east end
-// with bean bags in front; air hockey and foosball on the open floor; pinball
+// with bean bags in front, where the players on the couch play a ChimpVibe game together
+// split-screen with the controllers on the coffee table (engine/gameTv.ts); air hockey and foosball on the open floor; pinball
 // machines in the north-east curve; a claw machine and a snack machine in the
 // south-east curve; a GAME ON neon over the north wall's west end.
 
 import { Vector3 } from "@babylonjs/core";
 import { rng } from "../geometry/curves";
-import { Geo, box, cylinder, lathe, softBox, sphere, torus, tube, xf } from "../geometry/geo";
+import { Geo, box, cylinder, lathe, sphere, torus, tube, xf } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
 import { GAME, LEVEL, TREES } from "../layout";
 import { airHockey, beanBag, clawMachine, foosball, pinball, plushChimp, vendingMachine } from "../props/arcade";
 import { sodaCan } from "../props/barware";
-import { drumTable, lowStool, roundRug, sofa } from "../props/furniture";
+import { drumTable, roundRug, sofa } from "../props/furniture";
 import { chimpVibeSign, neonWord, neonWordWidth } from "../props/lettering3d";
 import { ringPendant, wovenPendant } from "../props/lights";
 import { pottedPlant } from "../props/plants";
@@ -27,8 +28,10 @@ const C = LEVEL.lowerCeil;
 const F = LEVEL.lower + 0.012;
 const tree = (id: string) => TREES.find((t) => t.id === id)!;
 
-/** How far in front of a cabinet a visitor stands to play: behind its stool, with the whole cabinet in view. */
-const STAND = 1.55;
+/** How far in front of a cabinet a visitor stands to play: clear of its control deck and within reach to play it (engine/arcade.ts). */
+const STAND = 1.0;
+/** How many game controllers lie on the coffee table: the most players the TV splits its screen for. */
+export const TV_CONTROLLERS = 4;
 
 /**
  * A cabinet slot: an admitted ChimpVibe game's cabinet is put here at run time
@@ -70,36 +73,28 @@ export function buildGameRoom(ctx: WorldCtx): void {
   const nPots = Math.floor((bw - 0.3) / 0.66) + 1;
   for (let i = 0; i < nPots; i++) pottedPlant(ctx, z, new Vector3(bx + (i - (nPots - 1) / 2) * 0.66, 2.31, shelfZ), i % 2 ? "fern" : "philodendron", { pot: i % 3 ? "cream" : "terracotta", potR: 0.09, potH: 0.16, scale: 0.45, r });
 
-  const stools = ["tealDeep", "plum", "tealDeep", "rust"];
-  for (let i = 0; i < 4; i++) {
-    const x = rowX0 + i * pitch;
-    cabinetSlot(ctx, z, 1 + i, x, rowZ, 0, -1);
-    lowStool(ctx, z, new Vector3(x + 0.05, F, rowZ - 0.95), stools[i]);
-  }
+  for (let i = 0; i < 4; i++) cabinetSlot(ctx, z, 1 + i, rowX0 + i * pitch, rowZ, 0, -1);
   // right row in front of the south glazing (slot 5 furthest from the hall)
-  const stools2 = ["tealDeep", "mustard", "tealDeep", "rust"];
-  for (let i = 0; i < 4; i++) {
-    const x = c.x - 0.6 * K - i * 0.95;
-    const zz = 0.75 + (3 - i) * 0.08;
-    cabinetSlot(ctx, z, 5 + i, x, zz, -0.35, 1);
-    lowStool(ctx, z, new Vector3(x - 0.3, F, zz + 1.0), stools2[i]);
-  }
+  for (let i = 0; i < 4; i++) cabinetSlot(ctx, z, 5 + i, c.x - 0.6 * K - i * 0.95, 0.75 + (3 - i) * 0.08, -0.35, 1);
   // console lounge: TV before the east window, curved sofa, table, rug, pouf
   const tvx = x1 - 0.75;
-  tvConsole(ctx, z, xf(tvx, F, c.z, faceYaw(-1, 0)), 2.3, 1.3, screenMat(ctx, "game-tv", 1.15), 2.8);
+  tvConsole(ctx, z, xf(tvx, F, c.z, faceYaw(-1, 0)), 2.3, 1.3, screenMat(ctx, "game-tv", 1.15), 2.8, ROLE.gameTvScreen);
   const tx = c.x + 0.7 * K;
   roundRug(ctx, z, new Vector3(tx - 0.2, F, c.z), 2.8 * K, rugs.gameJute(ctx), "Woven rug");
   sofa(ctx, z, arcDeg(tx, c.z, 1.95 * K, 112, 248, 32), { mat: "tealDeep", r, pillows: ["mustard", "rust", "mustard", "coral"], label: "Curved console sofa" });
   drumTable(ctx, z, new Vector3(tx, F, c.z), 0.85, 0.38);
-  for (const [dx, dz] of [
-    [-0.25, 0.2],
-    [0.1, -0.3],
-  ])
-    ctx.g(z, "black", { castShadow: false }).add(softBox(0.16, 0.05, 0.1, 0.02), xf(tx + dx, 0.41, c.z + dz, r()), "Game controller");
+  // the controllers along the couch side of the table and the remote beside them, put on their
+  // spots at run time (engine/gameTv.ts); their tops point at the TV
+  const top = F + 0.38;
+  for (let i = 0; i < TV_CONTROLLERS; i++) {
+    const a = ((147 + i * 22) * Math.PI) / 180;
+    ctx.slot(z, ROLE.gameTvControllerSpot, i + 1, xf(tx + Math.cos(a) * 0.6, top, c.z + Math.sin(a) * 0.6, faceYaw(-1, 0)), new Vector3(0, -0.38, -1.0), `Controller spot ${i + 1}`);
+  }
+  ctx.slot(z, ROLE.gameTvRemoteSpot, 1, xf(tx - 0.12, top, c.z + 0.42, faceYaw(-1, 0)), new Vector3(0, -0.38, -1.0), "TV remote spot");
   pottedPlant(ctx, z, new Vector3(tx + 0.15, 0.39, c.z + 0.15 * K), "fern", { pot: "terracotta", potR: 0.1, potH: 0.14, scale: 0.5, r });
   // gaming bits on the coffee table: cans, a headset, a stack of game cases, a bowl of snacks
-  sodaCan(ctx, z, new Vector3(tx - 0.42, 0.38, c.z - 0.1), r);
-  sodaCan(ctx, z, new Vector3(tx - 0.35, 0.38, c.z + 0.05), r);
+  sodaCan(ctx, z, new Vector3(tx + 0.58, 0.38, c.z + 0.1), r);
+  sodaCan(ctx, z, new Vector3(tx + 0.64, 0.38, c.z - 0.03), r);
   headset(ctx, z, new Vector3(tx + 0.4, 0.38, c.z - 0.25));
   const cases = ["tealDeep", "rust", "mustard", "navy"];
   cases.forEach((mat, i) => ctx.g(z, mat, { castShadow: false }).add(box(0.14, 0.015, 0.19), xf(tx + 0.3, 0.388 + i * 0.016, c.z + 0.35, 0.2 + i * 0.12), "Game cases"));

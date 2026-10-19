@@ -3,92 +3,186 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Stand-in game</title>
+    <title>Stand-in play page</title>
     <!--
-      A same-origin stand-in for a ChimpVibe game, for testing the arcade cabinets
+      A stand-in for a ChimpVibe game's play page, for testing the arcade cabinets
       before ChimpVibe lets ChimpHouse frame its games (?arcade=standin, and
-      tools/test-arcade.mjs). It shows the keys it receives and whether it has
-      the keyboard, and keeps them in window.received for the test to read.
+      tools/test-arcade.mjs). ChimpHouse loads it from another origin (127.0.0.1
+      for localhost), as it would a real game.
+
+      Like ChimpVibe's play page (game-evolve/client/shell.js), it runs the game
+      (standin-game.html) in a locked-down frame inside itself and hands its own
+      window's focus on to the game: ChimpHouse focusing its iframe lands focus on
+      this page, not on the game. It copies what ChimpVibe saw with its real page
+      in headless Chrome (2026-10-06): the first key after ChimpHouse hands focus
+      over lands here, and only the keys after it reach the game. That key is
+      kept in window.missed. (Here the hand-off only takes effect once that key
+      arrives; ChimpVibe's real page loses the first key only when it comes
+      within ~20 ms of the hand-off, so this is the worst case.)
+
+      With ?embed=1 it speaks ChimpVibe's embed mode
+      (docs/handoffs/2026-10-06-chimpvibe-embed-messages.md): it is joined at
+      once, so it says ready on load, and playing on the game's first key.
+      With &fail=<reason> (and &code=<code>, "unavailable" by default) it shows
+      an error instead and sends it as an "error" message; with &failFor=<name> as
+      well, only for the player joining under that name. With &silent=1, or
+      without embed=1, it sends nothing, like a page without embed mode.
+
+      With &role=spectator it watches instead, as ChimpVibe's spectator mode
+      does (its docs/spectator-mode.md): no game of its own and no keys, just
+      what the players' games show, which the stand-in's players share between
+      the stand-in's pages over a BroadcastChannel (one per game: this
+      browser's tabs are the game's session). &follow=<name> shows that player
+      only, with "follow" messages as they come and go; without it, everyone.
+      Nobody playing refuses it ("error" no-players), and the last player
+      leaving ends it ("ended" no-players). &nowatch=1 stands in for a game
+      that turns watching off ("error" no-spectators).
     -->
     <style>
       html,
       body {
         margin: 0;
         height: 100%;
-        background: radial-gradient(circle at 50% 40%, #2c1f4a, #0c0a14 75%);
-        color: #e9e3ff;
-        font: 600 16px/1.4 system-ui, sans-serif;
+        background: #000;
         overflow: hidden;
       }
-      main {
+      #watch {
         height: 100%;
         display: grid;
         place-items: center;
         text-align: center;
+        color: #e9e3ff;
+        font: 600 16px/1.4 system-ui, sans-serif;
+        background: radial-gradient(circle at 50% 40%, #1f2c4a, #0a0c14 75%);
       }
-      h1 {
-        margin: 0 0 0.3em;
-        font-size: clamp(18px, 6vw, 48px);
-        color: #7cf2c3;
+      #watch h1 {
+        margin: 0 0 0.2em;
+        font-size: clamp(14px, 5vw, 40px);
+        color: #7cc3f2;
       }
-      #focus {
-        font-size: 0.85em;
-        padding: 0.2em 0.7em;
-        border-radius: 999px;
-        background: #3a2a24;
-        color: #ffb25e;
-      }
-      #focus.on {
-        background: #173a2c;
-        color: #7cf2c3;
-      }
-      #keys {
-        margin-top: 0.8em;
-        min-height: 2.6em;
-        font: 700 clamp(14px, 4vw, 30px) ui-monospace, monospace;
-        letter-spacing: 0.08em;
+      #watch .keys {
+        font: 700 clamp(12px, 4vw, 28px) ui-monospace, monospace;
         word-break: break-all;
-        max-width: 90vw;
       }
-      #count {
-        opacity: 0.7;
-        font-size: 0.8em;
+      iframe {
+        border: 0;
+        width: 100%;
+        height: 100%;
+        display: block;
       }
     </style>
   </head>
   <body>
-    <main>
-      <div>
-        <h1 id="name">Stand-in game</h1>
-        <span id="focus">no keyboard: click here</span>
-        <div id="keys">press some keys</div>
-        <div id="count">0 keys received</div>
-      </div>
-    </main>
+    <iframe id="game" sandbox="allow-scripts" title="Game"></iframe>
     <script>
-      const name = new URLSearchParams(location.search).get("game");
-      if (name) document.getElementById("name").textContent = name;
-      window.received = [];
-      const keys = document.getElementById("keys");
-      const count = document.getElementById("count");
-      const focus = document.getElementById("focus");
-      addEventListener("keydown", (e) => {
-        window.received.push(e.code);
-        keys.textContent = window.received.slice(-16).map((c) => c.replace(/^Key|^Digit/, "")).join(" ");
-        count.textContent = `${window.received.length} keys received`;
-        // a game keeps its keys: Space and the arrows don't scroll anything
-        e.preventDefault();
-      });
-      const showFocus = () => {
-        const on = document.hasFocus();
-        focus.textContent = on ? "has the keyboard" : "no keyboard: click here";
-        focus.classList.toggle("on", on);
+      const q = new URLSearchParams(location.search);
+      const game = document.getElementById("game");
+      const speaks = q.get("embed") === "1" && q.get("silent") !== "1";
+      // the embed-mode envelope, to the embedding page's origin where the browser says it
+      const send = (type, fields = {}) =>
+        speaks && parent.postMessage({ protocol: "chimpvibe-embed", version: 1, type, ...fields }, location.ancestorOrigins?.[0] ?? "*");
+      // this game's session: its players say they are here and what their games show
+      const session = new BroadcastChannel(`standin-session:${q.get("game") ?? ""}`);
+      const spectator = q.get("role") === "spectator";
+      const fail = !q.get("failFor") || q.get("failFor") === q.get("name") ? q.get("fail") : null;
+      const showText = (text) => {
+        game.remove();
+        document.body.innerHTML = `<p style="color:#e9e3ff;font:600 22px system-ui;text-align:center;margin-top:30vh">${text.replace(/</g, "&lt;")}</p>`;
       };
-      addEventListener("focus", showFocus);
-      addEventListener("blur", showFocus);
-      showFocus();
-      // the optional messages ChimpVibe's play page may send its parent
-      parent.postMessage({ type: "ready" }, location.origin);
+      window.missed = [];
+      if (fail) {
+        showText(fail);
+        send("error", { code: q.get("code") ?? "unavailable", reason: fail });
+      } else if (spectator) watch();
+      else play();
+
+      function play() {
+        game.src = `standin-game.html${location.search}`;
+        // pass this page's focus on to the game, and again when a key lands here instead
+        const handOff = () => game.contentWindow?.focus();
+        addEventListener("focus", handOff);
+        addEventListener("keydown", (e) => {
+          window.missed.push(e.code);
+          handOff();
+        });
+        const id = Math.random().toString(36).slice(2);
+        const me = { id, name: q.get("name") ?? "", keys: [], count: 0 };
+        const here = () => session.postMessage({ kind: "here", ...me });
+        addEventListener("message", (e) => {
+          if (e.source !== game.contentWindow) return;
+          if (e.data?.type === "started") send("playing");
+          if (e.data?.type === "keys") {
+            me.keys = e.data.keys;
+            me.count = e.data.count;
+            here();
+          }
+        });
+        session.onmessage = (e) => e.data?.kind === "who" && here();
+        setInterval(here, 1000);
+        addEventListener("pagehide", () => session.postMessage({ kind: "bye", id }));
+        here();
+        send("ready", { role: "player" });
+      }
+
+      function watch() {
+        game.remove();
+        if (q.get("nowatch") === "1") {
+          showText("Watching isn't available for this game.");
+          return send("error", { code: "no-spectators", reason: "Watching isn't available" });
+        }
+        const follow = (q.get("follow") ?? "").trim();
+        /** the players, by id: when last heard from, and what their games show */
+        const players = new Map();
+        let state = null;
+        let started = false;
+        const view = document.createElement("div");
+        view.id = "watch";
+        document.body.append(view);
+        const draw = () => {
+          const live = [...players.values()];
+          const seen = follow ? live.filter((p) => p.name === follow).slice(-1) : live;
+          const title = follow ? (seen.length ? `Watching ${follow}` : state === "gone" ? `${follow} has left. Waiting for them to come back…` : `Waiting for ${follow}…`) : "Watching everyone";
+          view.innerHTML = `<div><h1></h1>${seen.map((p) => `<div class="keys"></div>`).join("")}</div>`;
+          view.querySelector("h1").textContent = title;
+          view.querySelectorAll(".keys").forEach((el, i) => (el.textContent = `${follow ? "" : `${seen[i].name}: `}${seen[i].keys.map((c) => c.replace(/^Key|^Digit/, "")).join(" ") || "—"} (${seen[i].count})`));
+          window.watching = { follow, state, players: live.map((p) => ({ name: p.name, count: p.count })) };
+        };
+        const check = () => {
+          const now = Date.now();
+          for (const [id, p] of players) if (now - p.at > 3000) players.delete(id);
+          if (!started) return;
+          if (!players.size) {
+            session.close();
+            showText("Nobody is playing.");
+            return send("ended", { reason: "no-players" });
+          }
+          if (follow) {
+            const there = [...players.values()].some((p) => p.name === follow);
+            const next = there ? "following" : state === "following" || state === "gone" ? "gone" : "waiting";
+            if (next !== state) send("follow", { name: follow, state: (state = next) });
+          }
+          draw();
+        };
+        session.onmessage = (e) => {
+          const m = e.data;
+          if (m?.kind === "here") players.set(m.id, { ...m, at: Date.now() });
+          if (m?.kind === "bye") players.delete(m.id);
+          check();
+        };
+        session.postMessage({ kind: "who" });
+        // a spectator is refused while nobody is playing
+        setTimeout(() => {
+          if (!players.size) {
+            session.close();
+            showText("Nobody is playing.");
+            return send("error", { code: "no-players", reason: "Nobody is playing" });
+          }
+          started = true;
+          send("ready", { role: "spectator" });
+          check();
+          setInterval(check, 500);
+        }, 500);
+      }
     </script>
   </body>
 </html>

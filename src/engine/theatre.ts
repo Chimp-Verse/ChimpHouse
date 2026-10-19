@@ -24,15 +24,14 @@
 // by that: like a cinema, it keeps going while someone looks away or steps out,
 // and their player catches up when the screen is back in view.
 
-import { AbstractMesh, DynamicTexture, Mesh, Ray, Scene, Vector3 } from "@babylonjs/core";
-import { MeshMeta } from "../world/context";
+import { DynamicTexture, Mesh, Scene, Vector3 } from "@babylonjs/core";
 import { roomAt } from "../world/layout";
 import { makeCanvas, toTexture } from "../world/materials/canvas";
 import { Materials } from "../world/materials/library";
 import { TheatreCard, drawTheatreCard } from "../world/props/theatreScreen";
 import { ROLE, ScreenMeta, find } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
-import { ScreenFocus, ScreenGeometry, pickAt, screenGeometry, squarePose, toPage } from "./focus";
+import { ScreenFocus, ScreenGeometry, nothingInTheWay, onPage, pickAt, quadTransform, screenGeometry, squarePose, toPage } from "./focus";
 import { VIEWER, store } from "./store";
 import { AVATAR } from "./walker";
 import { PLAYER, PlayerEvents, VideoPlayer, embedUrl, fetchVideoInfo, loadThumbnail, parseYouTube, youTubeError, youTubePlayer } from "./youtube";
@@ -509,15 +508,7 @@ export class Theatre {
    */
   private clearView(): boolean {
     if (this.frames - this.clear.frame < 3) return this.clear.ok;
-    const g = this.geo!;
-    const eye = this.fly.camera.position.clone();
-    const { room, level } = this.screen!.metadata as ScreenMeta;
-    const pickable = (m: AbstractMesh) => m.isPickable && m.isEnabled() && m.isVisible && (m.metadata as MeshMeta | undefined)?.room === room && (m.metadata as MeshMeta).level === level;
-    const ok = [g.centre, ...g.corners.map((c) => Vector3.Lerp(c, g.centre, 0.04))].every((t) => {
-      const d = t.subtract(eye);
-      const dist = d.length();
-      return this.scene.pickWithRay(new Ray(eye, d.scaleInPlace(1 / dist), dist + 0.5), pickable)?.pickedMesh === this.screen;
-    });
+    const ok = nothingInTheWay(this.scene, this.fly.camera.position, this.screen!, this.geo!);
     this.clear = { frame: this.frames, ok };
     return ok;
   }
@@ -534,57 +525,6 @@ export class Theatre {
 /** Run `fn` once the page has drawn the next frame. */
 function afterDrawn(fn: () => void): void {
   requestAnimationFrame(() => requestAnimationFrame(fn));
-}
-
-/**
- * The CSS transform that lays a w × h box, from its top-left corner, onto a
- * quad on the page (top-left, top-right, bottom-right, bottom-left): the
- * projective map from the unit square onto the quad (Heckbert), scaled to the box.
- */
-function quadTransform(w: number, h: number, [p0, p1, p2, p3]: Pt[]): string {
-  const dx1 = p1.x - p2.x;
-  const dx2 = p3.x - p2.x;
-  const dx3 = p0.x - p1.x + p2.x - p3.x;
-  const dy1 = p1.y - p2.y;
-  const dy2 = p3.y - p2.y;
-  const dy3 = p0.y - p1.y + p2.y - p3.y;
-  const det = dx1 * dy2 - dx2 * dy1;
-  const g = (dx3 * dy2 - dx2 * dy3) / det;
-  const k = (dx1 * dy3 - dx3 * dy1) / det;
-  const a = p1.x - p0.x + g * p1.x;
-  const b = p3.x - p0.x + k * p3.x;
-  const d = p1.y - p0.y + g * p1.y;
-  const e = p3.y - p0.y + k * p3.y;
-  // column by column: x' = a u + b v + p0.x, y' = d u + e v + p0.y, w' = g u + k v + 1, with u = x / w, v = y / h
-  return `matrix3d(${[a / w, d / w, 0, g / w, b / h, e / h, 0, k / h, 0, 0, 1, 0, p0.x, p0.y, 0, 1].join(",")})`;
-}
-
-/** The share of a convex quad's area that lies inside a box. */
-function onPage(quad: Pt[], box: { left: number; top: number; right: number; bottom: number }): number {
-  const area = (pts: Pt[]) => Math.abs(pts.reduce((s, p, i) => s + p.x * pts[(i + 1) % pts.length].y - pts[(i + 1) % pts.length].x * p.y, 0)) / 2;
-  // clip to each side of the box in turn (Sutherland–Hodgman)
-  let pts = quad;
-  const sides: [(p: Pt) => number, (a: Pt, b: Pt) => Pt][] = [
-    [(p) => p.x - box.left, (a, b) => lerpAt(a, b, (box.left - a.x) / (b.x - a.x))],
-    [(p) => box.right - p.x, (a, b) => lerpAt(a, b, (box.right - a.x) / (b.x - a.x))],
-    [(p) => p.y - box.top, (a, b) => lerpAt(a, b, (box.top - a.y) / (b.y - a.y))],
-    [(p) => box.bottom - p.y, (a, b) => lerpAt(a, b, (box.bottom - a.y) / (b.y - a.y))],
-  ];
-  for (const [inside, cross] of sides) {
-    const out: Pt[] = [];
-    pts.forEach((p, i) => {
-      const q = pts[(i + 1) % pts.length];
-      if (inside(p) >= 0) out.push(p);
-      if (inside(p) >= 0 !== inside(q) >= 0) out.push(cross(p, q));
-    });
-    pts = out;
-    if (!pts.length) return 0;
-  }
-  return area(pts) / Math.max(1e-6, area(quad));
-}
-
-function lerpAt(a: Pt, b: Pt, t: number): Pt {
-  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
 }
 
 /** The test stand-in's player (public/theatre/standin.html): YouTube's calls and events, on a same-origin page. */

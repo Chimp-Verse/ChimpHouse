@@ -1,5 +1,5 @@
-// A theatre remote: whoever holds it controls the theatre screen
-// (engine/remotes.ts). Like an arcade cabinet it is built as meshes of its own
+// A remote: whoever holds it controls a screen, the theatre's
+// (engine/remotes.ts) or the Game Room's TV (engine/gameTv.ts). Like an arcade cabinet it is built as meshes of its own
 // on its spot on the stand, since it comes and goes at run time; the room keeps
 // the spot (a slot), so the Blender files hold the spots, not the remotes.
 
@@ -18,10 +18,10 @@ export interface Remote {
  * Build remote n lying on its spot (a slot node whose front, -Z, faces the
  * viewer): its long side towards the viewer, turned a little as if just put down.
  */
-export function buildRemote(mats: Materials, spot: TransformNode, n: number): Remote {
+export function buildRemote(mats: Materials, spot: TransformNode, n: number, o: { label?: string; role?: string } = {}): Remote {
   const scene = mats.scene;
   const sm = spot.metadata as SlotMeta;
-  const label = `Theatre remote ${n}`;
+  const label = o.label ?? `Theatre remote ${n}`;
   const parts = new Map<string, Geo>();
   const g = (m: string) => {
     let geo = parts.get(m);
@@ -43,7 +43,7 @@ export function buildRemote(mats: Materials, spot: TransformNode, n: number): Re
     const mesh = geo.build(`${label}:${mat}`, scene);
     mesh.parent = root;
     mesh.material = mats.get(mat);
-    mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey: mat, kind: "dynamic", role: ROLE.theatreRemote, slot: n } satisfies MeshMeta;
+    mesh.metadata = { room: sm.room, roomName: sm.roomName, level: sm.level, labels: [{ face: 0, label }], matKey: mat, kind: "dynamic", role: o.role ?? ROLE.theatreRemote, slot: n } satisfies MeshMeta;
     mesh.receiveShadows = true;
     mesh.renderingGroupId = 1;
     meshes.push(mesh);
