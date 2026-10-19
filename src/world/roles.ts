@@ -52,6 +52,69 @@ export const ROLE = {
   gameTvRemoteSpot: "game-tv-remote-spot",
   /** the TV's remote: its holder chooses the game. Put on its spot at run time */
   gameTvRemote: "game-tv-remote",
+  /** the foosball table's frame: a slot at the playfield's centre (props/foosballSpec.ts), its stand point where red's player stands; blue's is across the table */
+  foosballTable: "foosball-table",
+  /** the foosball table's playfield: one quad, facing up */
+  foosballField: "foosball-field",
+  /** the place of a foosball rod, numbered 1-8 from red's goal: its shaft, men and grip are built there at run time */
+  foosballRodSlot: "foosball-rod-slot",
+  /** a foosball rod's men, bumpers and grip, numbered with its slot */
+  foosballRod: "foosball-rod",
+  /** a foosball score counter's rod over each end, 1 red's and 2 blue's: its beads are put there at run time */
+  foosballCounter: "foosball-counter",
+  /** the foosball */
+  foosballBall: "foosball-ball",
+  /** the air hockey table: a node at its base, its long axis along X, a player at each end */
+  airHockeyTable: "air-hockey-table",
+  /** the table's playfield inside the rails: a flat quad, facing up, whose bounds are where the puck can go */
+  airHockeySurface: "air-hockey-surface",
+  /** an end of the table, numbered (1 at -X plays red, 2 at +X blue): its front faces its player, who stands at its stand point */
+  airHockeyEnd: "air-hockey-end",
+  /** a face of the overhead scoreboard, numbered with the end it faces */
+  airHockeyScore: "air-hockey-score",
+  /** where a puck put into an end's goal comes back out, numbered with the end: on its puck return's tray */
+  airHockeyReturn: "air-hockey-return",
+  /** a mallet, numbered with its end, and the puck: put on the table at run time */
+  airHockeyMallet: "air-hockey-mallet",
+  airHockeyPuck: "air-hockey-puck",
+  /** the Game Room's snack machine, a slot at its base (front -Z) with where a visitor stands to use it */
+  snackMachine: "snack-machine",
+  /** a coil's front end, numbered row * 10 + lane (A1 is 11, E6 is 56): its spiral and snacks are built there at run time */
+  snackCoil: "snack-coil",
+  /** the coils, one mesh of thin instances built at run time, and a brand's packs, numbered with the brand */
+  snackCoils: "snack-coils",
+  snackPack: "snack-pack",
+  /** a key on the snack machine's keypad, numbered in reading order, its legend the slot's label */
+  snackKey: "snack-key",
+  /** the snack machine's display, a screen */
+  snackDisplay: "snack-display",
+  /** the floor of the pickup bin, where a dropped snack lands */
+  snackBin: "snack-bin",
+  /** the PUSH flap over the bin, hinged at its top edge */
+  snackFlap: "snack-flap",
+  /** the claw machine: its root node, which carries the inside's measurements (props/clawMachine.ts ClawSpec) */
+  clawMachine: "claw-machine",
+  /** the claw machine's moving parts: the gantry bridge, the trolley on it, the cable and its coiled cord, the claw head and its prongs */
+  clawGantry: "claw-gantry",
+  clawTrolley: "claw-trolley",
+  clawCable: "claw-cable",
+  clawCord: "claw-cord",
+  clawHead: "claw-head",
+  clawProng: "claw-prong",
+  /** the claw machine's controls: the joystick, the drop button, the credit and timer display */
+  clawJoystick: "claw-joystick",
+  clawButton: "claw-button",
+  clawDisplay: "claw-display",
+  /** the flap of the claw machine's pickup door, hinged along its top */
+  clawDoor: "claw-door",
+  /** a pinball machine's playfield: a node in its plane (x across, y out of it, z up it), numbered with the machine (1 Jungle Quest, 2 Banana Blitz) */
+  pinballMachine: "pinball-machine",
+  /** a pinball machine's dot-matrix score display in its backbox, numbered with the machine */
+  pinballDmd: "pinball-dmd",
+  /** a pinball machine's flippers, the ball and the plunger, built at run time on its playfield, numbered with the machine */
+  pinballFlipper: "pinball-flipper",
+  pinballBall: "pinball-ball",
+  pinballPlunger: "pinball-plunger",
 } as const;
 
 type Meta = { role?: string; slot?: number };

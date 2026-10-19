@@ -12,12 +12,18 @@ import { rng } from "../geometry/curves";
 import { Geo, box, cylinder, lathe, sphere, torus, tube, xf } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
 import { GAME, LEVEL, TREES } from "../layout";
-import { airHockey, beanBag, clawMachine, foosball, pinball, plushChimp, vendingMachine } from "../props/arcade";
+import { beanBag } from "../props/arcade";
+import { airHockey } from "../props/airHockey";
+import { clawMachine, plushChimp } from "../props/clawMachine";
+import { foosball } from "../props/foosball";
+import { pinballMachine } from "../props/pinball";
+import { TABLES, TableDef } from "../props/pinballTables";
 import { sodaCan } from "../props/barware";
 import { drumTable, roundRug, sofa } from "../props/furniture";
 import { chimpVibeSign, neonWord, neonWordWidth } from "../props/lettering3d";
 import { ringPendant, wovenPendant } from "../props/lights";
 import { pottedPlant } from "../props/plants";
+import { snackMachine } from "../props/snackMachine";
 import { screenMat, tvConsole } from "../props/tech";
 import { ROLE } from "../roles";
 import { trunkPlanter } from "../structure/trunks";
@@ -119,19 +125,19 @@ export function buildGameRoom(ctx: WorldCtx): void {
   wovenPendant(ctx, z, new Vector3(fb.x, C, fb.z), 0.26, 1.7, { shape: "drum" });
 
   // pinball machines in the north-east curve, facing into the room
-  for (const [deg, title, body, a, b] of [
-    [69, "JUNGLE QUEST", "arcadeBlue", "#1d2a6b", "#2fbf8f"],
-    [78.5, "BANANA BLITZ", "arcadePink", "#5a1a6e", "#f2a830"],
-  ] as [number, string, string, string, string][]) {
+  for (const [deg, def] of [
+    [69, TABLES[0]],
+    [78.5, TABLES[1]],
+  ] as [number, TableDef][]) {
     const p = arcDeg(c.x, c.z, GAME.r - 0.95, deg, deg, 1)[0];
-    pinball(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), title, body, a, b);
+    pinballMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), def);
   }
   // claw machine and snack machine in the south-east curve
   {
     const p = arcDeg(c.x, c.z, GAME.r - 0.78, -73, -73, 1)[0];
-    clawMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)), r);
+    clawMachine(ctx, z, xf(p.x, F, p.z, faceToward(p.x, p.z, c.x, c.z)));
     const q = arcDeg(c.x, c.z, GAME.r - 0.72, -59, -59, 1)[0];
-    vendingMachine(ctx, z, xf(q.x, F, q.z, faceToward(q.x, q.z, c.x, c.z)));
+    snackMachine(ctx, z, xf(q.x, F, q.z, faceToward(q.x, q.z, c.x, c.z)));
     // a plush chimp won from the claw, left on the bromeliad's pot rim
     plushChimp(ctx, z, xf(c.x + 0.4 * K + 0.32, F, 0.75, -0.6), 1.2);
   }
@@ -161,6 +167,8 @@ export function buildGameRoom(ctx: WorldCtx): void {
     pottedPlant(ctx, z, new Vector3(p.x, F, p.z), kind, { pot: "cream", potR: 0.3, potH: 0.55, scale: s, r });
   }
   pottedPlant(ctx, z, new Vector3(c.x + 0.4 * K, F, 0.75), "bromeliad", { pot: "cream", potR: 0.25, potH: 0.4, scale: 1.2, r });
+  // the room's lights: with the sun, the sky, two eave lights (structure/entrance.ts) and the claw
+  // machine's cabinet light they fill the 8 a material takes; tools/test-air-hockey.mjs lights counts them
   roomLight(ctx, "gameRoom", "lower", new Vector3(c.x, 3.5, c.z), 4, 15, 11);
   roomLight(ctx, "gameRoom", "lower", new Vector3(ah.x, 3.0, ah.z), 1.5, 6, 6, "#ffd0a0");
   roomLight(ctx, "gameRoom", "lower", new Vector3(rowX0 + 1.4, 3.0, rowZ - 1.5), 3, 10, 7, "#ffb070");

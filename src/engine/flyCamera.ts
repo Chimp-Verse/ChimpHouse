@@ -1,4 +1,5 @@
 import { Camera, Scene, UniversalCamera, Vector3 } from "@babylonjs/core";
+import { FLY_IN_ENABLED } from "./devFlags";
 import { store } from "./store";
 import { AVATAR, Walker } from "./walker";
 
@@ -15,10 +16,30 @@ export interface Pose {
 const POSE_KEY = "chimphouse.pose.v1";
 
 /**
- * Free-fly camera without collisions. Click the canvas to capture the mouse,
- * WASD to move along the view, E/Space up, Q/C down, Shift for speed, wheel
- * adjusts base speed. Right-drag looks around without capturing the mouse.
- * With a `walker` set, WASD walks it instead and the camera rides at its eye.
+ * The visitor's eyes and the way they look (unit): the camera's while flying; walking, the chimp's
+ * own eyes looking where the camera aims. Reach is measured from here (engine/focus.ts pickAt, and
+ * each feature's "within reach and looking at it"), never from a camera behind the chimp.
+ */
+export const viewer = { eye: new Vector3(), aim: new Vector3(0, 0, 1) };
+
+/** The third-person boom, metres: where it starts, its limits, the least a wall leaves of it, the gap kept to a wall. */
+const BOOM = { start: 2.7, min: 1.1, max: 6, closest: 0.35, clear: 0.28 };
+/** How far past the chimp the view's middle is followed to find what the chimp looks at, metres. */
+const AIM_FAR = 30;
+
+/**
+ * Free-fly camera without collisions (developer-only: FLY_IN_ENABLED, engine/devFlags.ts).
+ * Click the canvas to capture the mouse, WASD to move along the view, E/Space up,
+ * Q/C down, Shift for speed, wheel adjusts base speed. Right-drag looks around
+ * without capturing the mouse. Without the flag it never flies: it only follows the
+ * walker, or glides to and from a screen in use.
+ *
+ * With a `walker` set, WASD walks it instead, and the camera follows the chimp:
+ * from behind and above it (third person), on a boom that walls cut short, or
+ * from its eyes (first person, a boom of 0). The wheel lengthens and shortens
+ * the boom. Either way `eye` and `aim` are the visitor's own eyes and the way
+ * they look, which is what reach is measured from (a cabinet in front of the
+ * chimp, a remote on a stand), not the camera behind it.
  */
 export class FlyCamera {
   readonly camera: UniversalCamera;
@@ -37,6 +58,26 @@ export class FlyCamera {
   walker: Walker | null = null;
   /** Called on a canvas click before the mouse is captured; returning true keeps it free (the click was used). */
   onClick: ((e: MouseEvent) => boolean) | null = null;
+  /** While this returns true the mouse is used for something else (turning a carried plush), and doesn't turn the view. */
+  mouseTaken: (() => boolean) | null = null;
+  /** Walking: how far behind the chimp the camera sits (metres; 0 is from its eyes). */
+  boom = BOOM.start;
+  /** The last third-person boom, for switching back from first person. */
+  private lastBoom = BOOM.start;
+  /** Where the boom turns: this far above the chimp's feet, over its head (engine/avatars.ts sets it to the chimp's height). */
+  pivotHeight = 1.6;
+  /**
+   * Framing for a while (the wardrobe): the pivot lowered by `drop` metres and the camera moved
+   * `side` metres to its right, so the chimp stands whole in the part of the view a panel leaves.
+   */
+  framing = { drop: 0, side: 0 };
+  /** The boom as it is this frame: cut short by a wall at once, easing back out when it clears. */
+  private reach = 0;
+  /** While set (the wardrobe is open) the walking keys do nothing; the mouse still turns the camera round the chimp. */
+  holdStill = false;
+  /** The visitor's eyes and the way they look (unit), for what is within reach: see the class's note. */
+  readonly eye = viewer.eye;
+  readonly aim = viewer.aim;
 
   constructor(
     private scene: Scene,
@@ -88,11 +129,17 @@ export class FlyCamera {
       (e) => {
         e.preventDefault();
         if (store.get().focus) return;
-        if (this.orthoState) {
+        if (FLY_IN_ENABLED && this.orthoState) {
           this.orthoState.halfHeight = Math.max(4, Math.min(80, this.orthoState.halfHeight * (e.deltaY > 0 ? 1.1 : 0.9)));
           this.applyOrtho();
           return;
         }
+        if (this.walker) {
+          // walking: the wheel brings the camera in to the chimp's eyes, or out behind it
+          this.setBoom(this.boom === 0 ? (e.deltaY > 0 ? BOOM.min : 0) : this.boom * (e.deltaY > 0 ? 1.12 : 0.89));
+          return;
+        }
+        if (!FLY_IN_ENABLED) return;
         this.baseSpeed = Math.max(0.5, Math.min(80, this.baseSpeed * (e.deltaY > 0 ? 0.85 : 1.18)));
         store.set({ speed: Math.round(this.baseSpeed * 10) / 10 });
       },
@@ -107,11 +154,94 @@ export class FlyCamera {
   }
 
   private look(dx: number, dy: number) {
-    if (!this.enabled || this.orthoState) return;
+    if (!this.enabled || this.orthoState || this.mouseTaken?.()) return;
     this.transition = null;
     const sens = 0.0022;
     this.yaw += dx * sens;
-    this.pitch = Math.max(-1.55, Math.min(1.55, this.pitch + dy * sens));
+    // behind the chimp, not so low the boom digs into the floor
+    const [lo, hi] = this.walker && this.boom > 0 ? [-0.75, 1.3] : [-1.55, 1.55];
+    this.pitch = Math.max(lo, Math.min(hi, this.pitch + dy * sens));
+  }
+
+  /** Walking: from the chimp's eyes (first person) or from behind it (third). */
+  get firstPerson(): boolean {
+    return this.boom === 0;
+  }
+
+  /** Set the boom (metres), within its limits; under the shortest a third-person boom can be, it is first person. */
+  setBoom(m: number): void {
+    const b = m < BOOM.min * 0.8 ? 0 : Math.max(BOOM.min, Math.min(BOOM.max, m));
+    if (b > 0) this.lastBoom = b;
+    if (b > 0 && this.boom === 0) this.reach = 0;
+    this.boom = b;
+    store.set({ firstPerson: b === 0 });
+  }
+
+  /** Switch between first and third person. */
+  toggleView(): void {
+    this.setBoom(this.boom === 0 ? this.lastBoom : 0);
+  }
+
+  /**
+   * Walking: the camera where the view needs it this frame (see the class's
+   * note). `snap` sets the boom at once, without easing it out from a wall.
+   */
+  private follow(dt: number, snap = false) {
+    const w = this.walker!;
+    this.eye.set(w.feet.x, w.eyeY, w.feet.z);
+    const fx = Math.sin(this.yaw) * Math.cos(this.pitch);
+    const fy = -Math.sin(this.pitch);
+    const fz = Math.cos(this.yaw) * Math.cos(this.pitch);
+    if (this.boom === 0) {
+      this.camera.position.copyFrom(this.eye);
+      this.aim.set(fx, fy, fz);
+      this.reach = 0;
+      return;
+    }
+    const [px, py, pz] = this.pivot(w, fx, fz);
+    const want = this.boomAt(px, py, pz, fx, fy, fz);
+    // in at once (the camera never looks through a wall), back out gently
+    this.reach = snap || want < this.reach ? want : this.reach + (want - this.reach) * (1 - Math.exp(-dt * 3.5));
+    const cx = px - fx * this.reach;
+    const cy = py - fy * this.reach;
+    const cz = pz - fz * this.reach;
+    this.camera.position.set(cx, cy, cz);
+    // the eyes look at what the middle of the view rests on (past the chimp), so aiming at a
+    // button or a remote from behind the chimp points the chimp at it too
+    const hit = w.world.raycast(cx + fx * this.reach, cy + fy * this.reach, cz + fz * this.reach, fx, fy, fz, AIM_FAR);
+    const far = this.reach + Math.max(0.3, hit);
+    this.aim.set(cx + fx * far - this.eye.x, cy + fy * far - this.eye.y, cz + fz * far - this.eye.z).normalize();
+  }
+
+  /** Where the boom turns: over the chimp's head, or as framed (see `framing`), for a view along (fx, fz). */
+  private pivot(w: Walker, fx: number, fz: number): [number, number, number] {
+    const h = Math.hypot(fx, fz) || 1;
+    // the view's right, flat: (cos yaw, 0, -sin yaw)
+    const rx = fz / h;
+    const rz = -fx / h;
+    return [w.feet.x + rx * this.framing.side, w.groundY + this.pivotHeight - this.framing.drop, w.feet.z + rz * this.framing.side];
+  }
+
+  /** How long the boom can be from a pivot, looking along (fx, fy, fz): its length, or short of the first wall behind. */
+  private boomAt(px: number, py: number, pz: number, fx: number, fy: number, fz: number): number {
+    const free = this.walker!.world.raycast(px, py, pz, -fx, -fy, -fz, this.boom + BOOM.clear) - BOOM.clear;
+    return Math.max(BOOM.closest, Math.min(this.boom, free));
+  }
+
+  /**
+   * The pose to glide back to after a screen (engine/focus.ts): `pose` is from
+   * the chimp's eyes; in third person, the camera behind the chimp looking the
+   * same way, where following it will carry on from.
+   */
+  settlePose(pose: Pose): Pose {
+    const w = this.walker;
+    if (!w || this.boom === 0) return pose;
+    const fx = Math.sin(pose.yaw) * Math.cos(pose.pitch);
+    const fy = -Math.sin(pose.pitch);
+    const fz = Math.cos(pose.yaw) * Math.cos(pose.pitch);
+    const [px, py, pz] = this.pivot(w, fx, fz);
+    this.reach = this.boomAt(px, py, pz, fx, fy, fz);
+    return { ...pose, x: px - fx * this.reach, y: py - fy * this.reach, z: pz - fz * this.reach };
   }
 
   update(dt: number) {
@@ -132,6 +262,7 @@ export class FlyCamera {
         tr.done?.();
       }
     } else if (this.enabled && !this.orthoState && this.walker) {
+      if (this.holdStill) this.keys.clear();
       const fast = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
       const slow = this.keys.has("AltLeft") || this.keys.has("AltRight");
       const speed = AVATAR.speed * (fast ? AVATAR.run : 1) * (slow ? 0.4 : 1);
@@ -145,8 +276,8 @@ export class FlyCamera {
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
       this.walker.update(dt, (fx * sin + rx * cos) * k, (fx * cos - rx * sin) * k);
-      this.camera.position.set(this.walker.feet.x, this.walker.eyeY, this.walker.feet.z);
-    } else if (this.enabled && !this.orthoState) {
+      this.follow(dt);
+    } else if (FLY_IN_ENABLED && this.enabled && !this.orthoState) {
       const fast = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight");
       const slow = this.keys.has("AltLeft") || this.keys.has("AltRight");
       const speed = this.baseSpeed * (fast ? 4 : 1) * (slow ? 0.25 : 1);
@@ -163,7 +294,7 @@ export class FlyCamera {
       const blend = 1 - Math.exp(-dt * 10);
       this.velocity = Vector3.Lerp(this.velocity, want, blend);
       if (this.velocity.lengthSquared() > 1e-6) this.camera.position.addInPlace(this.velocity.scale(dt));
-    } else if (this.orthoState) {
+    } else if (FLY_IN_ENABLED && this.orthoState) {
       // pan the plan view with WASD
       const s = this.orthoState.halfHeight * 1.2 * dt;
       let moved = false;
@@ -174,8 +305,13 @@ export class FlyCamera {
       if (moved) this.applyOrtho();
     }
     this.camera.rotation.set(this.pitch, this.yaw, 0);
-    this.saveTimer += dt;
-    if (this.saveTimer > 0.5) {
+    // flying, or gliding to or from a screen: the visitor's eyes are the camera's
+    if (!this.walker || this.transition || !this.enabled || this.orthoState) {
+      this.eye.copyFrom(this.camera.position);
+      this.aim.set(Math.sin(this.yaw) * Math.cos(this.pitch), -Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
+    }
+    // the camera is remembered between reloads only for the fly-in camera (restoreSaved)
+    if (FLY_IN_ENABLED && (this.saveTimer += dt) > 0.5) {
       this.saveTimer = 0;
       try {
         localStorage.setItem(POSE_KEY, JSON.stringify(this.getPose()));
@@ -217,6 +353,8 @@ export class FlyCamera {
     this.transition?.done?.();
     this.velocity.setAll(0);
     if (pose.ortho) {
+      // a plan view is the fly-in camera's: refused without it
+      if (!FLY_IN_ENABLED) return;
       this.transition = null;
       this.orthoState = { ...pose.ortho };
       this.camera.position.set(pose.ortho.cx, 120, pose.ortho.cz);
@@ -261,6 +399,7 @@ export class FlyCamera {
   }
 
   restoreSaved(): boolean {
+    if (!FLY_IN_ENABLED) return false;
     try {
       const raw = localStorage.getItem(POSE_KEY);
       if (!raw) return false;

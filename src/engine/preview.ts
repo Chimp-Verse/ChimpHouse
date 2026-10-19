@@ -2,24 +2,36 @@ import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Ve
 import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
-import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
-import { VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
+import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
+import { SPAWN, VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
+import { DEV_TOOLS_ENABLED, FLY_IN_ENABLED } from "./devFlags";
 import { Lighting } from "./lighting";
 import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
-import { CollisionWorld } from "./collision";
+import { CollisionWorld, emptyProbe } from "./collision";
 import { Walker } from "./walker";
 import { Arcade } from "./arcade";
+import { AirHockey } from "./airHockey";
 import { ScreenFocus, screenGeometry, toPage } from "./focus";
 import { loadGameList } from "./gameList";
+import { Foosball } from "./foosball";
+import * as foosballMatch from "./foosballMatch";
+import * as foosballPhysics from "./foosballPhysics";
+import * as foosballRobot from "./foosballRobot";
+import * as foosballSpec from "../world/props/foosballSpec";
 import { ButtonId, Lift } from "./lift";
 import { GameTv } from "./gameTv";
 import { ME } from "./room";
+import { ClawMachine } from "./clawMachine";
 import { Remotes } from "./remotes";
+import { SnackMachine } from "./snackMachine";
 import { Theatre } from "./theatre";
+import { Pinball } from "./pinball";
 import { parseYouTube } from "./youtube";
+import { Avatars, prepareMyChimp } from "./avatars";
+import type { ChimpDna } from "../avatar/dna";
 
 export interface PreviewController {
   goTo(id: string): void;
@@ -37,6 +49,24 @@ export interface PreviewController {
   readonly remotes: Remotes;
   /** The Game Room TV: its controllers, its remote, and the game on it. */
   readonly tv: GameTv;
+  /** The claw machine: playing it (walk mode), its drop button, leaving. */
+  readonly claw: ClawMachine;
+  /** The pinball machines: playing one (walk mode), leaving, a new game. */
+  readonly pinball: Pinball;
+  /** The air hockey table: playing at it, and leaving. */
+  readonly airHockey: AirHockey;
+  /** The foosball table: playing it, against the robot or another visitor. */
+  readonly foosball: Foosball;
+  /** The Game Room's snack machine. */
+  readonly snacks: SnackMachine;
+  /** This visitor's chimp, and everyone else's. */
+  readonly avatars: Avatars;
+  /** Change this visitor's chimp (the wardrobe): kept for their next visit, shown to everyone. */
+  setChimp(dna: ChimpDna): void;
+  /** Open the wardrobe (walking: the camera swings round in front of the chimp to dress it), or close it. */
+  setWardrobe(open: boolean): void;
+  /** Walking: from the chimp's eyes, or from behind it. */
+  toggleView(): void;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -53,7 +83,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const applyScale = (q: Quality) => engine.setHardwareScalingLevel(1 / Math.min(dpr, q === "high" ? 1.25 : q === "medium" ? 1.0 : 0.75));
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
+  // this visitor's chimp is built in the workers while the house builds here
+  prepareMyChimp();
   const fly = new FlyCamera(scene, canvas);
+  // walking starts behind the chimp; ?pov=first starts it from the chimp's eyes (as the house's older tests walk)
+  if (params.get("pov") === "first") fly.setBoom(0);
   // the arcade's game list loads while the house builds
   const gameList = loadGameList();
 
@@ -64,6 +98,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const lighting = new Lighting(scene, world.sky);
   lighting.attach(world.ctx);
   const post = new PostFx(scene, fly.camera);
+  // the chimps: this visitor's, which the walker carries, and every other visitor's
+  const avatars = new Avatars(scene, fly, lighting);
   // using a screen: a cabinet's game, the theatre's video
   const focus = new ScreenFocus(scene, fly, canvas);
   // cabinets for the admitted games; the walker's collisions are rebuilt when they come or go
@@ -84,8 +120,18 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
   const tv = new GameTv(scene, world.mats, lighting, fly, focus, canvas, (msg) => flash(msg, 3500));
+  // the foosball table: its rods, ball and score counters, and playing it
+  const foosball = new Foosball(scene, world.mats, lighting, fly, focus, canvas);
+  // the air hockey table: its mallets and puck
+  const airHockey = new AirHockey(scene, world.mats, lighting, fly, focus, canvas, (msg) => flash(msg));
+  // the snack machine: its coils and snacks, shown from its shared state (engine/snackState.ts)
+  const snacks = new SnackMachine(scene, world.mats, fly, focus, canvas, (msg) => flash(msg));
+  // the claw machine: its prizes settle into a pile as the house opens
+  const claw = new ClawMachine(scene, world.mats, lighting, fly, focus, (msg) => flash(msg));
+  // the pinball machines: their moving parts, lamps and displays, and playing them
+  const pinball = new Pinball(scene, world.mats, lighting, fly, focus, canvas);
   // a click on a screen, a remote, a controller or a lift button in reach uses it, instead of capturing the mouse
-  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || tv.click(e) || theatre.click(e) || lift.click(e);
+  fly.onClick = (e) => arcade.click(e) || remotes.click(e) || tv.click(e) || theatre.click(e) || lift.click(e) || pinball.click(e) || snacks.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
 
   const levelMeshes = (lv: string) => scene.meshes.filter((m) => (m.metadata as MeshMeta | undefined)?.level === lv);
@@ -96,6 +142,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   let walker: Walker | null = null;
   /** while a room is being exported the scene isn't drawn */
   let exporting = false;
+  /** the camera's boom before the wardrobe opened, to go back to */
+  let wardrobeBoom: number | null = null;
 
   const applyVisibility = () => {
     const s = store.get();
@@ -107,6 +155,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
 
   const controller: PreviewController = {
     goTo(id) {
+      // the viewpoint tour is the fly-in camera's (engine/devFlags.ts)
+      if (!FLY_IN_ENABLED) return;
       const v = findView(id);
       if (!v) return;
       applyView(v, !CAPTURE && !v.pose.ortho);
@@ -138,11 +188,14 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     setWalking(v) {
       if (store.get().focus) return;
       if (!v) {
+        // without the fly-in camera (engine/devFlags.ts) a visitor is always their chimp
+        if (!FLY_IN_ENABLED) return;
+        controller.setWardrobe(false);
         fly.walker = null;
         store.set({ walking: false, blocked: null });
         return;
       }
-      if (fly.isOrtho) {
+      if (FLY_IN_ENABLED && fly.isOrtho) {
         flash("Walk mode needs a 3D view: pick a viewpoint or fly first");
         return;
       }
@@ -160,16 +213,55 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       }
       fly.walker = walker;
       store.set({ walking: true });
-      flash("Walking at avatar height · F to fly");
+      const orFly = FLY_IN_ENABLED ? " · F to fly" : "";
+      flash(fly.firstPerson ? `Walking, from your chimp's eyes · V to see it${orFly}` : `Walking as your chimp · V for its eyes · C to dress it${orFly}`);
+    },
+    avatars,
+    setChimp: (dna) => avatars.setDna(dna),
+    setWardrobe(open) {
+      const s = store.get();
+      if (open === s.wardrobe) return;
+      if (open) {
+        if (s.focus) return;
+        if (!s.walking) controller.setWalking(true);
+        if (!fly.walker) return;
+        store.set({ wardrobe: true });
+        fly.holdStill = true;
+        // round in front of the chimp, the whole of it framed left of the wardrobe's panel
+        wardrobeBoom = fly.boom;
+        fly.setBoom(2.5);
+        const height = avatars.dna.shape.height;
+        fly.framing = { drop: height * 0.62, side: 0.42 };
+        const facing = avatars.describe().mine?.facing ?? 0;
+        void fly.glide(fly.settlePose({ ...fly.getPose(), yaw: facing + Math.PI + 0.3, pitch: 0.06 }), 0.7);
+      } else {
+        store.set({ wardrobe: false });
+        fly.holdStill = false;
+        fly.framing = { drop: 0, side: 0 };
+        if (wardrobeBoom !== null) fly.setBoom(wardrobeBoom);
+        wardrobeBoom = null;
+      }
+    },
+    toggleView() {
+      if (!store.get().walking) return;
+      fly.toggleView();
+      flash(fly.firstPerson ? "From your chimp's eyes · V to see it again" : "Behind your chimp · wheel to come closer or go further");
     },
     arcade,
     theatre,
     remotes,
     tv,
+    claw,
+    pinball,
+    airHockey,
+    foosball,
+    snacks,
     async downloadRoom(id) {
+      // the builder's tools (engine/devFlags.ts): visitors can't export the house
+      if (!DEV_TOOLS_ENABLED) return;
       const room = id ? ROOMS.find((r) => r.id === id) : roomAt(fly.camera.position);
       if (!room) {
-        flash("Fly into a room to download it");
+        flash(FLY_IN_ENABLED ? "Fly into a room to download it" : "Walk into a room to download it");
         return;
       }
       flash(`Exporting ${room.name}…`);
@@ -191,6 +283,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       flash(`Downloaded ${room.id}.glb (${(blob.size / 1e6).toFixed(1)} MB)`);
     },
     async copyReport() {
+      if (!DEV_TOOLS_ENABLED) return "";
       const text = report();
       try {
         await navigator.clipboard.writeText(text);
@@ -250,11 +343,12 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   marker.renderingGroupId = 2;
   marker.setEnabled(false);
   canvas.addEventListener("pointerdown", (e) => {
-    if (!(e.altKey || store.get().inspectMode) || e.button !== 0) return;
+    if (!DEV_TOOLS_ENABLED || !(e.altKey || store.get().inspectMode) || e.button !== 0) return;
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
-    const sx = ((e.clientX - rect.left) / rect.width) * engine.getRenderWidth();
-    const sy = ((e.clientY - rect.top) / rect.height) * engine.getRenderHeight();
+    // CSS pixels: Babylon scales them by the hardware scaling level itself (engine/focus.ts pickPoint)
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
     const pick = scene.pick(sx, sy, (m) => m.isPickable && m.isEnabled() && m.isVisible);
     if (!pick?.hit || !pick.pickedMesh || !pick.pickedPoint) {
       store.set({ picked: null });
@@ -274,13 +368,26 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     const s = store.get();
     // using a screen: keys are the game's or the player's, ChimpHouse's own do nothing
     if (s.focus) return;
-    const v = VIEWPOINTS.find((vp) => vp.key === e.key);
+    // dressing the chimp: only the wardrobe's own keys (C or Esc to close it)
+    if (s.wardrobe && e.code !== "KeyC" && e.code !== "Escape") return;
+    // viewpoints, F, G, O and [ ] are the fly-in camera's (engine/devFlags.ts)
+    const v = FLY_IN_ENABLED ? VIEWPOINTS.find((vp) => vp.key === e.key) : undefined;
     if (v) controller.goTo(v.id);
     else if (e.code === "KeyE" && s.walking && s.arcadePrompt) void arcade.use(s.arcadePrompt.slot);
     else if (e.code === "KeyE" && s.walking && s.remotePrompt) remotes.act();
     else if (e.code === "KeyE" && s.walking && s.tvPrompt) tv.act();
     else if (e.code === "KeyE" && s.walking && s.theatrePrompt) void theatre.use();
     else if (e.code === "KeyE" && s.walking && s.liftPrompt) lift.act();
+    else if (e.code === "KeyE" && s.walking && s.plushPrompt) claw.pickUp();
+    else if (e.code === "KeyQ" && s.walking && s.plushHeld) claw.plush.putDown();
+    else if (e.code === "KeyE" && s.walking && s.clawPrompt && !s.clawBusy) void claw.use();
+    else if (e.code === "KeyE" && s.walking && s.pinballPrompt) {
+      if (s.pinballPrompt.busy) flash(`${s.pinballPrompt.busy} is playing ${s.pinballPrompt.name}`);
+      else void pinball.use(s.pinballPrompt.slot);
+    }
+    else if (e.code === "KeyE" && s.walking && s.airHockeyPrompt?.end) airHockey.act();
+    else if (e.code === "KeyE" && s.walking && s.foosballPrompt && "side" in s.foosballPrompt) void foosball.use();
+    else if (e.code === "KeyE" && s.walking && s.snackPrompt) snacks.act();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
       const why = theatre.command(e.code === "KeyK" ? "toggle" : e.code === "KeyJ" ? "back" : "forward");
@@ -292,16 +399,20 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       tv.putDown("remote");
       flash("The TV's remote is back on the coffee table");
     }
-    else if (e.code === "KeyN") controller.setNight(!s.night);
-    else if (e.code === "KeyF") controller.setWalking(!s.walking);
-    else if (e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
-    else if (e.code === "KeyU") controller.setUpperHidden(!s.upperHidden);
-    else if (e.code === "KeyG") controller.setPlanOverlay(!s.planOverlay);
-    else if (e.code === "KeyO") store.set({ refOverlay: s.refOverlay === "off" ? "thumb" : s.refOverlay === "thumb" ? "full" : "off" });
+    else if (e.code === "KeyV" && s.walking) controller.toggleView();
+    else if (e.code === "KeyC" && s.walking) controller.setWardrobe(!s.wardrobe);
+    else if (e.code === "Escape" && s.wardrobe) controller.setWardrobe(false);
+    else if (FLY_IN_ENABLED && e.code === "KeyF") controller.setWalking(!s.walking);
+    // N, R, U, I and P are the builder's tools (engine/devFlags.ts)
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyN") controller.setNight(!s.night);
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyR") controller.setRoofHidden(!s.roofHidden);
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyU") controller.setUpperHidden(!s.upperHidden);
+    else if (FLY_IN_ENABLED && e.code === "KeyG") controller.setPlanOverlay(!s.planOverlay);
+    else if (FLY_IN_ENABLED && e.code === "KeyO") store.set({ refOverlay: s.refOverlay === "off" ? "thumb" : s.refOverlay === "thumb" ? "full" : "off" });
     else if (e.code === "KeyH" || e.key === "?") store.set({ help: !s.help });
-    else if (e.code === "KeyI") store.set({ inspectMode: !s.inspectMode });
-    else if (e.code === "KeyP") void controller.copyReport();
-    else if (e.code === "BracketRight" || e.code === "BracketLeft") {
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyI") store.set({ inspectMode: !s.inspectMode });
+    else if (DEV_TOOLS_ENABLED && e.code === "KeyP") void controller.copyReport();
+    else if (FLY_IN_ENABLED && (e.code === "BracketRight" || e.code === "BracketLeft")) {
       const i = VIEWPOINTS.findIndex((vp) => vp.id === s.viewId);
       const n = (i + (e.code === "BracketRight" ? 1 : -1) + VIEWPOINTS.length) % VIEWPOINTS.length;
       controller.goTo(VIEWPOINTS[n].id);
@@ -310,55 +421,106 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
 
   // ------------------------------------------------ initial view
   controller.setQuality((params.get("quality") as Quality) || (CAPTURE ? "high" : "high"));
-  const startView = findView(params.get("view"));
-  if (params.get("night") === "1") controller.setNight(true);
+  if (DEV_TOOLS_ENABLED && params.get("night") === "1") controller.setNight(true);
   else lighting.refreshEnvironment();
-  if (startView) applyView(startView, false);
-  else if (!fly.restoreSaved()) applyView(VIEWPOINTS[0], false);
-  if (params.get("pose")) {
-    try {
-      fly.setPose(JSON.parse(params.get("pose")!));
-    } catch {
-      /* ignore */
+  // the fly-in camera (engine/devFlags.ts) starts flying where the address or the last visit says,
+  // as the house's tools and browser tests open it; everyone else arrives as their chimp
+  if (FLY_IN_ENABLED && (params.has("view") || params.has("pose") || CAPTURE)) {
+    const startView = findView(params.get("view"));
+    if (startView) applyView(startView, false);
+    else if (!fly.restoreSaved()) applyView(VIEWPOINTS[0], false);
+    if (params.get("pose")) {
+      try {
+        fly.setPose(JSON.parse(params.get("pose")!));
+      } catch {
+        /* ignore */
+      }
     }
+  } else {
+    if (import.meta.env.DEV && !FLY_IN_ENABLED && (params.has("view") || params.has("pose")))
+      console.error("[ChimpHouse] ?view= and ?pose= are the fly-in camera's, which is off: you arrive as your chimp at the spawn point. Start the dev server with VITE_ENABLE_FLY_IN=true (README: Developer-only fly-in camera and builder's tools).");
+    spawn();
   }
   window.addEventListener("resize", () => {
     engine.resize();
     if (fly.isOrtho) fly.applyOrtho();
   });
 
+  /** This visitor arrives as their chimp: standing at the spawn point in the entry hall, walking, the camera behind it. */
+  function spawn() {
+    fly.setPose(SPAWN);
+    controller.setWalking(true);
+    if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", SPAWN);
+  }
+
+  /** The house's export hooks, for the builder's tools only (engine/devFlags.ts). */
+  function devHooks() {
+    return {
+      downloadRoom: (id: string) => controller.downloadRoom(id),
+      auditZone: async (id: string, level?: string) => (await import("./exportRoom")).auditZone(scene, id, level),
+      /** Download one zone of the house as `<level>-<zone>.glb` (or `<zone>.glb`), for the Blender build. */
+      downloadZone: async (id: string, level?: string) => {
+        const { exportZone } = await import("./exportRoom");
+        exporting = true;
+        try {
+          const blob = await exportZone(scene, id, level, world.ctx.lights);
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${level ? `${level}-` : ""}${id}.glb`;
+          a.click();
+          setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+        } finally {
+          exporting = false;
+        }
+      },
+      houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
+      zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
+    };
+  }
+
   // ------------------------------------------------ automation hook (capture tool)
   const waiters: { until: number; resolve: () => void }[] = [];
   const hook = {
     ready: false,
+    /** whether this page has the developer-only fly-in camera (engine/devFlags.ts): read-only, nothing here turns it on */
+    flyIn: FLY_IN_ENABLED,
     scene,
+    // goTo and setWalking(false) do nothing without the fly-in camera, and setPose refuses a plan view
     goTo: (id: string) => controller.goTo(id),
-    views: () => VIEWPOINTS.map((v) => ({ id: v.id, ref: v.refName ?? null })),
+    views: () => (FLY_IN_ENABLED ? VIEWPOINTS.map((v) => ({ id: v.id, ref: v.refName ?? null })) : []),
     settle: (n: number) => new Promise<void>((resolve) => waiters.push({ until: frames + n, resolve })),
     whenReady: () => scene.whenReadyAsync(),
     setNight: (n: boolean) => controller.setNight(n),
     setPose: (p: Parameters<typeof fly.setPose>[0]) => fly.setPose(p),
     setWalking: (v: boolean) => controller.setWalking(v),
-    downloadRoom: (id: string) => controller.downloadRoom(id),
-    auditZone: async (id: string, level?: string) => (await import("./exportRoom")).auditZone(scene, id, level),
-    /** Download one zone of the house as `<level>-<zone>.glb` (or `<zone>.glb`), for the Blender build. */
-    downloadZone: async (id: string, level?: string) => {
-      const { exportZone } = await import("./exportRoom");
-      exporting = true;
-      try {
-        const blob = await exportZone(scene, id, level, world.ctx.lights);
-        const a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = `${level ? `${level}-` : ""}${id}.glb`;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-      } finally {
-        exporting = false;
-      }
-    },
-    houseScene: async () => (await import("./exportRoom")).houseScene(world.ctx.lights),
-    zones: () => [...new Set(scene.meshes.map((m) => (m.metadata as MeshMeta | undefined)?.room).filter((r): r is string => !!r))],
+    // the export hooks the Blender build's tools use (tools/export-house.mjs, export-room, audit-items): builder's tools only
+    ...(DEV_TOOLS_ENABLED ? devHooks() : {}),
     walker: () => fly.walker,
+    /** the chimps: this visitor's (where it is, which way it faces) and the others it has heard of */
+    chimps: {
+      describe: () => avatars.describe(),
+      dna: () => avatars.dna,
+      setDna: (dna: ChimpDna) => avatars.setDna(dna),
+      /** the visitor's eyes and the way they look, which reach is measured from */
+      eye: () => ({ at: fly.eye.asArray(), aim: fly.aim.asArray() }),
+      setBoom: (m: number) => fly.setBoom(m),
+      toggleView: () => controller.toggleView(),
+      wardrobe: (open: boolean) => controller.setWardrobe(open),
+      /** the main stair's layout, for walking a chimp up it */
+      stair: () => ({ ...STAIR }),
+      /** each of this visitor's chimp's ankles, and the walkable ground under it (world y), for feet on steps */
+      feet: () => {
+        const c = avatars.mine.chimp;
+        const w = fly.walker;
+        if (!c || !w) return null;
+        return ["leftFoot", "rightFoot"].map((n) => {
+          const p = c.nodes[n].getAbsolutePosition();
+          const probe = emptyProbe();
+          w.world.probe(p.x, p.z, p.y + 0.3, p.y - 0.6, probe);
+          return { ankle: p.y, ground: probe.walkY, scale: c.root.scaling.y };
+        });
+      },
+    },
     pose: () => fly.getPose(),
     state: () => store.get(),
     remotes: {
@@ -475,6 +637,189 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       /** the shared lift back as the house opens with it, for everyone in the room (tests start from it) */
       reset: () => lift.reset(),
     },
+    foosball: {
+      /** where the table, its rods and ball are, and how the game stands */
+      describe: () => foosball.describe(),
+      /** play a side (walk mode, at the table), or the side offered; leave; rematch once a match is over */
+      use: (side?: "red" | "blue") => foosball.use(side),
+      leave: () => foosball.leave(),
+      rematch: () => foosball.rematch(),
+      /** the player's hands: a click's spin kick, a flick of px to the right, the lift held, aiming at a line across the table (null: the cursor) */
+      kick: () => foosball.kick(),
+      flick: (px: number) => foosball.flick(px),
+      lift: (on: boolean) => foosball.setLift(on),
+      aim: (z: number | null) => (foosball.aimOverride = z),
+      /** on the host: the ball put in play somewhere, the score set; and everyone's table back as new */
+      place: (x: number, z: number, vx?: number, vz?: number) => foosball.place(x, z, vx, vz),
+      setScore: (red: number, blue: number) => foosball.setScore(red, blue),
+      reset: () => foosball.reset(),
+      /** the pure rules, physics and robot, to test in the page */
+      pure: { physics: foosballPhysics, match: foosballMatch, robot: foosballRobot, spec: foosballSpec },
+    },
+    airHockey: {
+      /** the table's base in the world and the turn of its long axis, and its playfield in its own space */
+      where: () => airHockey.where(),
+      field: () => airHockey.field,
+      /** the game as this page has it: the score, the puck and mallets (playfield coordinates), who plays and who runs it */
+      describe: () => airHockey.describe(),
+      /** play at an end (walk mode), and leave */
+      sit: (end: 1 | 2) => airHockey.sit(end),
+      leave: () => airHockey.leave(),
+      rematch: () => airHockey.askRematch(),
+      /** point the cursor at a spot on the playfield, as the mouse would */
+      aim: (x: number, z: number) => airHockey.aim(x, z),
+      /** on the page running the game: put the puck somewhere moving, or set the score */
+      setPuck: (x: number, z: number, vx: number, vz: number) => airHockey.setPuck(x, z, vx, vz),
+      setScore: (red: number, blue: number) => airHockey.setScore(red, blue),
+      /** what the table's sounds have played, and whether its air is on */
+      sounds: () => airHockey.sounds(),
+      /** each of its sounds rendered offline: peak and loudness */
+      soundLevels: () => airHockey.soundLevels(),
+      /** both ends free and the game stopped, for everyone in the room */
+      reset: () => airHockey.reset(),
+      /** the pure physics and robot, to test on their own */
+      physics: () => import("./airHockeyPhysics"),
+    },
+    snacks: {
+      /** the machine's base and the way its front faces, for placing the camera */
+      machine: () => snacks.where(),
+      /** the shared state and what shows: display, code typed, vends, the snack in hand */
+      describe: () => snacks.describe(),
+      /** a key pressed (A–E, 1–6, CLR), or a whole code typed */
+      press: (key: string) => snacks.press(key),
+      choose: (code: string) => snacks.choose(code),
+      /** E or a click, as the visitor would: whatever is pointed at, or what the prompt offers */
+      act: () => snacks.act(),
+      take: () => snacks.takeSnack(),
+      eat: () => snacks.eat(),
+      use: () => snacks.use(),
+      leave: () => snacks.leave(),
+      /** where the packs on a coil stand, from its front end (m) */
+      coilPacks: (code: string) => snacks.coilPacks(code),
+      /** where each key and the flap are in the world */
+      places: () => snacks.places(),
+      /** the shaft a coil's snacks fall down, in the coil's frame */
+      shaft: (code: string) => snacks.shaftOf(code),
+      /** hold the stock still as it was `ms` after the last vend started (null runs on), for screenshots */
+      pauseAt: (ms: number | null) => snacks.pauseAt(ms),
+      /** hold eating still `ms` into it (null runs on), for screenshots */
+      holdEat: (ms: number | null) => snacks.holdEat(ms),
+      setState: (patch: Parameters<typeof snacks.setState>[0]) => snacks.setState(patch),
+      drop: () => snacks.drop(),
+    },
+    claw: {
+      /** the claw's pose (trolley place, cable, swing, prongs, controls), and setting parts of it */
+      pose: () => ({ ...claw.pose }),
+      setPose: (p: Partial<typeof claw.pose>) => {
+        Object.assign(claw.pose, p);
+        claw.touch();
+      },
+      /** each prize: its kind, where its centre is (machine frame), whether it is asleep or out of play */
+      prizes: () =>
+        claw.world.kinds.map((kind, b) => ({ kind, at: Array.from(claw.world.pose.subarray(b * 7, b * 7 + 3)), asleep: claw.world.isAsleep(b), gone: claw.world.isGone(b) })),
+      /** the machine's root in the world: its position and the turn it faces */
+      root: () => ({ at: claw.root.getAbsolutePosition().asArray(), yaw: claw.root.rotationQuaternion?.toEulerAngles().y ?? 0 }),
+      /** the inside's measurements (ClawSpec), from the root */
+      spec: () => claw.spec,
+      /** where a player stands at the deck (on the floor) and the point of the machine they face, in the world */
+      standPoint: () => {
+        const wm = claw.root.computeWorldMatrix(true);
+        const stand = Vector3.TransformCoordinates(Vector3.FromArray((claw.root.metadata as { stand: number[] }).stand), wm);
+        return { stand: stand.asArray(), look: Vector3.TransformCoordinates(new Vector3(0, 1.2, 0), wm).asArray() };
+      },
+      /** the pickup door's middle, in the world */
+      doorAt: () => {
+        const S = claw.spec;
+        return Vector3.TransformCoordinates(new Vector3((S.chute[0] + S.chute[1]) / 2, S.binY + 0.13, S.doorZ), claw.root.computeWorldMatrix(true)).asArray();
+      },
+      /** the play: its phase, timer, grip, the prizes behind the door, the last message, and whether the test's aim is set */
+      state: () => ({ phase: claw.game.phase, timer: claw.game.timer, strength: claw.game.strength, inBin: claw.game.inBin(), inMouth: claw.game.inMouth(), message: store.get().claw?.message ?? "", aimed: claw.aimed }),
+      display: () => (claw.game.phase === "aim" ? "timer" : claw.game.inBin().length ? "WIN!" : claw.game.busy ? "----" : "PLAY"),
+      use: () => claw.use(),
+      leave: () => claw.leave(),
+      play: () => claw.play(),
+      /** force every play's grip strength (0..1), or null for the machine's own payout */
+      force: (s: number | null) => (claw.game.forceStrength = s),
+      aimAtBest: () => claw.aimAtBest(),
+      /** cut the credit timer to t seconds */
+      fastTimer: (t: number) => (claw.game.timer = Math.min(claw.game.timer, t)),
+      /** hold the joystick and button as given (null gives the keys back) */
+      drive: (i: { x: number; z: number; drop: boolean } | null) => (claw.override = i),
+      /** stop steering by itself onto a spot (aimAtBest): the keys steer again */
+      unaim: () => (claw.aim = null),
+      simulate: (n: number, strategy: "aim" | "random", strength: number | null) => claw.simulate(n, strategy, strength),
+      /** n prizes dropped in on top of one another, deep in each other (the indexes); and how far any prize pokes out through the glass (m) */
+      jumble: (n: number) => claw.jumble(n),
+      glassOut: () => claw.glassOut(),
+      /** a prize of a kind let go over the chute as the claw lets go: off the claw's home by (dx, dz), turned by q (its index, or -1) */
+      chuteDrop: (kind: Parameters<typeof claw.chuteDrop>[0], dx: number, dz: number, q: [number, number, number, number]) => claw.chuteDrop(kind, dx, dz, q),
+      /** the views while playing: the one shown, choosing one, and the share of its key points in the frame now */
+      view: () => claw.view,
+      /** a point in the world, in the machine's own frame */
+      toLocal: (p: number[]) => Vector3.TransformCoordinates(Vector3.FromArray(p), claw.root.computeWorldMatrix(true).clone().invert()).asArray(),
+      setView: (v: Parameters<typeof claw.setView>[0]) => claw.setView(v),
+      inView: () => claw.inView(),
+      /** the prizes waiting behind the pickup door, oldest first; E's pick-up there (or off the floor) */
+      waiting: () => claw.waitingNow(),
+      pickUp: () => claw.pickUp(),
+      /** won plushes out of the machine: the room's list and how each shows here, the one in hand; putting it down, holding it up to turn it */
+      plush: {
+        describe: () => claw.plush.describe(),
+        putDown: () => claw.plush.putDown(),
+        setTurning: (on: boolean) => claw.plush.setTurning(on),
+        turn: (dx: number, dy: number) => claw.plush.turn(dx, dy),
+        clear: () => claw.plush.clear(),
+        scatter: (n: number, x: number, y: number, z: number) => claw.plush.scatter(n, x, y, z),
+      },
+      /** the machine as it opens, for everyone in the room: a fresh pile, nobody playing (tests start from it) */
+      reset: () => claw.reset(),
+      /** who is playing, if another visitor is (shared through the room) */
+      playerName: () => claw.playerName,
+    },
+    pinball: {
+      /** the machines, by slot */
+      machines: () => pinball.machines.map((m) => ({ slot: m.def.slot, id: m.def.id, name: m.def.title, flippers: m.def.flippers.length, player: m.player, high: m.high })),
+      use: (slot: number) => pinball.use(slot),
+      leave: () => pinball.leave(),
+      start: () => pinball.start(),
+      /** a control pressed or let go, as its key: ShiftLeft, ShiftRight, Space, KeyX, Period, ArrowUp, Enter */
+      press: (slot: number, key: string, down: boolean) => {
+        const m = pinball.machine(slot);
+        if (m) pinball.input(m, key, down);
+      },
+      /** the table and game as they are: balls, flippers, plunger, score */
+      state: (slot: number) => {
+        const m = pinball.machine(slot);
+        if (!m) return null;
+        const { table, game } = m;
+        return {
+          balls: table.balls.map((b) => ({ mode: b.mode, x: b.x, y: b.y, h: b.h, vx: b.vx, vy: b.vy })),
+          flippers: table.flippers.map((f) => ({ id: f.def.id, angle: f.angle, held: f.held })),
+          plunger: table.plunger.pull,
+          state: game.state,
+          score: game.score,
+          ball: game.ball,
+          tilted: game.tilted,
+          saving: game.saving,
+          multiball: game.multiball,
+          message: game.message?.top ?? null,
+          lamps: Object.fromEntries(game.lamps),
+          status: game.status,
+        };
+      },
+      /** put a ball where a test wants it: [x, y] on the playfield and [vx, vy] */
+      place: (slot: number, ball: number, at: [number, number], v: [number, number]) => {
+        const b = pinball.machine(slot)?.table.balls[ball];
+        if (!b) return;
+        Object.assign(b, { mode: "free", x: at[0], y: at[1], px: at[0], py: at[1], vx: v[0], vy: v[1], h: 0.0135, still: 0 });
+      },
+      /** the pure physics and rules, for tests run in the page */
+      lab: async () => ({ ...(await import("./pinballPhysics")), ...(await import("./pinballRules")), ...(await import("../world/props/pinballTables")) }),
+      pose: (slot: number) => {
+        const m = pinball.machine(slot);
+        return m ? pinball.pose(m) : null;
+      },
+    },
     info: () => ({
       fps: Math.round(engine.getFps()),
       drawCalls: engine._drawCalls?.lastSecAverage ? Math.round(engine._drawCalls.lastSecAverage) : engine._drawCalls?.current ?? 0,
@@ -499,11 +844,17 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     // the lift moves before the walker does, so the walker stands on the car where it is this frame
     lift.update();
     fly.update(dt);
+    avatars.update(dt);
     focus.update();
     arcade.update();
     remotes.update();
     tv.update();
     theatre.update();
+    snacks.update(dt);
+    claw.update(dt);
+    pinball.update(dt);
+    airHockey.update();
+    foosball.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
@@ -518,7 +869,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         drawCalls: engine._drawCalls?.current ?? 0,
         pos: [round1(p.x), round1(p.y), round1(p.z)],
         heading: Math.round(fly.headingDeg),
-        area: locate(p),
+        area: locate(store.get().walking ? fly.eye : p),
         blocked: fly.walker?.blockedBy ?? null,
       });
     }

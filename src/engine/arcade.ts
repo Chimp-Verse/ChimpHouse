@@ -495,7 +495,7 @@ export class Arcade {
 
   /** The slot of the cabinet the walker can play: in reach of it (PLAY) and looking at it. */
   private cabinetAt(): number | null {
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const fwd = this.fly.aim;
     const fl = Math.hypot(fwd.x, fwd.z) || 1;
     let best: number | null = null;
     let bestD = Infinity;

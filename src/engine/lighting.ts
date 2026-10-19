@@ -5,6 +5,7 @@ import {
   CubeTexture,
   DirectionalLight,
   HemisphericLight,
+  Mesh,
   PointLight,
   RenderTargetTexture,
   Scene,
@@ -12,7 +13,7 @@ import {
   SpotLight,
   Vector3,
 } from "@babylonjs/core";
-import { LightDef, MeshMeta, WorldCtx } from "../world/context";
+import { Level, LightDef, MeshMeta, WorldCtx } from "../world/context";
 import { MOON_DIR, SUN_DIR, Sky } from "../world/environment/sky";
 import { Quality } from "./store";
 
@@ -20,6 +21,12 @@ import { Quality } from "./store";
 const NIGHT_BOOST = 2.2;
 /** Daytime interiors keep a warm glow from pendants and shelf lights, as in the concept art. */
 const DAY_BOOST = 1.6;
+/** Lights each chimp has: copies of the room lights that light it most. */
+const CHIMP_LIGHTS = 3;
+/** Chimps whose lights are made at the start (`Lighting.spare`); any more make their own. */
+const SPARE_CHIMPS = 12;
+/** Babylon's physical spotlight falloff: a spotlight lights 1% at its cone's edge (-log2 0.01). */
+const SPOT_EDGE = 6.64385618977;
 
 interface RoomLight {
   light: PointLight | SpotLight;
@@ -50,7 +57,7 @@ function skyColor(d: Vector3, night: boolean): [number, number, number] {
 }
 
 /** Build a small LDR cube map of the sky as six data-URL faces. */
-function skyCube(scene: Scene, night: boolean): CubeTexture {
+export function skyCube(scene: Scene, night: boolean): CubeTexture {
   const S = 64;
   const faces: string[] = [];
   // order: px, py, pz, nx, ny, nz (Babylon CreateFromImages default)
@@ -93,6 +100,14 @@ export class Lighting {
   readonly hemi: HemisphericLight;
   readonly shadows: ShadowGenerator;
   private roomLights: RoomLight[] = [];
+  /**
+   * Lights waiting for a chimp, lighting nothing meanwhile. They are made before the
+   * room lights: a light made once those are there costs a pass over every mesh in the
+   * house against every room light's list, a hitch each time a visitor arrives.
+   */
+  private spare: PointLight[] = [];
+  /** All a spare light lights (an empty list would mean every mesh in the house) */
+  private nobody: AbstractMesh;
   private env: Record<"day" | "night", CubeTexture | null> = { day: null, night: null };
   night = false;
 
@@ -134,6 +149,10 @@ export class Lighting {
     scene.fogMode = Scene.FOGMODE_EXP2;
     scene.fogDensity = 0.0006;
     scene.fogColor = Color3.FromHexString("#b9cbd6").toLinearSpace();
+
+    this.nobody = new Mesh("lit by nobody", scene);
+    this.nobody.setEnabled(false);
+    for (let i = 0; i < CHIMP_LIGHTS * SPARE_CHIMPS; i++) this.spare.push(this.chimpLight());
   }
 
   private placeSun(dir: Vector3) {
@@ -164,6 +183,27 @@ export class Lighting {
     for (const { light, def } of this.roomLights) for (const m of meshes) if (lights(def, m)) light.includedOnlyMeshes.push(m);
     for (const c of casters) this.shadows.addShadowCaster(c, false);
     this.shadows.getShadowMap()!.resetRefreshCounter();
+  }
+
+  /** Lights of its own for a chimp (`ChimpLights`), from the spare ones while they last. */
+  chimpLights(): ChimpLights {
+    const lights = Array.from({ length: CHIMP_LIGHTS }, () => this.spare.pop() ?? this.chimpLight());
+    return new ChimpLights(lights, this.roomLights, this.nobody, (given) => {
+      for (const l of given) {
+        l.intensity = 0;
+        l.includedOnlyMeshes = [this.nobody];
+        this.spare.push(l);
+      }
+    });
+  }
+
+  private chimpLight(): PointLight {
+    const l = new PointLight("chimp light", Vector3.Zero(), this.scene);
+    l.includedOnlyMeshes = [this.nobody];
+    l.falloffType = PointLight.FALLOFF_PHYSICAL;
+    l.shadowEnabled = false;
+    l.intensity = 0;
+    return l;
   }
 
   /** Before meshes added with addMeshes are disposed (disposing takes them out of the lights' lists). */
@@ -220,6 +260,101 @@ export class Lighting {
   setQuality(q: Quality): void {
     this.sun.shadowEnabled = q !== "low";
     this.shadows.filteringQuality = q === "high" ? ShadowGenerator.QUALITY_HIGH : ShadowGenerator.QUALITY_MEDIUM;
+  }
+}
+
+/**
+ * A chimp's own lights: copies of the room lights that light it most where it stands,
+ * moved onto them each frame and lighting only the chimp. So a chimp is lit as the house
+ * around it is, and walking from room to room never touches the house's own lights, whose
+ * lists name hundreds of meshes each (a change to one is a pass over every mesh).
+ */
+export class ChimpLights {
+  private lit: AbstractMesh[] = [];
+  /** the room lights copied, strongest first, and how much of each reaches the chimp */
+  private from: (PointLight | SpotLight | null)[];
+  private reach: number[];
+  private share: number[];
+
+  constructor(
+    private lights: PointLight[],
+    private rooms: readonly RoomLight[],
+    private nobody: AbstractMesh,
+    private giveBack: (lights: PointLight[]) => void,
+  ) {
+    this.from = lights.map(() => null);
+    this.reach = lights.map(() => 0);
+    this.share = lights.map(() => 0);
+  }
+
+  /** Light these meshes only: the chimp's, again whenever its clothes change. */
+  light(meshes: AbstractMesh[]): void {
+    if (meshes.length === this.lit.length && meshes.every((m, i) => m === this.lit[i])) return;
+    this.lit = [...meshes];
+    for (const l of this.lights) l.includedOnlyMeshes = meshes.length ? [...meshes] : [this.nobody];
+  }
+
+  /**
+   * Copy the room lights that light `at` most: the lights of its room on its level, by their
+   * strength over the distance squared, a spotlight's by how far into its cone `at` is (as
+   * Babylon lights the house). None outside the rooms, or when `off` (the chimp isn't drawn).
+   */
+  follow(at: Vector3, room: string | null, level: Level | null, off = false): void {
+    const n = this.lights.length;
+    this.from.fill(null);
+    this.reach.fill(0);
+    if (room && !off) {
+      for (const { light, def } of this.rooms) {
+        if (!light.isEnabled() || def.level !== level || !def.rooms.includes(room)) continue;
+        const dx = at.x - light.position.x;
+        const dy = at.y - light.position.y;
+        const dz = at.z - light.position.z;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        let share = 1;
+        if (light instanceof SpotLight) {
+          const dir = light.direction;
+          const cos = (dx * dir.x + dy * dir.y + dz * dir.z) / (Math.sqrt(d2) * dir.length() || 1);
+          share = Math.pow(2, (-SPOT_EDGE * (1 - cos)) / (1 - Math.cos(light.angle / 2)));
+        }
+        const reach = (light.intensity * share) / Math.max(0.25, d2);
+        let i = n;
+        while (i > 0 && reach > this.reach[i - 1]) i--;
+        if (i === n) continue;
+        for (let j = n - 1; j > i; j--) {
+          this.from[j] = this.from[j - 1];
+          this.reach[j] = this.reach[j - 1];
+          this.share[j] = this.share[j - 1];
+        }
+        this.from[i] = light;
+        this.reach[i] = reach;
+        this.share[i] = share;
+      }
+    }
+    for (let i = 0; i < n; i++) {
+      const l = this.lights[i];
+      const from = this.from[i];
+      // a light without one to copy stays on, lighting nothing: switching it off would change the chimp's shaders
+      if (!from) {
+        l.intensity = 0;
+        continue;
+      }
+      l.position.copyFrom(from.position);
+      l.diffuse.copyFrom(from.diffuse);
+      l.specular.copyFrom(from.specular);
+      l.range = from.range;
+      l.intensity = from.intensity * this.share[i];
+    }
+  }
+
+  /** What it copies now, for tests: each light's intensity. */
+  describe(): number[] {
+    return this.lights.map((l) => +l.intensity.toFixed(3));
+  }
+
+  /** Give the lights back for another chimp. */
+  dispose(): void {
+    this.giveBack(this.lights);
+    this.lights = [];
   }
 }
 

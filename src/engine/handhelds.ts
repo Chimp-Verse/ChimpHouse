@@ -69,8 +69,8 @@ export class Handhelds {
 
   /** The spot a walker is reaching for: within reach and nearest the middle of their view (`cos`, of the angle off it); or null. */
   lookedAt(): { n: number; cos: number } | null {
-    const eye = this.fly.camera.position;
-    const fwd = this.fly.camera.getDirection(Vector3.Forward());
+    const eye = this.fly.eye;
+    const fwd = this.fly.aim;
     let best: { n: number; cos: number } | null = null;
     for (const spot of this.spots) {
       const to = spot.getAbsolutePosition().subtract(eye);
@@ -89,9 +89,9 @@ export class Handhelds {
     return md.slot;
   }
 
-  /** Whether the camera is in the spots' room. */
+  /** Whether the visitor is in the spots' room. */
   inRoom(): boolean {
     const room = this.room;
-    return !!room && roomAt(this.fly.camera.position)?.id === room;
+    return !!room && roomAt(this.fly.eye)?.id === room;
   }
 }

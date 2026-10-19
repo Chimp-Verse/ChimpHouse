@@ -20,6 +20,8 @@ const GONE_MS = 90_000;
 const SWEEP_MS = 3000;
 /** How many of the visitors who left a newcomer is told about. */
 const DEPARTED = 100;
+/** Pages say they're here every 3 s: one quiet this long, when there are fewer pages open than visitors known, is one that closed without saying goodbye. */
+const QUIET_MS = 10_000;
 
 interface Version {
   n: number;
@@ -54,6 +56,8 @@ export function roomServer(): Plugin {
         if (!visitors.delete(id)) return;
         departed.push(id);
         if (departed.length > DEPARTED) departed.shift();
+        // a visitor's own topics (a family member such as their chimp, "chimp:<id>") go with them
+        for (const topic of topics.keys()) if (topic.endsWith(`:${id}`)) topics.delete(topic);
         for (const c of server.ws.clients) send(c, { kind: "gone", id });
       };
 
@@ -82,11 +86,19 @@ export function roomServer(): Plugin {
         others(m.from, { kind: "state", topic: m.topic, state: m.state, v: m.v });
       });
 
-      // visitors whose page has closed, or gone quiet
+      // visitors whose page has closed, or gone quiet. Vite hands this listener a wrapper of each
+      // page's socket, never the socket itself that server.ws.clients holds, so a closed page can't
+      // be matched to its visitor (testing membership would find every visitor gone at every sweep).
+      // Instead: when fewer pages are open than visitors are known, the quiet ones are those that
+      // closed; and a visitor quiet for GONE_MS is gone whatever the count.
       const sweep = setInterval(() => {
-        const open = server.ws.clients;
         const now = Date.now();
-        for (const [id, v] of visitors) if (!open.has(v.client) || now - v.seen > GONE_MS) gone(id);
+        const missing = visitors.size - server.ws.clients.size;
+        if (missing > 0) {
+          const quiet = [...visitors].filter(([, v]) => now - v.seen > QUIET_MS).sort((a, b) => a[1].seen - b[1].seen);
+          for (const [id] of quiet.slice(0, missing)) gone(id);
+        }
+        for (const [id, v] of visitors) if (now - v.seen > GONE_MS) gone(id);
       }, SWEEP_MS);
       server.httpServer?.on("close", () => clearInterval(sweep));
     },

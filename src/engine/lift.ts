@@ -20,7 +20,7 @@ import { Materials } from "../world/materials/library";
 import { LiftGlyph, buttonMat } from "../world/materials/lift";
 import { ROLE, find } from "../world/roles";
 import { FlyCamera } from "./flyCamera";
-import { pickAt } from "./focus";
+import { pickAt, pickPoint } from "./focus";
 import { LiftSound } from "./liftSound";
 import { LIFT_TIMING, LiftState, advanceLift, callLift, carHeight, carSpeed, doorPosAt, floorHeight, holdDoors, initialLift, musicAt, playMusic, setDoorway, setNearby, shutDoorsNow } from "./liftState";
 import { room } from "./room";
@@ -303,7 +303,8 @@ export class Lift {
 
   /** Whether this visitor is at the lift: in the car, or near a landing's doors (a little further to leave than to come). */
   private nearLift(s: LiftState, now: number): boolean {
-    const eye = this.fly.camera.globalPosition;
+    // the visitor is where their eyes are: the chimp's, walking, not a camera behind it
+    const eye = this.fly.eye;
     const carFloor = LEVEL.lower + carHeight(s, now);
     if (this.inCar(eye.x, eye.z) && eye.y > carFloor && eye.y < carFloor + LIFT_CAR.height) return true;
     const reach = s.nearby.includes(VIEWER) ? LEFT_LIFT : NEAR_LIFT;
@@ -313,7 +314,8 @@ export class Lift {
   /** Where the visitor hears the lift from: their ear and the way they face, where the car is, and whether they are inside it or shut out of it. */
   private listen(s: LiftState, now: number): void {
     const cam = this.fly.camera;
-    const eye = cam.globalPosition;
+    // heard from where the visitor is (the chimp's head, walking), facing the way the camera does
+    const eye = this.fly.eye;
     const cy = LEVEL.lower + carHeight(s, now) + 1.2;
     const cz = (LIFT_CAR.z0 + LIFT_CAR.z1) / 2;
     const inside = this.inCar(eye.x, eye.z) && Math.abs(eye.y - cy) < 1.3;
@@ -351,15 +353,8 @@ export class Lift {
     const w = this.fly.walker!;
     const carFloor = LEVEL.lower + carHeight(s, now) + LIFT_CAR.floorLift;
     const inCar = this.inCar(w.feet.x, w.feet.z) && Math.abs(w.feet.y - carFloor) < LEVEL_TOLERANCE;
-    const engine = this.scene.getEngine();
-    let px = engine.getRenderWidth() / 2;
-    let py = engine.getRenderHeight() / 2;
-    if (document.pointerLockElement !== this.canvas && this.mouse) {
-      const box = this.canvas.getBoundingClientRect();
-      px = ((this.mouse.x - box.left) / box.width) * engine.getRenderWidth();
-      py = ((this.mouse.y - box.top) / box.height) * engine.getRenderHeight();
-    }
-    const ray = this.scene.createPickingRay(px, py, Matrix.Identity(), this.fly.camera);
+    const p = pickPoint(this.canvas, this.mouse);
+    const ray = this.scene.createPickingRay(p.x, p.y, Matrix.Identity(), this.fly.camera);
     let best: Button | null = null;
     let bestMiss = Infinity;
     for (const b of this.buttons) {
@@ -368,7 +363,8 @@ export class Lift {
       const p = b.mesh.getBoundingInfo().boundingBox.centerWorld;
       const v = p.subtract(ray.origin);
       const along = Vector3.Dot(v, ray.direction);
-      if (along <= 0 || v.length() > REACH) continue;
+      // pointed at through the view, within reach of the visitor's eyes
+      if (along <= 0 || Vector3.Distance(p, this.fly.eye) > REACH) continue;
       const miss = v.subtract(ray.direction.scale(along)).length();
       if (miss > AIM[b.at === "car" ? "car" : "call"] || miss >= bestMiss) continue;
       best = b;

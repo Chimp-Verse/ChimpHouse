@@ -414,7 +414,7 @@ export class Theatre {
   private loudness(): void {
     const p = this.player;
     if (!p || !this.geo) return;
-    const k = Math.max(VOLUME.floor, Math.min(1, VOLUME.full / Vector3.Distance(this.fly.camera.position, this.geo.centre)));
+    const k = Math.max(VOLUME.floor, Math.min(1, VOLUME.full / Vector3.Distance(this.fly.eye, this.geo.centre)));
     const v = this.volume;
     const now = performance.now();
     const heard = p.getVolume();
@@ -491,11 +491,11 @@ export class Theatre {
   private inSight(): boolean {
     const g = this.geo;
     if (!g || !this.fly.walker) return false;
-    const eye = this.fly.camera.position;
+    const eye = this.fly.eye;
     const to = g.centre.subtract(eye);
     const dist = to.length();
     if (dist > REACH || Vector3.Dot(to, g.normal) > -0.5) return false;
-    if (Vector3.Dot(this.fly.camera.getDirection(Vector3.Forward()), to) / dist < LOOK) return false;
+    if (Vector3.Dot(this.fly.aim, to) / dist < LOOK) return false;
     return this.clearView();
   }
 

@@ -248,11 +248,15 @@ kbd {
   transform: translateX(-50%);
   background: var(--panel);
   border: 1px solid var(--edge);
-  border-radius: 999px;
+  border-radius: 16px;
   padding: 7px 16px;
   font-size: 12px;
   color: var(--muted);
-  white-space: nowrap;
+  /* the whole line readable on any window: it wraps rather than running off both edges */
+  width: max-content;
+  max-width: calc(100vw - 40px);
+  box-sizing: border-box;
+  text-align: center;
   pointer-events: none;
 }
 
@@ -930,4 +934,893 @@ kbd {
 .tv-remote button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* ------------------------------------------------ playing the claw machine (ui/ClawMachineHud.tsx) */
+.claw-hud {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 79, 163, 0.5);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 22;
+}
+
+.claw-hud.top {
+  top: 14px;
+}
+
+.claw-hud.bottom {
+  bottom: 18px;
+}
+
+.claw-title {
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  color: #ffd23f;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.claw-timer {
+  min-width: 44px;
+  text-align: center;
+  font-family: Montserrat, monospace;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ff5a46;
+}
+
+.claw-timer.hurry {
+  animation: claw-blink 0.5s steps(2) infinite;
+}
+
+@keyframes claw-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.claw-message {
+  color: var(--muted);
+  font-weight: 500;
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.claw-keys {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.claw-hud button {
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-weight: 700;
+}
+
+.claw-drop {
+  background: #ff3d7f;
+  color: #fff;
+  border: 0;
+}
+
+.claw-drop:disabled {
+  opacity: 0.4;
+}
+
+.claw-won {
+  position: absolute;
+  left: 50%;
+  top: 66px;
+  transform: translateX(-50%);
+  background: rgba(255, 210, 63, 0.95);
+  color: #2a0b45;
+  border-radius: 12px;
+  padding: 10px 20px;
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  font-size: 18px;
+  z-index: 22;
+  pointer-events: none;
+}
+
+/* playing a pinball machine: a panel beside it (ui/PinballOverlay.tsx) */
+.pinball-panel {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  width: 250px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 210, 58, 0.35);
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 12px;
+  backdrop-filter: blur(6px);
+}
+.pinball-name {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  color: #ffd23a;
+}
+.pinball-score {
+  font-size: 28px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  margin: 2px 0;
+}
+.pinball-ball {
+  color: var(--muted);
+}
+.pinball-ball .tilt {
+  color: #ff5a5a;
+  font-weight: 800;
+}
+.pinball-status {
+  margin-top: 4px;
+  color: var(--mint);
+  font-weight: 700;
+}
+.pinball-pull {
+  height: 5px;
+  margin: 8px 0 4px;
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.pinball-pull div {
+  height: 100%;
+  background: linear-gradient(90deg, #6ff7c6, #ffd23a, #ff5a5a);
+}
+.pinball-high {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.pinball-high li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pinball-high li span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pinball-none {
+  color: var(--muted);
+}
+.pinball-keys td {
+  padding: 2px 4px 2px 0;
+  vertical-align: top;
+}
+.pinball-keys td:first-child {
+  white-space: nowrap;
+}
+.panel .pinball-start,
+.panel .pinball-leave {
+  margin-top: 10px;
+  justify-content: center;
+  border: 1px solid rgba(255, 210, 58, 0.45);
+}
+
+/* ------------------------------------------------ air hockey */
+
+/* playing air hockey: the score along the top, a hint at the bottom; the table stays clear */
+.ah-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 20;
+  user-select: none;
+}
+
+.ah-top {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.ah-score {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 20px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(8px);
+  font-family: "Nunito", sans-serif;
+}
+
+.ah-score b {
+  font-size: 30px;
+  font-weight: 800;
+  min-width: 1ch;
+  text-align: center;
+}
+
+.ah-team {
+  font: 700 12px "Montserrat", sans-serif;
+  letter-spacing: 0.12em;
+}
+
+.ah-dash {
+  color: var(--muted);
+  font-size: 22px;
+}
+
+.ah-layer .red {
+  color: #ff5a4f;
+}
+
+.ah-layer .blue {
+  color: #5a9dff;
+}
+
+.ah-sub {
+  font-size: 12px;
+  color: var(--muted);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.ah-leave {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  pointer-events: auto;
+  background: var(--amber);
+  color: #2a1606;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 18px;
+  font: 700 13px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.ah-leave kbd {
+  margin-left: 6px;
+  background: rgba(0, 0, 0, 0.15);
+  color: inherit;
+}
+
+.ah-leave:hover,
+.ah-leave-big:hover {
+  background: #ffc78a;
+}
+
+.ah-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: var(--panel);
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.ah-goal {
+  position: absolute;
+  top: 22%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font: 800 64px "Nunito", sans-serif;
+  color: var(--ink);
+  text-shadow: 0 0 18px rgba(255, 90, 79, 0.8), 0 2px 8px rgba(0, 0, 0, 0.7);
+  animation: ah-pop 0.35s ease-out;
+}
+
+.ah-goal.mine {
+  text-shadow: 0 0 18px rgba(111, 247, 198, 0.9), 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+.ah-goal span {
+  margin-top: 4px;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: var(--panel);
+  font: 600 15px "Montserrat", sans-serif;
+  color: var(--ink);
+  text-shadow: none;
+}
+
+@keyframes ah-pop {
+  from {
+    transform: translateX(-50%) scale(0.6);
+    opacity: 0;
+  }
+}
+
+.ah-over {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 34px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.ah-result {
+  font: 800 34px "Nunito", sans-serif;
+}
+
+.ah-final {
+  font: 700 18px "Montserrat", sans-serif;
+  color: var(--muted);
+}
+
+.ah-wait {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.ah-rematch,
+.ah-leave-big {
+  min-width: 160px;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 22px;
+  font: 700 14px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.ah-rematch {
+  background: var(--mint);
+  color: #0d2a22;
+}
+
+.ah-leave-big {
+  background: var(--amber);
+  color: #2a1606;
+}
+/* ------------------------------------------------ foosball */
+
+/* over the table while playing: nothing takes the mouse but the buttons, so the hands keep it */
+.foos-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  user-select: none;
+  font-family: "Montserrat", sans-serif;
+}
+
+.foos-score {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 6px 18px;
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.foos-score .team {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.foos-score .team.you {
+  color: var(--ink);
+}
+
+.foos-score .num {
+  font: 800 26px "Nunito", sans-serif;
+  min-width: 18px;
+  text-align: center;
+}
+
+.foos-score .red,
+.foos-over .red {
+  color: #ff6a5e;
+}
+
+.foos-score .blue,
+.foos-over .blue {
+  color: #6f9bff;
+}
+
+.foos-score .dash {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.foos-score .to {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-left: 4px;
+}
+
+.foos-callout {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  font: 800 22px "Nunito", sans-serif;
+  color: var(--ink);
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.foos-callout.goal {
+  font-size: 54px;
+  color: #ffe27a;
+  animation: foos-pop 0.35s ease-out;
+}
+
+@keyframes foos-pop {
+  from {
+    transform: translateX(-50%) scale(0.6);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) scale(1);
+    opacity: 1;
+  }
+}
+
+.foos-coach {
+  position: absolute;
+  left: 50%;
+  bottom: 74px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--panel);
+  border: 1px solid rgba(255, 226, 122, 0.45);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--muted);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.foos-coach b {
+  color: #ffe27a;
+}
+
+.foos-over {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 16px;
+  padding: 18px 28px;
+  text-align: center;
+  backdrop-filter: blur(10px);
+  pointer-events: auto;
+}
+
+.foos-over .title {
+  font: 800 30px "Nunito", sans-serif;
+  color: #ffe27a;
+}
+
+.foos-over .final {
+  font: 800 24px "Nunito", sans-serif;
+  margin: 4px 0 14px;
+}
+
+.foos-over .buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.foos-over button,
+.foos-bar .leave {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 22px;
+  font: 700 13px "Montserrat", sans-serif;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.foos-over .again {
+  background: var(--mint);
+  color: #0d2a22;
+}
+
+.foos-over .leave,
+.foos-bar .leave {
+  background: var(--amber);
+  color: #2a1606;
+}
+
+.foos-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 16px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  padding: 5px 6px 5px 16px;
+  font-size: 12px;
+  color: var(--muted);
+  backdrop-filter: blur(8px);
+  white-space: nowrap;
+  max-width: calc(100vw - 28px);
+}
+
+.foos-bar .rod b {
+  color: #ffe27a;
+}
+
+.foos-bar .keys {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.foos-bar .keys b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* at the snack machine: how to use it, along the bottom */
+.snack-panel {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(10, 32, 30, 0.86);
+  border: 1px solid rgba(111, 240, 191, 0.35);
+  color: #ffe9c9;
+  font-size: 13px;
+  line-height: 1.5;
+  max-width: min(760px, calc(100vw - 32px));
+}
+.snack-title {
+  font: 800 16px Nunito, sans-serif;
+  color: #6ff0bf;
+  white-space: nowrap;
+}
+.snack-help kbd {
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 11px;
+}
+.snack-panel button {
+  white-space: nowrap;
+}
+
+/* the faceoff: a countdown in the middle of the table before play begins */
+.ah-ready {
+  position: absolute;
+  top: 34%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+}
+
+.ah-get {
+  padding: 5px 16px;
+  border-radius: 999px;
+  background: var(--panel);
+  font: 700 15px "Montserrat", sans-serif;
+  color: var(--ink);
+}
+
+.ah-ready b {
+  font: 800 88px "Nunito", sans-serif;
+  color: var(--amber);
+  /* a dark edge so it reads over the white playfield */
+  -webkit-text-stroke: 3px rgba(20, 12, 4, 0.85);
+  paint-order: stroke fill;
+  text-shadow: 0 0 22px rgba(255, 178, 94, 0.7), 0 3px 12px rgba(0, 0, 0, 0.8);
+  animation: ah-count 0.35s ease-out;
+}
+
+@keyframes ah-count {
+  from {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------ a won plush carried (ui/PlushHud.tsx) */
+.panel.plush {
+  width: 260px;
+  border-color: rgba(255, 79, 163, 0.45);
+}
+
+.panel.plush.turning {
+  border-color: rgba(111, 247, 198, 0.6);
+}
+
+.plush-name {
+  margin: 0 2px;
+  font-family: Nunito, sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: #ffd23f;
+}
+
+.plush-keys {
+  margin: 4px 2px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* the claw's views while playing */
+.claw-views {
+  display: flex;
+  gap: 4px;
+}
+
+.claw-hud .claw-views button {
+  padding: 5px 11px;
+  font-weight: 600;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.claw-hud .claw-views button.on {
+  background: #ffd23f;
+  color: #2a0b45;
+  border-color: #ffd23f;
+}
+
+.claw-view-hint {
+  position: absolute;
+  left: 50%;
+  top: 66px;
+  transform: translateX(-50%);
+  background: var(--panel);
+  border: 1px solid rgba(255, 210, 63, 0.5);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  z-index: 22;
+  pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .claw-hud {
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+  }
+  .claw-hud .claw-keys {
+    display: none;
+  }
+  .claw-hud button {
+    padding: 5px 10px;
+  }
+  .claw-hud .claw-views button {
+    padding: 4px 7px;
+  }
+}
+
+/* other visitors' names over their chimps; engine/avatars.ts places each one every frame */
+.chimp-labels {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.chimp-label {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 3px 10px 4px;
+  border-radius: 999px;
+  background: rgba(24, 20, 16, 0.72);
+  border: 1px solid var(--edge);
+  color: var(--ink);
+  font: 600 12px "Montserrat", sans-serif;
+  white-space: nowrap;
+  will-change: transform;
+}
+
+/* the wardrobe: dressing this visitor's chimp (ui/Wardrobe.tsx), where the viewpoints usually are */
+.wardrobe {
+  top: 14px;
+  right: 14px;
+  width: 340px;
+  /* clear of the hint along the bottom */
+  max-height: calc(100% - 64px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  user-select: none;
+}
+
+.wardrobe-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.wardrobe-busy {
+  color: var(--mint);
+  font-size: 11px;
+  animation: wardrobe-pulse 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes wardrobe-pulse {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.wardrobe-tabs {
+  display: flex;
+  gap: 6px;
+}
+
+.wardrobe-tabs button,
+.wardrobe-foot button,
+.wardrobe .chips button {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--ink);
+  font: 600 12px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.wardrobe-tabs button.active,
+.wardrobe .chips button.on {
+  background: rgba(111, 247, 198, 0.16);
+  border-color: rgba(111, 247, 198, 0.55);
+  color: var(--mint);
+}
+
+.wardrobe-body {
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.wardrobe-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wardrobe-label {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.wardrobe-label em {
+  font-style: normal;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.wardrobe input[type="range"] {
+  width: 100%;
+  accent-color: var(--mint);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  cursor: pointer;
+  padding: 0;
+}
+
+.swatch.on {
+  border-color: var(--mint);
+  box-shadow: 0 0 0 2px rgba(111, 247, 198, 0.35);
+}
+
+.swatches .picker {
+  width: 26px;
+  height: 24px;
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.wardrobe-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--edge);
+}
+
+.wardrobe .chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.wardrobe .chips button {
+  flex: 0 0 auto;
+}
+
+.wardrobe-foot {
+  display: flex;
+  gap: 6px;
+}
+
+.wardrobe-foot .done {
+  background: rgba(111, 247, 198, 0.16);
+  border-color: rgba(111, 247, 198, 0.55);
+  color: var(--mint);
+}
+
+.wardrobe-foot kbd {
+  margin-left: 4px;
 }

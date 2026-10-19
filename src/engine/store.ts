@@ -1,5 +1,6 @@
 // Minimal observable store shared by the Babylon preview and the React HUD.
 
+import type { FoosballView, FoosballPrompt } from "./foosballMatch";
 import { LiftState, initialLift } from "./liftState";
 import { ME } from "./room";
 
@@ -13,10 +14,18 @@ export interface PickedInfo {
 
 /**
  * What a screen in use shows (engine/focus.ts): a game at a cabinet, the
- * theatre's video, or the Game Room TV: seated with a controller to play, or
- * standing to watch the players (`watching`).
+ * theatre's video, the Game Room TV (seated with a controller to play, or
+ * standing to watch the players, `watching`), or one of the Game Room's machines.
  */
-export type FocusInfo = { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string } | { kind: "theatre" } | { kind: "tv"; watching?: boolean };
+export type FocusInfo =
+  | { kind: "cabinet"; slot: number; gameId: string; name: string; author: string; url: string }
+  | { kind: "theatre" }
+  | { kind: "tv"; watching?: boolean }
+  | { kind: "claw" }
+  | { kind: "pinball"; slot: number; name: string }
+  | { kind: "airHockey"; end: 1 | 2 }
+  | { kind: "foosball"; side: "red" | "blue" }
+  | { kind: "snack" };
 
 /** A game running at a cabinet: from when it is first played until Quit, whether or not the visitor is at it. */
 export interface RunningGame {
@@ -149,12 +158,62 @@ export interface TvPane {
   note: string | null;
 }
 
+/** A play of the claw machine, for the HUD while it is played (engine/clawMachine.ts). */
+export interface ClawHud {
+  phase: string;
+  /** seconds left to steer */
+  timer: number;
+  /** the prizes this play has won (they wait behind the pickup door) */
+  won: string[];
+  message: string;
+  /** the view the player sees the machine from (engine/clawMachine.ts CLAW_VIEWS) */
+  view: string;
+}
+
+/** A pinball game being played, for the panel beside the machine (engine/pinball.ts). */
+export interface PinballHud {
+  slot: number;
+  name: string;
+  state: "over" | "play" | "bonus";
+  score: number;
+  ball: number;
+  status: string;
+  /** the machine's best scores, highest first */
+  high: { name: string; score: number }[];
+  /** how far the plunger is pulled back, 0..1 */
+  pull: number;
+  tilted: boolean;
+  extra: number;
+}
+
 /** Where a screen in use is on the page, in CSS pixels. */
 export interface ScreenRect {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+/** Playing air hockey (engine/airHockey.ts): the match as this player sees it. */
+export interface AirHockeyHud {
+  /** the end this visitor plays (1 red, 2 blue) */
+  end: 1 | 2;
+  /** red's goals, blue's */
+  score: [number, number];
+  /** "ready": a faceoff, the puck held until both players are in place and a countdown has run */
+  phase: "idle" | "ready" | "play" | "goal" | "over";
+  /** the faceoff's countdown, the seconds left (3, 2, 1), or 0 while it isn't counting */
+  countdown: number;
+  /** in a faceoff, the player whose view hasn't arrived at the table yet, or null */
+  waitingFor: string | null;
+  /** the end that won the match, once it is over */
+  winner: 0 | 1 | 2;
+  /** who plays the other end: a visitor's name, or "the robot" */
+  opponent: string;
+  /** the end the last goal went into, while it is being shown */
+  scored: 0 | 1 | 2;
+  /** this player has asked for a rematch and waits for the other */
+  waiting: boolean;
 }
 
 export interface PreviewState {
@@ -170,6 +229,12 @@ export interface PreviewState {
   speed: number;
   /** walk mode: at avatar height with collisions and gravity, instead of flying */
   walking: boolean;
+  /** walking, seen from the chimp's own eyes rather than from behind it */
+  firstPerson: boolean;
+  /** the wardrobe is open: the chimp stands still, facing the camera, to be dressed */
+  wardrobe: boolean;
+  /** this visitor's chimp is being (re)built: its new shape comes in a moment */
+  chimpBuilding: boolean;
   /** what the walker is walking into, while it is held up */
   blocked: string | null;
   viewId: string | null;
@@ -223,6 +288,32 @@ export interface PreviewState {
    * on, E watches it
    */
   tvPrompt: { action: "take" | "put"; item: "controller" | "remote"; n: number } | { action: "watch"; item: "tv"; n: 0 } | null;
+  /** at the claw machine's deck: E plays it */
+  clawPrompt: boolean;
+  /** at the claw machine's deck while another visitor plays it: their name */
+  clawBusy: string | null;
+  /** the claw machine's play, while this visitor plays it */
+  claw: ClawHud | null;
+  /** a won plush within reach (behind the pickup door, or on the floor): E picks it up (engine/clawPlush.ts) */
+  plushPrompt: { label: string; sub: string } | null;
+  /** the plush this visitor carries, by name, and whether they are turning it to look at it */
+  plushHeld: { name: string; turning: boolean } | null;
+  /** walking up to a pinball machine: E plays it (or who is playing it) */
+  pinballPrompt: { slot: number; name: string; busy: string | null } | null;
+  /** the pinball game being played, while one is */
+  pinball: PinballHud | null;
+  /** walking up to the air hockey table: E plays at that end (against the robot, or the visitor at the other end); end null while both ends are taken */
+  airHockeyPrompt: { end: 1 | 2 | null; opponent: string } | null;
+  /** playing air hockey: the score and the match */
+  airHockey: AirHockeyHud | null;
+  /** walking up to the foosball table: E plays the side offered, or both sides are taken (engine/foosball.ts) */
+  foosballPrompt: FoosballPrompt | null;
+  /** playing foosball: the score, the phase, the rod you kick with, for the HUD */
+  foosball: FoosballView | null;
+  /** at the snack machine: what E does (press the key pointed at, take a snack, step up to the machine), or eat the snack in hand */
+  snackPrompt: { action: "key" | "take" | "eat" | "use"; label: string } | null;
+  /** the snack in this visitor's hand, by name */
+  snackHeld: string | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -240,6 +331,9 @@ class Store {
     heading: 0,
     speed: 6,
     walking: false,
+    firstPerson: false,
+    wardrobe: false,
+    chimpBuilding: true,
     blocked: null,
     viewId: null,
     night: false,
@@ -271,6 +365,19 @@ class Store {
     tvPanes: [],
     tvFailed: null,
     tvPrompt: null,
+    clawPrompt: false,
+    clawBusy: null,
+    claw: null,
+    plushPrompt: null,
+    plushHeld: null,
+    pinballPrompt: null,
+    pinball: null,
+    airHockeyPrompt: null,
+    airHockey: null,
+    foosballPrompt: null,
+    foosball: null,
+    snackPrompt: null,
+    snackHeld: null,
   };
   private listeners = new Set<Listener>();
 

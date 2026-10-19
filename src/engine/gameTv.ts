@@ -616,11 +616,11 @@ export class GameTv {
   private inSight(): boolean {
     const g = this.geo;
     if (!g || !this.screen) return false;
-    const eye = this.fly.camera.position;
+    const eye = this.fly.eye;
     const to = g.centre.subtract(eye);
     const dist = to.length();
     if (dist > WATCH_REACH || Vector3.Dot(to, g.normal) > -0.5) return false;
-    if (Vector3.Dot(this.fly.camera.getDirection(Vector3.Forward()), to) / dist < LOOK) return false;
+    if (Vector3.Dot(this.fly.aim, to) / dist < LOOK) return false;
     if (this.frames - this.clear.frame >= 3) this.clear = { frame: this.frames, ok: nothingInTheWay(this.scene, eye, this.screen, g) };
     return this.clear.ok;
   }

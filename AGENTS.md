@@ -2,7 +2,7 @@
 
 ## Editing the house
 
-Until the cut-over to Blender (phase 5 of `docs/plans/2026-10-02-blender-switch-plan.md`, recorded in its Status line), the code in `src/world/` is the master copy of the house. Make every change there, then regenerate the Blender files: `node tools/export-house.mjs` (with `npm run dev` running), then `tools/blender/build_blend.py -- art/ChimpHouse.blend art/test/house --rooms art/rooms` (the full command is in the README). The build rewrites every file in `art/`, so a change made only in a `.blend` file is lost at the next build. Until the cut-over those generated files stay out of git (`.gitignore` lists them); they are committed once, at the cut-over, as the starting master copy.
+Until the cut-over to Blender (phase 5 of `docs/plans/2026-10-02-blender-switch-plan.md`, recorded in its Status line), the code in `src/world/` is the master copy of the house. Make every change there, then regenerate the Blender files: `node tools/export-house.mjs` (with `npm run dev` running with the builder's tools on: `VITE_ENABLE_FLY_IN=true`, see the README's "Developer-only fly-in camera and builder's tools"; without it the page has no export hooks), then `tools/blender/build_blend.py -- art/ChimpHouse.blend art/test/house --rooms art/rooms` (the full command is in the README). The build rewrites every file in `art/`, so a change made only in a `.blend` file is lost at the next build. Until the cut-over those generated files stay out of git (`.gitignore` lists them); they are committed once, at the cut-over, as the starting master copy.
 
 After the cut-over the Blender files are the master copy, and each edit goes in the one file that owns it:
 
@@ -25,6 +25,18 @@ These are built on the code world before the Blender cut-over, and built to surv
 - Attach behaviour by **role** and **slot**: the client finds "the theatre screen" or "cabinet slot 3" through metadata on the object, which the Blender files will carry too, never through how the code happens to build it. Give each new screen, slot or interactive spot its role in the code that creates it.
 - Keep dynamic things as runtime data: the list of admitted games and each game's art come from ChimpVibe, screen images are placeholders, and video and game content loads when someone uses it.
 - Show another site's content (a YouTube player, a game hosted on ChimpVibe's site) as an overlay lined up with its screen or in a panel: browsers don't let it be drawn onto a 3D surface. Content running in ChimpVerse's own page can be drawn onto the screen.
+
+## Chimp avatars
+
+Every visitor walks the house as a chimp they shape and dress (`docs/plans/2026-10-16-chimp-avatar-plan.md` has how, and what a Blender chimp must do to take its place):
+
+- The chimp is made in code, in `src/avatar/`, as the house is until its cut-over. Its DNA (`dna.ts`) is the one record of what a chimp looks like; everything else is built from it. A new setting is a row in `SHAPES` or `COLOURS`; a new item an entry in `wardrobe.ts` and its builder in `items.ts` (worn on a bone) or `garments.ts` (fitted to the body), each piece of cloth saying what it is made of (`fabric`: `FABRICS` in `materials.ts` has how each takes the light and its grain).
+- Work on its look and movement in the chimp lab (`chimp.html`): `tools/chimp-shots.mjs` photographs it there, `tools/chimp-house-shots.mjs` in the house. Check it with `tools/test-chimp.mjs` and, for other visitors' chimps, `tools/test-chimp-sync.mjs`.
+- Fit clothes to the chimp's own shapes, never to sizes guessed for an average chimp: a hat to its skull, a strap or a band to the skin found along its path (`avatar/fit.ts`). Check every item on every kind of body with `tools/wardrobe-shots.mjs` before calling it done.
+- Walking, the camera is behind the chimp. Measure reach and aim from the visitor's eyes, `fly.eye` and `fly.aim` (`viewer` in `engine/flyCamera.ts`), never from `fly.camera`, which is only for what is drawn on the page (an overlay lined up with a screen, what is in view). Browser tests written for walking from the eyes open the page with `?pov=first`.
+- A chimp is lit by lights of its own that copy the room lights where it stands (`ChimpLights` in `engine/lighting.ts`). Never light something that moves by adding it to the room lights' mesh lists or taking it out: each change is a pass over every mesh in the house, a hitch every time it crosses a doorway.
+- Keep the skeleton's VRM bone names and unrotated A-pose rest, and the vertex attributes the materials read: the animation, the wardrobe and a Blender chimp all rely on them.
+- Give every sampler a material plugin declares a texture, or leave the sampler out of the shader with a define (as the cloth's print is, `CHIMPPRINT`). A sampler with nothing bound reads whatever an earlier draw left on its unit; when that is the image being drawn into, WebGL refuses the whole draw call and the mesh silently isn't drawn (it hid the shorts, at random, in the house). `tools/test-chimp.mjs` checks that every piece the chimp wears is drawn.
 
 ## Committing Git LFS files
 

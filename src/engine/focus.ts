@@ -11,7 +11,7 @@
 
 import { AbstractMesh, Constants, Matrix, Mesh, Ray, Scene, ShaderMaterial, Vector3, VertexBuffer, Viewport } from "@babylonjs/core";
 import { MeshMeta } from "../world/context";
-import { FlyCamera, Pose } from "./flyCamera";
+import { FlyCamera, Pose, viewer } from "./flyCamera";
 import { FocusInfo, ScreenRect, store } from "./store";
 
 /** A screen's place in the world, read from its mesh. */
@@ -190,18 +190,28 @@ export function squarePose(g: ScreenGeometry, fov: number, aspect: number, fill:
   return { x: p.x, y: p.y, z: p.z, yaw: Math.atan2(-g.normal.x, -g.normal.z), pitch: Math.asin(g.normal.y), fov };
 }
 
-/** What a click on the canvas is on (the centre of the view while the mouse is captured), and how far away. */
+/**
+ * The point Babylon's picking takes for a place on the canvas: CSS pixels from its top left, which
+ * Babylon scales by the hardware scaling level itself (render pixels only match them at a scaling of
+ * 1, so on a Retina screen or at another quality a pick would land beside the pointer). The centre
+ * of the view while the mouse is captured or there is no pointer, else the pointer at `client`.
+ */
+export function pickPoint(canvas: HTMLCanvasElement, client: { x: number; y: number } | null): { x: number; y: number } {
+  const box = canvas.getBoundingClientRect();
+  if (document.pointerLockElement === canvas || !client) return { x: box.width / 2, y: box.height / 2 };
+  return { x: client.x - box.left, y: client.y - box.top };
+}
+
+/**
+ * What a click on the canvas is on (the centre of the view while the mouse is captured), and how
+ * far it is from the visitor's eyes: the camera's while flying, the chimp's while walking (so a
+ * camera behind the chimp doesn't put everything out of reach).
+ */
 export function pickAt(scene: Scene, canvas: HTMLCanvasElement, e: MouseEvent): { mesh: AbstractMesh; distance: number } | null {
-  const engine = scene.getEngine();
-  let x = engine.getRenderWidth() / 2;
-  let y = engine.getRenderHeight() / 2;
-  if (document.pointerLockElement !== canvas) {
-    const box = canvas.getBoundingClientRect();
-    x = ((e.clientX - box.left) / box.width) * engine.getRenderWidth();
-    y = ((e.clientY - box.top) / box.height) * engine.getRenderHeight();
-  }
+  const { x, y } = pickPoint(canvas, { x: e.clientX, y: e.clientY });
   const pick = scene.pick(x, y, (m) => m.isPickable && m.isEnabled() && m.isVisible);
-  return pick?.hit && pick.pickedMesh ? { mesh: pick.pickedMesh, distance: pick.distance } : null;
+  if (!pick?.hit || !pick.pickedMesh) return null;
+  return { mesh: pick.pickedMesh, distance: pick.pickedPoint ? Vector3.Distance(viewer.eye, pick.pickedPoint) : pick.distance };
 }
 
 /**
@@ -257,7 +267,8 @@ export class ScreenFocus {
     if (!f || f.phase === "out") return;
     const token = ++this.seq;
     store.set({ focus: { ...f, phase: "out" }, focusRect: null });
-    if (back) await this.fly.glide(back, glide);
+    // back to the chimp's eyes' pose, or in third person to the camera behind the chimp looking the same way
+    if (back) await this.fly.glide(this.fly.settlePose(back), glide);
     if (this.seq !== token) return;
     this.screen = null;
     this.pose = null;
