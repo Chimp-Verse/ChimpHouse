@@ -5,11 +5,15 @@ import { Color3, Mesh, MeshBuilder, PBRMaterial, StandardMaterial, Texture, Vect
 import { fbm2, ridged2 } from "../geometry/noise";
 import { Geo } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
-import { LEVEL, M, SITE, TREES } from "../layout";
+import { LEVEL, M, SITE, TREES, courtyardDistance } from "../layout";
 
 const ANCHOR = TREES.find((t) => t.id === "bridgeAnchor")!;
 
 export const LAKE_LEVEL = -50;
+
+/** Under the courtyard's paving the ground lies this low (below the paving, so the two never flicker), easing back over COURT_EASE metres. */
+const COURT_BED = LEVEL.ground - 0.15;
+const COURT_EASE = 4;
 
 function smoothstep(a: number, b: number, x: number) {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -45,6 +49,9 @@ export function terrainHeight(x: number, z: number): number {
   h = Math.max(h, valley);
   // local detail
   h += fbm2(x * 0.05 + 3, z * 0.05, 3) * (0.5 + Math.min(4, dRidge * 0.1));
+  // the front courtyard is level: the ground just under its paving, easing back to the ridge's lie around it
+  const court = courtyardDistance(x, z);
+  if (court < COURT_EASE) h = COURT_BED + (h - COURT_BED) * smoothstep(0.6, COURT_EASE, court);
   // mountain ring
   const r = Math.hypot(x, z);
   const m = smoothstep(380, 1200, r);

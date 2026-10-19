@@ -105,6 +105,14 @@ export const ROLE = {
   pinballFlipper: "pinball-flipper",
   pinballBall: "pinball-ball",
   pinballPlunger: "pinball-plunger",
+  /**
+   * The courtyard fountain: a slot at the middle of the basin on the paving, carrying its water's
+   * spec (`FountainSpec`, in its own space) in `fountain`: the jets, sheets, water surfaces and
+   * spray are built from it at run time (engine/fountain.ts), its sound placed on it
+   */
+  fountain: "fountain",
+  /** where a visitor arrives (engine/preview.ts spawn): a floor point, its front (-Z) the way they face, with open paving all round it */
+  spawnPoint: "spawn-point",
 } as const;
 
 type Meta = { role?: string; slot?: number };

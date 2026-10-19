@@ -436,6 +436,48 @@ export const HOUSE_TRUNKS = TREES.filter((t) => t.id === "treeWestCentral" || t.
 
 export const FRONT_STAIR = { x0: -2.8 * HALL_SCALE, x1: 2.8 * HALL_SCALE, risers: 12, riser: 0.2, tread: 0.46 };
 
+/** Where the front stair meets the ground (structure/stairs.ts builds it down from the entrance landing). */
+export const FRONT_STAIR_FOOT_Z = FRONT_ARC.cz - FRONT_ARC.R - 1.25 - FRONT_STAIR.risers * FRONT_STAIR.tread;
+
+/**
+ * The front courtyard (environment/courtyard.ts): a round paved court on the ridge in front
+ * of the stair, the fountain at its centre, ringed by raised planters with a wide gate north
+ * to the stair (an apron of paving joins the two) and a narrower one south to the approach
+ * path. Visitors arrive in it (`spawn`), south of the fountain, facing the house.
+ */
+export const COURTYARD = {
+  cx: 0,
+  cz: -17,
+  y: LEVEL.ground,
+  /** outer edge of the paving and of the planters' outer walls */
+  r: 9.6,
+  /** inner edge of the planters: the open court inside it */
+  ring: 7.7,
+  /** outer radius of the fountain basin's wall */
+  basin: 2.72,
+  /** half-width of the apron up to the stair foot: out to the stair's cheek walls' outer faces (structure/stairs.ts), so the paving lines up with the stair */
+  northHalf: FRONT_STAIR.x1 + 0.45,
+  /** half-width of the south gate onto the approach path */
+  southHalf: 1.9,
+  /** where visitors arrive, on the paving south of the fountain, facing the house's front doors (`faces`, at the top of the stair) */
+  spawn: { x: -0.5, z: -23.3, faces: { x: 0, z: FRONT_STAIR_FOOT_Z + FRONT_STAIR.risers * FRONT_STAIR.tread } },
+};
+
+/** How far (m) a plan point is outside the courtyard's paving (the court and its apron), 0 inside it. */
+export function courtyardDistance(x: number, z: number): number {
+  const C = COURTYARD;
+  const ring = Math.max(0, Math.hypot(x - C.cx, z - C.cz) - C.r);
+  const dx = Math.max(0, Math.abs(x - C.cx) - C.northHalf);
+  const dz = Math.max(0, C.cz - z, z - FRONT_STAIR_FOOT_Z);
+  return Math.min(ring, Math.hypot(dx, dz));
+}
+
+/** Whether p is in the front courtyard: on its paving, outside the house, at its height. */
+export function inCourtyard(p: { x: number; y?: number; z: number }): boolean {
+  if (p.y !== undefined && (p.y < LEVEL.ground - 1 || p.y > LEVEL.ground + 5)) return false;
+  return courtyardDistance(p.x, p.z) < 0.05;
+}
+
 /**
  * Theatre entrance: double doors in the theatre's south wall at its east end,
  * opening off the upper corridor beside the stair hall (as on the floor plan).

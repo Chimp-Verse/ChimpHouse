@@ -72,6 +72,7 @@ const ROOM_NAMES: Record<string, string> = {
   roofs: "Roofs",
   trees: "Living Trees",
   approach: "Front Approach",
+  courtyard: "Front Courtyard",
   bridge: "Canopy Bridge",
   jungle: "Jungle",
   landscape: "Landscape",

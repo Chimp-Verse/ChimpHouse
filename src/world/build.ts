@@ -10,6 +10,7 @@ import { buildStairs } from "./structure/stairs";
 import { buildLift } from "./structure/lift";
 import { buildEdges } from "./structure/edges";
 import { buildApproach } from "./environment/approach";
+import { buildCourtyard } from "./environment/courtyard";
 import { buildLowerRooms } from "./rooms/lower";
 import { buildBridge } from "./environment/bridge";
 import { buildJungle } from "./environment/jungle";
@@ -61,8 +62,9 @@ export async function buildWorld(scene: Scene, progress: Progress): Promise<Worl
   buildTrees(ctx);
   await tick("Stringing the canopy bridge…");
   buildBridge(ctx);
-  await tick("Planting the approach…");
+  await tick("Laying the courtyard and planting the approach…");
   buildApproach(ctx);
+  buildCourtyard(ctx);
 
   await tick("Shaping the ridge and valley…");
   buildTerrain(ctx);

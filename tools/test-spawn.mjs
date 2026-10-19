@@ -1,6 +1,7 @@
 // Arriving as your chimp, in a real browser against the running preview (npm run dev):
 //   1. the page opens straight into this visitor's chimp, walking, at the spawn point in the
-//      entry hall, the camera behind it
+//      front courtyard (outside the house, on the paving in front of it), the camera behind it,
+//      the fountain running in front of it
 //   2. without the fly-in camera (engine/devFlags.ts) nothing reaches it: not F, the viewpoint
 //      keys, the side panel, the automation hook (__chimp) from the console, ?view= / ?pose= in
 //      the address, nor a camera saved in localStorage; nor are the builder's tools there (inspect
@@ -66,6 +67,11 @@ try {
       return { walking: s.walking, viewId: s.viewId, area: s.area, firstPerson: s.firstPerson, wardrobe: s.wardrobe, ortho: !!cam.ortho, cam, eye, back: Math.hypot(cam.x - eye[0], cam.y - eye[1], cam.z - eye[2]) };
     });
 
+  // the front courtyard (world/layout.ts COURTYARD): a round court round (0, -17), 9.6 m from its middle to its
+  // edge, south of the front stair's foot (z -7.27), the house's front wall further north still
+  const inCourtyard = (eye) => Math.hypot(eye[0], eye[2] + 17) < 9.6 && eye[2] < -7.3;
+  const fountain = () => ev(() => window.__chimp.fountain());
+
   // what of the builder's tools (engine/devFlags.ts DEV_TOOLS_ENABLED) the page shows
   const builderTools = () =>
     ev(() => ({
@@ -84,6 +90,7 @@ try {
     check(await ev(() => window.__chimp.flyIn), "the page has the fly-in camera");
     const s0 = await state();
     check(s0.walking, "without ?view= it still arrives as the chimp", s0.area);
+    check(/courtyard/i.test(s0.area) && inCourtyard(s0.eye), "in the front courtyard, outside the house", `${s0.area}, eye ${s0.eye.map((v) => v.toFixed(1)).join(", ")}`);
     // the builder's tools are there with the same flag
     const tools = await builderTools();
     check(/Night/.test(tools.panel) && /Hide roofs/.test(tools.panel) && /Hide upper level/.test(tools.panel) && /Inspect on click/.test(tools.panel) && /Copy view details/.test(tools.panel) && /Download this room/.test(tools.panel), "the side panel has night, the cutaways, inspect, copy and download");
@@ -119,7 +126,10 @@ try {
     const s0 = await state();
     const mine = await ev(() => window.__chimp.chimps.describe().mine);
     check(s0.walking && mine?.shown, "it opens walking as this visitor's chimp, with no step before it");
-    check(/entry/i.test(s0.area), "at the spawn point in the entry hall", s0.area);
+    check(/courtyard/i.test(s0.area), "at the spawn point in the front courtyard", s0.area);
+    check(inCourtyard(s0.eye), "its eyes outside the house, on the courtyard's paving", s0.eye.map((v) => v.toFixed(2)).join(", "));
+    const f0 = await fountain();
+    check(f0.built && f0.spraying && f0.particles > 0, "the fountain runs in front of it", JSON.stringify(f0));
     check(!s0.firstPerson && s0.back > 0.8, "the camera behind the chimp", `${s0.back.toFixed(2)} m from its eyes`);
     await shot("arrived");
 
@@ -127,6 +137,10 @@ try {
     const at = (s) => `${s.cam.x.toFixed(2)}, ${s.cam.z.toFixed(2)}`;
     for (const k of ["KeyF", "Digit1", "Digit5", "BracketRight", "BracketLeft", "KeyG"]) await page.keyboard.press(k);
     await settle(10);
+    // those key presses were the visitor's first: the fountain's sound starts (heard in-page only: the browser is muted)
+    const heard = await waitFor(() => window.__chimp.fountain().sound.playing, null, 10000).then(() => true, () => false);
+    const f1 = await fountain();
+    check(heard && f1.sound.level > 0.5, "the fountain is heard at the spawn, after the first key press", JSON.stringify(f1.sound));
     const s1 = await state();
     check(s1.walking && s1.viewId === null && Math.hypot(s1.eye[0] - s0.eye[0], s1.eye[2] - s0.eye[2]) < 0.05, "F, 1, 5, [ ] and G do nothing: still walking where it arrived", `at ${at(s1)}`);
     const panel = await ev(() => document.querySelector(".panel.views")?.textContent ?? "");
@@ -138,7 +152,7 @@ try {
     // the builder's tools: none shows, answers its key or is on the console hook
     const tools = await builderTools();
     check(!/Night|Hide roofs|Hide upper level|Inspect on click|Copy view details|Download this room/.test(panel), "the side panel has no night switch, cutaways, inspect, copy or download");
-    check(!tools.coords && !tools.perf && !tools.previewTag && /entry/i.test(tools.status), "the status panel shows only ChimpHouse and the room", tools.status);
+    check(!tools.coords && !tools.perf && !tools.previewTag && /courtyard/i.test(tools.status), "the status panel shows only ChimpHouse and the room", tools.status);
     check(!/Alt-click|inspect/i.test(tools.hint), "the controls line doesn't mention inspecting", tools.hint);
     check(!/Inspect|Hide roofs|Day \/ night|Copy viewpoint|press P/.test(help), "the help card has no builder's tools");
     check(tools.hooks.length === 0, "the console hook has no export tools", tools.hooks.join(", "));
@@ -245,7 +259,7 @@ try {
     const pose = encodeURIComponent(JSON.stringify({ x: -54, y: 30, z: -60, yaw: 0.7, pitch: 0.5, fov: 0.85 }));
     await open(`&view=aerial&pose=${pose}&capture=1`);
     const s3 = await state();
-    check(s3.walking && s3.viewId === null && /entry/i.test(s3.area), "?view=, ?pose= and a saved camera are ignored: it arrives at the spawn point, walking", `${s3.area}, walking ${s3.walking}, view ${s3.viewId}`);
+    check(s3.walking && s3.viewId === null && /courtyard/i.test(s3.area) && inCourtyard(s3.eye), "?view=, ?pose= and a saved camera are ignored: it arrives at the spawn point, walking", `${s3.area}, walking ${s3.walking}, view ${s3.viewId}`);
   }
 } finally {
   await stop();

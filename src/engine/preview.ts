@@ -1,12 +1,14 @@
-import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Vector3, VertexData } from "@babylonjs/core";
+import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ROLE, find as findRole } from "../world/roles";
 import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
-import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
+import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, inCourtyard, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
 import { SPAWN, VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
 import { DEV_TOOLS_ENABLED, FLY_IN_ENABLED } from "./devFlags";
+import { Fountain } from "./fountain";
 import { Lighting } from "./lighting";
 import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
@@ -95,6 +97,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const lighting = new Lighting(scene, world.sky);
   lighting.attach(world.ctx);
   const post = new PostFx(scene, fly.camera);
+  // the courtyard fountain's water, spray and sound, on its slot (roles.ts ROLE.fountain)
+  const fountain = new Fountain(scene, world.mats, lighting, fly, world.sky.dome);
   // the chimps: this visitor's, which the walker carries, and every other visitor's
   const avatars = new Avatars(scene, fly, lighting);
   // using a screen: a cabinet's game, the theatre's video
@@ -152,6 +156,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       store.set({ night: n });
       lighting.setNight(n);
       post.setNight(n);
+      fountain.setNight(n);
       for (const m of world.ctx.nightOnly) m.setEnabled(n);
     },
     setRoofHidden(v) {
@@ -171,6 +176,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       applyScale(q);
       lighting.setQuality(q);
       post.setQuality(q);
+      fountain.setQuality(q);
     },
     setWalking(v) {
       if (store.get().focus) return;
@@ -429,11 +435,23 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (fly.isOrtho) fly.applyOrtho();
   });
 
-  /** This visitor arrives as their chimp: standing at the spawn point in the entry hall, walking, the camera behind it. */
+  /**
+   * This visitor arrives as their chimp: standing at the spawn point in the front courtyard, walking,
+   * the camera behind it. The spawn-point slot (roles.ts) says where and which way they face; SPAWN
+   * is the same place, for a house without one.
+   */
   function spawn() {
-    fly.setPose(SPAWN);
+    const pose = { ...SPAWN };
+    const node = findRole(scene, ROLE.spawnPoint);
+    if (node instanceof TransformNode) {
+      const wm = node.computeWorldMatrix(true);
+      const at = wm.getTranslation();
+      const front = Vector3.TransformNormal(new Vector3(0, 0, -1), wm);
+      Object.assign(pose, { x: at.x, y: at.y + (SPAWN.y - LEVEL.ground), z: at.z, yaw: Math.atan2(front.x, front.z) });
+    }
+    fly.setPose(pose);
     controller.setWalking(true);
-    if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", SPAWN);
+    if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", pose);
   }
 
   /** The house's export hooks, for the builder's tools only (engine/devFlags.ts). */
@@ -468,6 +486,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     /** whether this page has the developer-only fly-in camera (engine/devFlags.ts): read-only, nothing here turns it on */
     flyIn: FLY_IN_ENABLED,
     scene,
+    /** the courtyard fountain: whether its water is built, reflecting, spraying, and its sound */
+    fountain: () => fountain.info(),
     // goTo and setWalking(false) do nothing without the fly-in camera, and setPose refuses a plan view
     goTo: (id: string) => controller.goTo(id),
     views: () => (FLY_IN_ENABLED ? VIEWPOINTS.map((v) => ({ id: v.id, ref: v.refName ?? null })) : []),
@@ -791,6 +811,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     pinball.update(dt);
     airHockey.update();
     foosball.update(dt);
+    fountain.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
@@ -840,6 +861,7 @@ function locate(p: Vector3): string {
     if (level === "lower" && pointInPolygon({ x: p.x, z: p.z }, lowerDeckLoop)) return "Lower · Deck";
     if (level === "upper" && pointInPolygon({ x: p.x, z: p.z }, upperDeckLoop)) return "Upper · Deck & balcony";
   }
+  if (inCourtyard(p)) return "Outside · Front Courtyard";
   return p.y > 30 ? "Above the canopy" : "Outside · Jungle";
 }
 

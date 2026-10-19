@@ -1,12 +1,12 @@
-// Front approach: stepping-stone path through gravel, mossy boulders and
-// dense tropical planting around the stair and under the decks.
+// Front approach: stepping-stone path through gravel from the courtyard's south gate
+// (environment/courtyard.ts), mossy boulders and dense tropical planting under the decks.
 
 import { Vector3 } from "@babylonjs/core";
 import { P2, offsetPath, pointInPolygon, resample, rng, smoothPath } from "../geometry/curves";
 import { fbm2 } from "../geometry/noise";
 import { Geo, lathe, polygonFace, sphere, xf } from "../geometry/geo";
 import { WorldCtx, zone } from "../context";
-import { M, SITE, lowerDeckLoop } from "../layout";
+import { COURTYARD, M, SITE, courtyardDistance, lowerDeckLoop } from "../layout";
 
 const T = (x: number, z: number): [number, number] => {
   const p = M(x, z);
@@ -54,14 +54,14 @@ function stoneGeo(w: number, d: number, seed: number): Geo {
 export function buildApproach(ctx: WorldCtx): void {
   const z = zone("approach", "site");
   const r = rng(2024);
-  // stepping stone path winding south from the stair
+  // stepping stone path winding south from the courtyard's south gate
   const bottom = FRONT_LANDING_Z - 12 * 0.46;
+  const gate = COURTYARD.cz - COURTYARD.r;
   const pathCtrl: P2[] = [
-    { x: 0, z: bottom - 0.4 },
-    { x: 0.4, z: bottom - 5 },
-    { x: -0.8, z: bottom - 11 },
-    { x: 0.6, z: bottom - 18 },
-    { x: 2.5, z: bottom - 27 },
+    { x: 0, z: gate - 0.35 },
+    { x: 0.3, z: gate - 4 },
+    { x: 1.6, z: gate - 10 },
+    { x: 2.4, z: gate - 15 },
     { x: 1.0, z: bottom - 40 },
   ];
   const centre = smoothPath(pathCtrl, 8);
@@ -106,6 +106,8 @@ export function buildApproach(ctx: WorldCtx): void {
     [...T(20.94, -4.25), 1.1],
   ];
   for (const [x, zz, s] of rockSpots) {
+    // no boulders round the courtyard, nor between it and the stair: that ground is the courtyard's beds
+    if (courtyardDistance(x, zz) < 8 + s) continue;
     const y = terrainHeight(x, zz);
     rocks.add(rockGeo(s, x * 0.37 + zz), xf(x, y - s * 0.15, zz, r() * 6, 1, 1, 1));
     for (let k = 0; k < 2; k++) {
@@ -125,7 +127,7 @@ export function buildApproach(ctx: WorldCtx): void {
     for (let zz = SITE.z0 - 5; zz <= 1.5; zz += 1.1) {
       const p = { x: x + (r() - 0.5) * 0.8, z: zz + (r() - 0.5) * 0.8 };
       if (Math.abs(p.x) < 3.6 && p.z > bottom - 1) continue; // stair
-      if (Math.abs(p.x - centre[0].x) < 1.6 && p.z < bottom) continue; // path
+      if (courtyardDistance(p.x, p.z) < 4.6 && p.z < bottom + 1) continue; // the courtyard and its own beds
       if (pointInPolygon(p, offsetPath(lowerDeckLoop, -1.2, true))) continue;
       if (r() > 0.72) continue;
       front.push(p);
@@ -144,6 +146,7 @@ export function buildApproach(ctx: WorldCtx): void {
   for (let i = 0; i < 260; i++) {
     const p = { x: (r() - 0.5) * 70 * SITE.k, z: SITE.z0 - 6 - r() * 40 };
     if (Math.abs(p.x - 0.5) < 2.2) continue;
+    if (courtyardDistance(p.x, p.z) < 4.6) continue;
     plant(ctx, z, new Vector3(p.x, plantY(p), p.z), r() > 0.5 ? "fern" : r() > 0.5 ? "grass" : "mixed", 0.8 + r() * 1.2, r);
   }
 }
