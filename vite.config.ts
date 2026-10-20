@@ -1,14 +1,13 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
-import { roomServer } from "./server/roomServer";
 
 // `npm run dev:lan` (mode "lan", .env.lan) listens on the home network for
-// ChimpVibe's LAN demo; otherwise on localhost:5173
+// ChimpVibe's LAN demo; otherwise on localhost:5173. Both start the room server
+// beside Vite (tools/dev.mjs); `npx vite` alone serves the pages without it.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "CHIMPHOUSE_");
   return {
-    // the room server: shared state (the lift's, the Game Room TV's) between every page this dev server serves
-    plugins: [react(), roomServer()],
+    plugins: [react()],
     // its own dependency cache, so it can run beside the localhost server
     cacheDir: mode === "lan" ? "node_modules/.vite-lan" : undefined,
     server: {

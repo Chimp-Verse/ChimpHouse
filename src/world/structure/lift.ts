@@ -20,10 +20,10 @@ import { MeshMeta, WorldCtx, Zone, zone } from "../context";
 import { makeCanvas, toTexture } from "../materials/canvas";
 import { LiftGlyph, buttonMat, liftMaterials } from "../materials/lift";
 import { LEVEL, LIFT_CAR, LIFT_DOOR, LIFT_SHAFT, core } from "../layout";
+import type { Floor } from "../layout";
 import { ROLE } from "../roles";
 
-/** The floors the lift serves, by number: 1 the lower floor, 2 the upper. */
-export type Floor = 1 | 2;
+export type { Floor };
 export const FLOORS: Floor[] = [1, 2];
 /** The height of each floor's top. */
 export const FLOOR_Y: Record<Floor, number> = { 1: LEVEL.lower, 2: LEVEL.upper };

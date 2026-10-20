@@ -16,7 +16,7 @@
 // visitor at the lift has walked away (setNearby).
 
 import { LEVEL } from "../world/layout";
-import type { Floor } from "../world/structure/lift";
+import type { Floor } from "../world/layout";
 
 export type { Floor };
 export type LiftPhase = "parked" | "moving" | "arriving" | "open" | "closing";

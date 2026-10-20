@@ -5,11 +5,12 @@
   "type": "module",
   "description": "ChimpHouse 3D preview: a fly-through of the house and its jungle setting, built with Babylon.js.",
   "scripts": {
-    "dev": "vite",
-    "dev:lan": "vite --mode lan",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "dev": "node tools/dev.mjs",
+    "dev:lan": "node tools/dev.mjs --mode lan",
+    "build": "tsc --noEmit && tsc --noEmit -p server && vite build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p server",
     "preview": "vite preview",
+    "room": "tsx server/main.ts",
     "screens": "node tools/extract-screens.mjs",
     "capture": "node tools/capture-views.mjs"
   },
@@ -17,6 +18,10 @@
     "@babylonjs/core": "9.29.0",
     "@babylonjs/materials": "9.29.0",
     "@babylonjs/serializers": "9.29.0",
+    "@colyseus/core": "0.18.19",
+    "@colyseus/schema": "5.0.41",
+    "@colyseus/sdk": "0.18.5",
+    "@colyseus/ws-transport": "0.18.4",
     "@fontsource/cinzel": "5.3.0",
     "@fontsource/montserrat": "5.3.0",
     "@fontsource/nunito": "5.3.0",
@@ -31,6 +36,7 @@
     "@vitejs/plugin-react": "6.1.1",
     "playwright": "1.63.0",
     "sharp": "0.35.5",
+    "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vite": "8.3.2"
   }

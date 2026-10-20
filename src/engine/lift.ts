@@ -8,10 +8,12 @@
 // presses it.
 //
 // The car, doors, buttons and indicators are found by role and slot (world/roles.ts).
-// The state is shared through the room (engine/room.ts): each visitor's page moves it on by
-// the room's clock, which needs no messages, and passes on the changes its visitor makes (a
-// button pressed, stepping into a doorway, coming to the lift or walking away), so everyone
-// sees the same car and hears the same music. A visitor who leaves is let go of.
+// The room server owns the state (engine/room.ts, server/house.ts): each page sends its
+// visitor's commands (a button pressed, stepping into a doorway, coming to the lift or walking
+// away: engine/liftCommands.ts), the server runs them one at a time and sends everyone the
+// result, so everyone sees the same car and hears the same music. Between changes each page
+// moves the state on by the room's clock, which needs no messages. The server lets go of a
+// visitor who leaves.
 
 import { Color3, DynamicTexture, Matrix, Mesh, PBRMaterial, PointLight, Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import { FLOORS, Floor, Shown, paintIndicator } from "../world/structure/lift";
@@ -22,7 +24,8 @@ import { ROLE, find } from "../world/roles";
 import { FlyCamera } from "./flyCamera";
 import { pickAt, pickPoint } from "./focus";
 import { LiftSound } from "./liftSound";
-import { LIFT_TIMING, LiftState, advanceLift, callLift, carHeight, carSpeed, doorPosAt, floorHeight, holdDoors, initialLift, musicAt, playMusic, setDoorway, setNearby, shutDoorsNow } from "./liftState";
+import { LIFT_TIMING, LiftState, advanceLift, carHeight, carSpeed, doorPosAt, floorHeight, musicAt } from "./liftState";
+import { LIFT_TOPIC, type ButtonId, type LiftCommand } from "./liftCommands";
 import { room } from "./room";
 import { VIEWER, store } from "./store";
 import { AVATAR } from "./walker";
@@ -45,8 +48,9 @@ const FLASH = 400;
 const NEAR_LIFT = 4.5;
 const LEFT_LIFT = 5.0;
 
-/** The lift's buttons: a landing's call button, a car button for a floor, and the car's door buttons. */
-export type ButtonId = "call1" | "call2" | "car1" | "car2" | "open" | "close";
+export type { ButtonId };
+/** How long (ms) the page waits for the server to take in where its visitor stands before telling it again. */
+const RESEND_MS = 1000;
 
 interface Button {
   id: ButtonId;
@@ -72,8 +76,8 @@ export class Lift {
   /** what each indicator shows, so its canvas is only painted when that changes */
   private shown = new Map<Mesh, string>();
   private sound = new LiftSound();
-  /** this visitor's changes to the shared state, passed on to everyone */
-  private publish: (s: LiftState) => void;
+  /** where this visitor last told the server they stand (in the doorway, at the lift), and when */
+  private told = { inside: false, near: false, at: -Infinity };
   /** the state seen last frame, to tell the sounds of its changes */
   private last: { phase: LiftState["phase"]; doorTarget: 0 | 1; doorAt: number } | null = null;
   /** which way the car last travelled: one chime for up, two for down */
@@ -134,14 +138,8 @@ export class Lift {
 
     canvas.addEventListener("pointermove", (e) => (this.mouse = { x: e.clientX, y: e.clientY }));
     canvas.addEventListener("pointerleave", () => (this.mouse = null));
-    // the shared state: everyone's changes come in here, and a visitor who leaves lets go of the doorway and the lift
-    this.publish = room.share("lift", store.get().lift, (s) => store.set({ lift: s }));
-    room.onGone((id) => {
-      const now = room.now();
-      const s = advanceLift(store.get().lift, now);
-      const next = setNearby(setDoorway(s, id, false, now), id, false);
-      if (next !== s) this.publish(next);
-    });
+    // the server's state: everyone's commands come back in it (the server lets go of a visitor who leaves)
+    room.watch<LiftState>(LIFT_TOPIC, (s) => store.set({ lift: s }));
 
     // sound may start at the visitor's first key press or click, so the lift is heard before it is used
     const wake = () => this.sound.unlock();
@@ -153,15 +151,21 @@ export class Lift {
   update(): void {
     const now = room.now();
     // the timed steps: the same for everyone from the same state, so kept here, not passed on
-    let s = advanceLift(store.get().lift, now);
+    const s = advanceLift(store.get().lift, now);
     if (s !== store.get().lift) store.set({ lift: s });
-    // this visitor's own changes are passed on: in or out of the doorway, at the lift or away
-    let mine = s;
-    const inside = this.inDoorway(mine);
-    if (inside !== mine.inDoorway.includes(VIEWER)) mine = setDoorway(mine, VIEWER, inside, now);
-    const near = this.nearLift(mine, now);
-    if (near !== mine.nearby.includes(VIEWER)) mine = setNearby(mine, VIEWER, near);
-    if (mine !== s) this.publish((s = mine));
+    // where this visitor stands goes to the server: in or out of the doorway, at the lift or away.
+    // Told again when the server's state still disagrees a moment later (a lost message, or a server that restarted).
+    const inside = this.inDoorway(s);
+    const near = this.nearLift(s, now);
+    const stale = performance.now() - this.told.at > RESEND_MS;
+    if (inside !== this.told.inside || (stale && inside !== s.inDoorway.includes(VIEWER))) {
+      this.told.inside = inside;
+      this.tell({ name: "doorway", args: { inside } });
+    }
+    if (near !== this.told.near || (stale && near !== s.nearby.includes(VIEWER))) {
+      this.told.near = near;
+      this.tell({ name: "nearby", args: { near } });
+    }
     this.show(s, now);
     this.prompt(s, now);
     this.listen(s, now);
@@ -172,9 +176,14 @@ export class Lift {
     this.use(source === "call" ? `call${floor}` : `car${floor}`);
   }
 
-  /** Puts the shared lift back as the house opens with it (parked downstairs, doors shut, quiet), for everyone: for tests. */
+  /** Puts the shared lift back as the house opens with it (parked downstairs, doors shut, quiet), for everyone: for tests (the server must allow it). */
   reset(): void {
-    this.publish(initialLift(room.now()));
+    this.tell({ name: "reset" });
+  }
+
+  private tell(cmd: LiftCommand): void {
+    this.told.at = performance.now();
+    room.command(LIFT_TOPIC, cmd.name, cmd.args);
   }
 
   /** E: presses the button the walker is pointing at, if any. */
@@ -193,18 +202,12 @@ export class Lift {
     return true;
   }
 
-  /** A button pressed: the command it gives the shared state. */
+  /** A button pressed: its command goes to the server, which calls the car, holds or shuts the doors, and starts the music. */
   use(id: ButtonId): void {
     this.sound.unlock();
     this.sound.press();
-    const now = room.now();
-    const s = advanceLift(store.get().lift, now);
-    let next: LiftState;
-    if (id === "open") next = holdDoors(s, now);
-    else if (id === "close") next = shutDoorsNow(s, now);
-    else next = callLift(s, Number(id.slice(-1)) as Floor, id.startsWith("call") ? "call" : "car", now);
-    if (id === "open" || id === "close") this.flashed.set(id, now);
-    this.publish(playMusic(next, VIEWER, now));
+    if (id === "open" || id === "close") this.flashed.set(id, room.now());
+    this.tell({ name: "press", args: { button: id } });
   }
 
   /**
@@ -307,7 +310,7 @@ export class Lift {
     const eye = this.fly.eye;
     const carFloor = LEVEL.lower + carHeight(s, now);
     if (this.inCar(eye.x, eye.z) && eye.y > carFloor && eye.y < carFloor + LIFT_CAR.height) return true;
-    const reach = s.nearby.includes(VIEWER) ? LEFT_LIFT : NEAR_LIFT;
+    const reach = this.told.near || s.nearby.includes(VIEWER) ? LEFT_LIFT : NEAR_LIFT;
     return FLOORS.some((f) => Math.hypot(eye.x - LIFT_CAR.x, eye.y - (LEVEL.lower + floorHeight(f) + 1.6), eye.z - LIFT_DOOR.z0) < reach);
   }
 

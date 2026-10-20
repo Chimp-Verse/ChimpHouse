@@ -1,10 +1,14 @@
-// The lift shared between visitors, through the room server (server/roomServer.ts), against the
-// running preview (npm run dev): separate browser contexts are separate visitors.
+// The lift shared between visitors, through the room server (server/house.ts), which owns it: the
+// pages send commands and show the state it sends back. Against the running preview (npm run dev,
+// which starts the room server too; or a production build served beside `npm run room`):
+// separate browser contexts are separate visitors.
 //   1. one visitor calls the car: another, standing elsewhere, sees the same call, the same
 //      car at the same height, and the same music, playing as far into the tune
 //   2. a visitor whose computer's clock is 5 s out, arriving later, is told how things stand
 //      and sees the car where the others do (the room's clock, not its own)
-//   3. the visitor at the lift closes their page: the others let go of them, and the music
+//   3. the connection of the visitor in the car drops: the server lets go of them at once, and
+//      when their page has reconnected by itself it tells the server where they are again
+//   4. the visitor at the lift closes their page: the others let go of them, and the music
 //      stops once nobody is at the lift
 // Exits non-zero when a check fails.
 //   node tools/test-lift-sync.mjs
@@ -25,7 +29,8 @@ async function visitor(name, skew = 0) {
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
   if (skew) await page.addInitScript((skew) => { const now = Date.now; Date.now = () => now() + skew; }, skew);
-  await page.goto(URL);
+  // walking, the visitor is where their eyes are: ?pov=first puts them at the camera (AGENTS.md)
+  await page.goto(`${URL}/?pov=first&quality=low`);
   await page.waitForFunction(() => window.__chimp?.lift, null, { timeout: 60000 });
   const ev = (fn, a) => page.evaluate(fn, a);
   return {
@@ -34,7 +39,8 @@ async function visitor(name, skew = 0) {
     lift: () => ev(() => ({ ...window.__chimp.lift.describe(), nearby: window.__chimp.lift.state().nearby, musicAt: window.__chimp.lift.state().musicAt })),
     /** the car's height on this page and the room's time, at the same moment */
     at: () => ev(() => window.__chimp.lift.describe().height),
-    stand: (pose) => ev((p) => window.__chimp.setPose(p), pose),
+    /** the visitor's chimp put down at (x, z) on the lower floor (where it stands is where it is, walking) */
+    stand: (pose) => ev((p) => window.__chimp.walker().place(p.x, 0.5, p.z, 1), pose),
   };
 }
 
@@ -77,9 +83,18 @@ check(lc.dest === 2 || lc.floor === 2, "a visitor arriving later is told how thi
 check(Math.abs(hc - ha2) < 0.1, "with its clock 5 s out, the latecomer still sees the car where the others do", `${hc.toFixed(2)} m and ${ha2.toFixed(2)} m`);
 check(lc.music, "the latecomer hears the music too");
 
-// 3. A closes their page: the others let go of them
+// 3. A's connection drops: the server lets go of them; their page reconnects and says it is at the lift again
+const aId = (await a.lift()).nearby[0];
+await a.ev(() => window.__room.dropForTest());
+const released = await b.page.waitForFunction(() => window.__chimp.lift.state().nearby.length === 0, null, { timeout: 5000 }).then(() => true, () => false);
+check(released, "a visitor whose connection drops is let go of by the lift at once");
+const back = await b.page.waitForFunction(() => window.__chimp.lift.state().nearby.length === 1, null, { timeout: 15000 }).then(() => true, () => false);
+const [ra, rb] = await Promise.all([a.lift(), b.lift()]);
+check(back && ra.nearby[0] === aId && rb.nearby[0] === aId, "once it reconnects by itself, the page tells the server again and everyone agrees", JSON.stringify({ a: ra.nearby, b: rb.nearby, was: aId }));
+
+// 4. A closes their page: the others let go of them
 await a.page.context().close();
-await b.page.waitForFunction(() => window.__chimp.lift.state().nearby.length === 0, null, { timeout: 15000 }).catch(() => {});
+await b.page.waitForFunction(() => window.__chimp.lift.state().nearby.length === 0, null, { timeout: 25000 }).catch(() => {});
 const [gb, gc] = await Promise.all([b.lift(), c.lift()]);
 check(gb.nearby.length === 0 && gc.nearby.length === 0, "a visitor who leaves is let go of by everyone", JSON.stringify({ b: gb.nearby, c: gc.nearby }));
 check(!gb.music && !gc.music, "with nobody left at the lift, its music stops for everyone");

@@ -242,11 +242,14 @@ check(Math.abs(carNow.height - 5.6) < 0.01 && Math.abs(rode[1] - 5.62) < 0.2, "t
 // (the door-open button first, so the doors are open however slowly the page has run)
 await ev(() => window.__chimp.lift.use("open"));
 await waitFor(() => window.__chimp.lift.describe().doorPos > 0.99, null, 8000);
+// (each press goes to the room server, which owns the lift: its answer comes back in a moment)
 await ev(() => window.__chimp.lift.use("close"));
+await waitFor(() => window.__chimp.lift.describe().phase === "closing", null, 1000).catch(() => {});
 check((await lift()).phase === "closing", "the door-close button shuts the doors", JSON.stringify(await lift()));
 await sleep(400);
 await ev(() => window.__chimp.lift.use("open"));
-check((await lift()).phase === "open", "the door-open button opens them again before they meet");
+await waitFor(() => window.__chimp.lift.describe().phase === "open", null, 1000).catch(() => {});
+check((await lift()).phase === "open" && (await lift()).doorPos > 0, "the door-open button opens them again before they meet", JSON.stringify(await lift()));
 
 // standing in the doorway holds the doors open well past the dwell
 await ev(() => window.__chimp.lift.use("open"));

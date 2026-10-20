@@ -12,6 +12,9 @@
 
 import { P2, closestFraction, ensureCCW, offsetPath, pointInPolygon, resample, roundedRect, smoothPath, subPath } from "./geometry/curves";
 
+/** The floors the lift serves, by number: 1 the lower floor, 2 the upper (world/structure/lift.ts). */
+export type Floor = 1 | 2;
+
 /** Scale of the wings and of depth (north–south) relative to the traced plan. */
 export const PLAN_SCALE = 1.1;
 /** Scale of the entry hall width relative to the traced plan. */
