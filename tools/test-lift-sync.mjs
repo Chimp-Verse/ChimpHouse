@@ -94,7 +94,9 @@ check(back && ra.nearby[0] === aId && rb.nearby[0] === aId, "once it reconnects 
 
 // 4. A closes their page: the others let go of them
 await a.page.context().close();
-await b.page.waitForFunction(() => window.__chimp.lift.state().nearby.length === 0, null, { timeout: 25000 }).catch(() => {});
+// each page hears it in its own time (a busy page a few frames later)
+const letGo = (v) => v.page.waitForFunction(() => window.__chimp.lift.state().nearby.length === 0, null, { timeout: 25000 }).catch(() => {});
+await Promise.all([letGo(b), letGo(c)]);
 const [gb, gc] = await Promise.all([b.lift(), c.lift()]);
 check(gb.nearby.length === 0 && gc.nearby.length === 0, "a visitor who leaves is let go of by everyone", JSON.stringify({ b: gb.nearby, c: gc.nearby }));
 check(!gb.music && !gc.music, "with nobody left at the lift, its music stops for everyone");

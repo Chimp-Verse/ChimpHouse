@@ -92,7 +92,7 @@ Fewer shells are drawn the further a chimp is from the camera (14, 9, 5, then no
 
 ## Other visitors
 
-Chimps go through the room server (`server/roomServer.ts`, `engine/room.ts`) as two families of topics, one member per visitor:
+Chimps go through the room server (`server/house.ts`, `engine/room.ts`) as two families of topics, one member per visitor:
 
 - `chimpdna:<visitor id>`: the visitor's name and DNA, sent whenever they change.
 - `chimp:<visitor id>`: where the chimp stands, which way it faces and moves, whether it's on the ground, where it looks, and the room's clock. Sent ten times a second while it moves, and every 1.5 s while it stands.

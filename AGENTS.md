@@ -26,6 +26,15 @@ These are built on the code world before the Blender cut-over, and built to surv
 - Keep dynamic things as runtime data: the list of admitted games and each game's art come from ChimpVibe, screen images are placeholders, and video and game content loads when someone uses it.
 - Show another site's content (a YouTube player, a game hosted on ChimpVibe's site) as an overlay lined up with its screen or in a panel: browsers don't let it be drawn onto a 3D surface. Content running in ChimpVerse's own page can be drawn onto the screen.
 
+## Shared state and the room server
+
+Everything visitors share goes through the room server (`server/house.ts`, a Colyseus room; the page side `src/engine/room.ts`; the README's "The room server" has how to run it). `npm run dev` starts it beside Vite, and browser tests need both.
+
+- **State a page owns** (what its visitor is doing, a game its page simulates): `room.share` (or `room.family` for one member per visitor). The server only keeps the newest version and passes it on, so any page can overwrite it.
+- **State the server owns** (the lift, and each feature moved off `share` after it): `room.watch` to follow it and `room.command(topic, name, args)` to change it. The server checks each command's name and arguments (`liftCommands.ts` is the pattern) and runs it with the feature's pure rules, imported from `src/engine/` without Babylon. Move a feature here when two visitors can change it at once or one could cheat it.
+- Keep every shared state under the server's limits (`LIMITS` in `src/engine/roomProtocol.ts`: 32 KB a state, 200 messages a second per visitor across every feature, 10 commands a second): send a change when it happens, not every frame, unless the feature truly moves every frame. A topic ending in `:<visitor id>` is that visitor's alone and goes when they leave.
+- A test page opened with a visitor of its own joins as a separate visitor, even in the same browser: there is no sharing between tabs outside the server.
+
 ## Chimp avatars
 
 Every visitor walks the house as a chimp they shape and dress (`docs/plans/2026-10-16-chimp-avatar-plan.md` has how, and what a Blender chimp must do to take its place):

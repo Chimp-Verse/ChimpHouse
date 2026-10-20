@@ -2,7 +2,7 @@
 
 Plan date: 2026-10-09.
 
-Status: not started. Do this before ChimpHouse is published anywhere for real players. Until then, the dev-server relay below is enough for the LAN demo and local testing.
+Status: built and tested on this Mac, including over its home-network address (2026-10-20, branch `room-server`); not hosted yet. Done: steps 1-5 and 9, and step 6's rate and size limits. A Colyseus server in `server/` (`@colyseus/core` 0.18.19, `@colyseus/sdk` 0.18.5, MIT) that `npm run dev` and `npm run dev:lan` start beside Vite; the lift is the server's, run by commands; the dev-server relay (`server/roomServer.ts`) and the BroadcastChannel fallback are gone. Restarting the room server starts the lift afresh, and pages reconnect and put back the shared topics they know (the README's "The room server"). Tested: `test-room` (with a restart), `test-lift-sync` and `test-lift` against `npm run dev`; `test-lift-sync` with the pages loaded from the LAN demo's address (10.0.0.253, browsers on this Mac; not yet tried from a second computer) and against a production build (`vite preview`) with the room server run on its own; and every other multi-visitor and single-visitor browser test against `npm run dev`. Not done: hosting (step 8, chosen later; until then the "done when" below holds only on one network), step 6's reach check on lift presses (once chimps' positions are the server's), guest sessions from the server (step 7), and moving the other features to commands. "What there is now" below describes the relay as it was.
 
 ## Summary
 
@@ -50,7 +50,7 @@ The server moves the state on with `advanceLift` on its own clock and sends the 
 
 1. **Pick and pin versions.** Check Colyseus's current stable release when starting (the research saw a v0.18 banner in the docs, which on its own doesn't prove a stable npm release) and pin it.
 2. **The server project.** A Node project in `server/` with one room type, the house. Its state schema holds the lift's state, and room for the Game Room TV and the theatre. It imports `liftState.ts` directly.
-3. **The client transport.** `room.ts` connects to the server with the Colyseus SDK and keeps its API (`ME`, `share`, `onGone`, `now`). Features that only share state can keep `share`. The lift moves to sending commands, through a small addition such as `room.command(topic, name, args)`. The server's address comes from an environment variable (for example `CHIMPHOUSE_ROOM_URL`).
+3. **The client transport.** `room.ts` connects to the server with the Colyseus SDK and keeps its API (`ME`, `share`, `onGone`, `now`). Features that only share state can keep `share`. The lift moves to sending commands, through a small addition such as `room.command(topic, name, args)`. The server's address comes from a build-time environment variable, `VITE_CHIMPHOUSE_ROOM_URL` (or the page's own host at `VITE_CHIMPHOUSE_ROOM_PORT`).
 4. **Development.** `npm run dev` starts the room server beside Vite, so development and the LAN demo use the real server. Then remove `server/roomServer.ts` and the BroadcastChannel fallback.
 5. **Presence and reconnecting.** Visitors leave on disconnect, after a short grace period for a reconnect (Colyseus can hold a seat while the SDK retries). Their place in the doorway and at the lift goes with them.
 6. **Checks.** Rate-limit commands. Once avatar positions are shared, accept a button press only from a visitor within reach of that button.

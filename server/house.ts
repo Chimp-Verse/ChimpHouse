@@ -12,7 +12,7 @@
 //   everywhere.
 // - Presence: a visitor whose connection drops keeps their place for RECONNECT_GRACE_S while
 //   their page reconnects (they let go of the lift at once; their page tells it again when it is
-//   back). After that, or when they close the page, everyone is told they have gone, and the
+//   back). After that, or at once when they close the page, everyone is told they have gone, and the
 //   server forgets their own topics.
 //
 // Everything is kept in memory: restarting the server starts the lift afresh, and pages put
@@ -25,6 +25,8 @@ import { LIMITS, MSG, RECONNECT_GRACE_S, newer, type CommandMsg, type JoinOption
 
 /** How many of the visitors who left a newcomer is told about (they let go of anything those still hold). */
 const DEPARTED = 100;
+/** The WebSocket close code a browser sends when its page closes or navigates away. */
+const GOING_AWAY = 1001;
 /** How often (ms) the server moves the lift on through its timed steps. */
 const LIFT_TICK_MS = 100;
 
@@ -143,10 +145,15 @@ export class House extends Room {
     this.welcome(client, v);
   }
 
-  onDrop(client: Client) {
+  onDrop(client: Client, code?: number) {
     const v = this.bySession.get(client.sessionId);
     if (!v) return;
+    // 1001, "going away": the browser closed the page (or went to another), as a closed tab does
+    // when its pagehide leave didn't get out first. Nothing will reconnect: gone now (onLeave).
+    if (code === GOING_AWAY) return;
     const held = this.allowReconnection(client, RECONNECT_GRACE_S);
+    // refused at once while the house closes (the server shutting down): nothing to hold, nor to report
+    held.catch(() => undefined);
     v.held = held;
     // while away they hold nothing at the lift: their page says where they are when it is back
     this.setLift(letGoOfLift(this.lift, v.id, Date.now()));

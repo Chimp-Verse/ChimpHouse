@@ -1,6 +1,6 @@
 // The Game Room TV, in a real browser against the running preview (npm run dev),
-// with three tabs as three visitors on one couch (engine/room.ts keeps a
-// browser's tabs in step until the room server): Ann takes the remote and
+// with three tabs as three visitors on one couch (each tab joins the room
+// server as a visitor of its own, as on separate computers): Ann takes the remote and
 // chooses a game, Ann and Bo pick up controllers and play it, Cy watches from
 // the room. Games are the arcade's stand-in play page (?tv=standin), cross-origin
 // as a real one is.
@@ -22,7 +22,7 @@ const check = (ok, what, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${what}${detail ? `  (${detail})` : ""}`);
 };
 const browser = await chromium.launch({ headless: !process.env.HEADED, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
-// one context: its tabs share a BroadcastChannel, as a browser's tabs do
+// one context, three tabs: each is its own visitor in the room server
 const context = await browser.newContext({ viewport: { width: 1440, height: 860 } });
 
 async function visitor(name) {
