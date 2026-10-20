@@ -1,0 +1,42 @@
+# ChimpHouse's room server on Fly.io (docs/deploy.md, option 2). The website is not here: it is
+# on Cloudflare Pages.
+#
+#   fly launch --no-deploy --copy-config --name <your-app-name>   (once; keep this file as it is)
+#   fly secrets set CHIMPHOUSE_ROOM_ORIGINS=https://house.example.com
+#   fly deploy --ha=false
+#
+# ONE machine, always on: the house keeps the lift and the shared screens in that process's
+# memory, so a second machine would be a second, separate house, and a stopped machine
+# drops every visitor.
+
+app = "chimphouse-room"        # replace with your own app name (fly launch asks)
+primary_region = "iad"         # the region nearest most visitors: iad (Virginia), ord, lax, ams, fra...
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # NODE_ENV, PORT (8080) and the listening address are set by the Dockerfile
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # never stop an idle machine
+  auto_start_machines = false
+  min_machines_running = 1
+
+  # Fly's proxy keeps WebSockets open; nothing else to set.
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  # 512 MB is plenty for about a hundred visitors; 256 MB works too
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

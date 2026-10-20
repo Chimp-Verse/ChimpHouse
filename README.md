@@ -260,13 +260,19 @@ Shared state goes through ChimpHouse's own room server: a small Node program in 
 
 | Setting | Where | What it does |
 | --- | --- | --- |
+| `PORT` | the room server | Its port, when the host sets one (Render, Railway, Koyeb, DigitalOcean do); it wins over `CHIMPHOUSE_ROOM_PORT` |
 | `CHIMPHOUSE_ROOM_PORT` | the room server (and `tools/dev.mjs`) | Its port: 2567 by default, 2568 for the LAN demo, so both can run at once |
 | `CHIMPHOUSE_ROOM_HOST` | the room server | The address it listens on: `localhost` by default, `0.0.0.0` for every network. `tools/dev.mjs` uses `0.0.0.0` when `CHIMPHOUSE_HOST` is set (the LAN demo) |
-| `CHIMPHOUSE_ROOM_ORIGINS` | the room server | The sites whose pages may join, comma-separated (`https://chimphouse.example`); any when not set. Set it when it is online |
-| `CHIMPHOUSE_ROOM_TEST_COMMANDS` | the room server | `1` allows the commands only tests use (putting the lift back as it starts). `tools/dev.mjs` turns it on; leave it off online |
+| `CHIMPHOUSE_ROOM_ORIGINS` | the room server | The sites whose pages may join, comma-separated (`https://chimphouse.example`, no slash at the end); any when not set, but **required in production** (`NODE_ENV=production`): the server refuses to start without it |
+| `CHIMPHOUSE_ROOM_TEST_COMMANDS` | the room server | `1` allows the commands only tests use (putting the lift back as it starts). `tools/dev.mjs` turns it on; ignored in production |
+| `NODE_ENV` | the room server | `production` (set by `npm run room:start` and the Dockerfile): origins required, test commands off |
 | `VITE_CHIMPHOUSE_ROOM_URL` | the page, at build time | The room server's address, `wss://rooms.example` say. When it isn't set, the page looks on its own host at `VITE_CHIMPHOUSE_ROOM_PORT` (2567 by default; `tools/dev.mjs` sets it to match) |
 
 On its own (a production build, say): `npm run room` starts it (`CHIMPHOUSE_ROOM_PORT=2567 npm run room`), and the page is built to find it (`VITE_CHIMPHOUSE_ROOM_URL=ws://localhost:2567 npm run build`, then `npx vite preview` or any static server for `dist/`). Online, the page is served over HTTPS, so the room server must be reached over `wss://`: behind an HTTPS proxy or a host that provides one.
+
+### Putting it online
+
+`docs/deploy.md` has it step by step: the website (`npm run build`, then `dist/`) on Cloudflare Pages, and the room server on a small always-on VPS, on Fly.io, or on Render, Railway, Koyeb or DigitalOcean App Platform (it comes with a `Dockerfile`, `fly.toml`, `render.yaml`, `railway.json`, and examples for Caddy, Nginx, systemd and pm2 in `deploy/`). The production room server is built and started with `npm run room:build` and `npm run room:start` (compiled to `server/dist`, run by `node`, `NODE_ENV=production`); `GET /health` answers 200, and SIGTERM ends it cleanly.
 
 ### What it does
 
@@ -278,7 +284,7 @@ On its own (a production build, say): `npm run room` starts it (`CHIMPHOUSE_ROOM
 
 Everything is kept in memory. **Restarting the room server** starts the lift afresh (at the lower floor, doors shut, no music). Pages don't need reloading: they reconnect, put back the shared topics they know (the TV, the plushes, their chimp...), and send the lift where their visitor stands.
 
-Not yet done before it goes online: a host for it (Colyseus Cloud, or any Node host that keeps WebSockets open, behind HTTPS), and the next features to move from shared topics to server-owned commands, as the lift was: the theatre and its remotes (`theatre.ts`, `remotes.ts`), the Game Room TV (`gameTv.ts`), the claw machine and its plushes, the snack machine (`snackState.ts`), and who is playing each arcade machine and its high scores. Until they move, a page can still write anything into those topics, within the limits. Checking that a visitor pressing a lift button is within reach of it waits for chimps' positions to be the server's too.
+Not yet done before it goes online: choosing and setting up a host for it (`docs/deploy.md`), and the next features to move from shared topics to server-owned commands, as the lift was: the theatre and its remotes (`theatre.ts`, `remotes.ts`), the Game Room TV (`gameTv.ts`), the claw machine and its plushes, the snack machine (`snackState.ts`), and who is playing each arcade machine and its high scores. Until they move, a page can still write anything into those topics, within the limits. Checking that a visitor pressing a lift button is within reach of it waits for chimps' positions to be the server's too.
 
 ## Requesting changes
 

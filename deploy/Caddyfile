@@ -1,0 +1,17 @@
+# ChimpHouse's room server behind Caddy on a VPS (docs/deploy.md, option 1).
+# Save as /etc/caddy/Caddyfile (or into a file it imports), replace room.example.com with your
+# room address, point that name's DNS A (and AAAA) record at the VPS, then: sudo systemctl reload caddy
+#
+# Caddy gets and renews the HTTPS certificate by itself, and passes WebSocket connections
+# through with no extra setting (the Upgrade headers are forwarded for you). It sets no time
+# limit on a proxied connection either, so a visitor's connection stays open as long as they do
+# (Nginx, in nginx.conf, needs them written out).
+room.example.com {
+	# the room server listens on 127.0.0.1:2567 (CHIMPHOUSE_ROOM_HOST/PORT in chimphouse-room.conf.example)
+	reverse_proxy 127.0.0.1:2567 {
+		# the host's health check, so a stuck server is dropped from the proxy
+		health_uri /health
+		health_interval 30s
+	}
+	encode zstd gzip
+}

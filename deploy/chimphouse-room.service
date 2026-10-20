@@ -1,0 +1,35 @@
+# ChimpHouse's room server as a systemd service on a VPS (docs/deploy.md, option 1).
+# Save as /etc/systemd/system/chimphouse-room.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now chimphouse-room
+#   journalctl -u chimphouse-room -f          (its log)
+#
+# Assumes the code is in /opt/chimphouse, built there (npm ci && npm run room:build), owned by
+# the user "chimp", and the settings are in /etc/chimphouse/room.conf (copy
+# chimphouse-room.conf.example). One process only: a second would be a second, separate house.
+[Unit]
+Description=ChimpHouse room server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chimp
+Group=chimp
+WorkingDirectory=/opt/chimphouse
+EnvironmentFile=/etc/chimphouse/room.conf
+ExecStart=/usr/bin/node server/dist/server/main.js
+# systemd's stop (a deploy, a reboot) is a SIGTERM: the server disconnects visitors and exits
+KillSignal=SIGTERM
+TimeoutStopSec=20
+Restart=always
+RestartSec=3
+
+# keep it small and shut in
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

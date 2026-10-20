@@ -1,0 +1,13 @@
+# The room server's settings on a VPS. Copy to /etc/chimphouse/room.conf (owner root, mode 600)
+# and edit. This is a systemd EnvironmentFile (and pm2 reads the same values in
+# ecosystem.config.cjs): one NAME=value per line, no quotes, no "export".
+
+# production mode: the next line is required, test commands are off
+NODE_ENV=production
+
+# the website's address (where Cloudflare Pages serves it), no slash at the end; several: separate with commas
+CHIMPHOUSE_ROOM_ORIGINS=https://house.example.com
+
+# behind Caddy or Nginx on the same machine: listen on this machine only
+CHIMPHOUSE_ROOM_HOST=127.0.0.1
+CHIMPHOUSE_ROOM_PORT=2567

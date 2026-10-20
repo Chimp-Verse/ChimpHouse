@@ -1,0 +1,10 @@
+# Cloudflare Pages reads this file from the site's root (docs/deploy.md). Vite puts files whose
+# names carry a content hash in /assets: they never change under the same name, so browsers
+# keep them for a year. Nothing here sets a framing, referrer or content-security rule on
+# purpose: the page frames YouTube's player and ChimpVibe's games, and YouTube's player needs
+# to see which site is asking.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/*
+  X-Content-Type-Options: nosniff

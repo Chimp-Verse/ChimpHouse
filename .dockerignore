@@ -1,0 +1,10 @@
+# The image holds the room server only: leave out everything but what the Dockerfile copies.
+*
+!package.json
+!package-lock.json
+!tools/build-room.mjs
+!server/
+!src/
+server/dist
+**/node_modules
+**/.DS_Store

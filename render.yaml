@@ -1,0 +1,20 @@
+# ChimpHouse's room server on Render (docs/deploy.md, option 3): a Blueprint. In Render:
+# New > Blueprint > pick this repository. The website is not here: it is on Cloudflare Pages.
+#
+# The Starter plan (about $7 a month) is the cheapest that stays on. Never the Free plan: it
+# goes to sleep when quiet, and a sleeping server drops every visitor.
+services:
+  - type: web
+    name: chimphouse-room
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    numInstances: 1            # one process only: a second would be a second, separate house
+    region: oregon             # oregon, ohio, virginia, frankfurt, singapore: nearest most visitors
+    healthCheckPath: /health
+    autoDeploy: true           # a push to the branch deploys it
+    envVars:
+      # the website's address (Cloudflare Pages), no slash at the end; several: separate with commas
+      - key: CHIMPHOUSE_ROOM_ORIGINS
+        value: https://house.example.com
+      # Render sets PORT itself (10000); the server follows it

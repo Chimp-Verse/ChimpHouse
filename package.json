@@ -12,32 +12,37 @@
     "preview": "vite preview",
     "room": "tsx server/main.ts",
     "screens": "node tools/extract-screens.mjs",
-    "capture": "node tools/capture-views.mjs"
+    "capture": "node tools/capture-views.mjs",
+    "room:build": "node tools/build-room.mjs",
+    "room:start": "node tools/start-room.mjs"
   },
   "dependencies": {
+    "@colyseus/core": "0.18.19",
+    "@colyseus/schema": "5.0.41",
+    "@colyseus/ws-transport": "0.18.4"
+  },
+  "devDependencies": {
     "@babylonjs/core": "9.29.0",
     "@babylonjs/materials": "9.29.0",
     "@babylonjs/serializers": "9.29.0",
-    "@colyseus/core": "0.18.19",
-    "@colyseus/schema": "5.0.41",
     "@colyseus/sdk": "0.18.5",
-    "@colyseus/ws-transport": "0.18.4",
     "@fontsource/cinzel": "5.3.0",
     "@fontsource/montserrat": "5.3.0",
     "@fontsource/nunito": "5.3.0",
-    "earcut": "3.2.4",
-    "react": "19.3.0",
-    "react-dom": "19.3.0"
-  },
-  "devDependencies": {
     "@types/earcut": "3.0.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
+    "earcut": "3.2.4",
     "playwright": "1.63.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
     "sharp": "0.35.5",
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "vite": "8.3.2"
+  },
+  "engines": {
+    "node": ">=20.19"
   }
 }

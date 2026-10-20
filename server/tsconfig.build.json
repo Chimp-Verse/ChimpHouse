@@ -1,0 +1,17 @@
+{
+  // The production build of the room server (npm run room:build, tools/build-room.mjs): plain
+  // CommonJS that node runs as it is, so extension-less imports (the code is shared with the
+  // pages, which Vite bundles) still resolve. It ends up in server/dist/server/main.js with the
+  // shared files beside it in server/dist/src/.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "noEmit": false,
+    "outDir": "dist",
+    "rootDir": "..",
+    "sourceMap": true,
+    "isolatedModules": false
+  },
+  "include": ["main.ts"]
+}
