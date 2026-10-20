@@ -209,8 +209,8 @@ export class ScreenFocus {
   update(): void {
     const f = store.get().focus;
     if (!f || f.phase !== "on" || !this.screen || !this.pose) return;
-    const engine = this.scene.getEngine();
-    const size = `${engine.getRenderWidth()}x${engine.getRenderHeight()}`;
+    // the window's size, not the picture's: a change of render scale (engine/adaptiveScale.ts) leaves the camera where it is
+    const size = `${this.canvas.clientWidth}x${this.canvas.clientHeight}`;
     if (size !== this.poseSize) {
       this.poseSize = size;
       this.fly.setPose(this.pose());
