@@ -9,7 +9,7 @@
 //      the position and fps readout)
 //   3. from the spawn: W walks, V switches to the chimp's eyes and back, the wheel brings the
 //      camera in and out, C opens and closes the wardrobe, and walking up to a cabinet and E
-//      plays its game (the stand-in), Leave walks on
+//      plays its game (the stand-in), Quit game walks on
 // Screenshots: captures/spawn-*.png (SHOTS=<dir> puts them elsewhere). Exits non-zero when a check fails.
 //   node tools/test-spawn.mjs                       a dev server without the flag (the default)
 //   EXPECT=fly node tools/test-spawn.mjs            a dev server with VITE_ENABLE_FLY_IN=true: checks
@@ -247,10 +247,11 @@ try {
       check(playing, "E plays it: the game's frame is over the screen", JSON.stringify(await ev(() => window.__chimp.state().focus)));
       await shot("playing");
       if (playing) {
-        await page.click(".focus-bar .leave");
+        // Quit game ends it (Step back, the other button, leaves it running on the cabinet: tools/test-arcade.mjs)
+        await page.click(".focus-bar .leave.quit");
         await waitFor(() => window.__chimp.state().focus === null, null, 8000).catch(() => undefined);
         await settle(10);
-        check((await state()).walking && (await page.locator("iframe.play-frame").count()) === 0, "Leave walks on as the chimp");
+        check((await state()).walking && (await page.locator("iframe.play-frame").count()) === 0, "Quit game walks on as the chimp, the game closed");
       }
     }
 

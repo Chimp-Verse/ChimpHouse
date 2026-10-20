@@ -727,6 +727,11 @@ export class GameTv {
     }
   }
 
+  /** The card the TV's screen carries ("idle", "game" or "failed", how many players it names, how often drawn), also while the screen is a hole over the players' games: for tests. */
+  cardInfo(): unknown {
+    return this.tex?.metadata ?? null;
+  }
+
   /** Whether the game's frame is in the page, taking keys (on) and showing, and where: for tests. */
   placement(): { key: string; on: boolean; visible: boolean; left: string; top: string; width: string; height: string; transform: string; zIndex: string } | null {
     const p = this.placed;

@@ -68,7 +68,8 @@ try {
       });
     });
 
-  await page.goto(`${URL}/?view=${VIEW}`);
+  // the cabinets from the local list: ChimpVibe's own can be empty, leaving no cabinet to walk up to
+  await page.goto(`${URL}/?view=${VIEW}&arcade=fixture`);
   await waitFor(() => window.__chimp?.ready === true, null, 300000);
   await sleep(300);
 
@@ -229,7 +230,7 @@ try {
   const cab = await ev(async () => {
     const c = window.__chimp;
     await c.arcade.ready();
-    const slot = c.scene.transformNodes.find((n) => n.metadata?.role === "cabinet-slot" && c.arcade.slots().includes(n.metadata.slot));
+    const slot = c.scene.transformNodes.find((n) => n.metadata?.role === "cabinet-slot" && c.arcade.games().some((g) => g.slot === n.metadata.slot));
     if (!slot) return null;
     const wm = slot.computeWorldMatrix(true);
     const BABYLON = slot.position.constructor;

@@ -39,7 +39,7 @@ async function run() {
   // ------------------------------------------------ Ann, in the house
   const ann = await context.newPage();
   ann.on("pageerror", (e) => console.log("[Ann pageerror]", e.message));
-  await ann.goto(`${BASE}/?view=game&arcade=local&tv=local&name=Ann&quality=low`);
+  await ann.goto(`${BASE}/?pov=first&view=game&arcade=local&tv=local&name=Ann&quality=low`);
   await ann.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   const ev = (fn, arg) => ann.evaluate(fn, arg);
   const waitFor = (fn, arg, timeout = 8000) => ann.waitForFunction(fn, arg, { timeout, polling: 100 }).then(() => true, () => false);
@@ -276,18 +276,23 @@ async function run() {
 /** Walk to (x, z) and look at a world point. */
 async function standAndLook(page, x, z, at) {
   await page.evaluate(
-    ({ x, z, at }) => {
+    ({ x, z }) => {
       const c = window.__chimp;
       c.setPose({ x, y: 1.6, z, yaw: 0, pitch: 0, fov: 1.0 });
       c.setWalking(true);
-      const w = c.walker();
-      w.place(x, 1.6, z, 3.5);
-      const eye = w.eyeY;
-      const dx = at[0] - x;
-      const dz = at[2] - z;
-      c.setPose({ x, y: eye, z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at[1] - eye, Math.hypot(dx, dz)), fov: 1.0 });
+      c.walker().place(x, 1.6, z, 3.5);
     },
-    { x, z, at },
+    { x, z },
   );
+  // aim from the chimp's own eyes once it has settled: they sit lower than the walker's eye height
+  // at placing, and from the couch the remote and controller 1 lie nearly in line
+  await page.evaluate(() => window.__chimp.settle(6));
+  await page.evaluate((at) => {
+    const c = window.__chimp;
+    const [x, y, z] = c.chimps.eye().at;
+    const dx = at[0] - x;
+    const dz = at[2] - z;
+    c.setPose({ x, y, z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at[1] - y, Math.hypot(dx, dz)), fov: 1.0 });
+  }, at);
   await page.evaluate(() => window.__chimp.settle(6));
 }

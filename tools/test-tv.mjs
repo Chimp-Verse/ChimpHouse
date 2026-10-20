@@ -7,12 +7,13 @@
 // It also checks a game that fails to connect (its page reports an error, or its
 // server doesn't answer): only the player who saw it fail gets static, until the
 // TV is turned off; the other players and the room are unaffected.
-//   node tools/test-tv.mjs
+//   node tools/test-tv.mjs              (QUALITY=high runs the three visitors at high quality)
 // Screenshots: captures/tv-*.png. Exits non-zero when a check fails.
 import { chromium } from "playwright";
 import { mkdir } from "node:fs/promises";
 
 const BASE = process.env.URL ?? "http://localhost:5173";
+const QUALITY = process.env.QUALITY ?? "low";
 await mkdir("captures", { recursive: true });
 
 let failed = 0;
@@ -27,7 +28,8 @@ const context = await browser.newContext({ viewport: { width: 1440, height: 860 
 async function visitor(name) {
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
-  await page.goto(`${BASE}/?view=game&tv=standin&name=${name}`);
+  // three copies of the house in one browser: at low quality, or the third may not fit in an 8 GB Mac's memory
+  await page.goto(`${BASE}/?pov=first&view=game&tv=standin&name=${name}&quality=${QUALITY}`);
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   await page.waitForFunction(() => window.__chimp.tv.catalog()?.games.length > 0, null, { timeout: 15000 });
   const ev = (fn, arg) => page.evaluate(fn, arg);
@@ -45,19 +47,24 @@ async function visitor(name) {
 /** Walk to (x, z) and look at a world point. */
 async function standAndLook(v, x, z, at) {
   await v.ev(
-    ({ x, z, at }) => {
+    ({ x, z }) => {
       const c = window.__chimp;
       c.setPose({ x, y: 1.6, z, yaw: 0, pitch: 0, fov: 1.0 });
       c.setWalking(true);
-      const w = c.walker();
-      w.place(x, 1.6, z, 3.5);
-      const eye = w.eyeY;
-      const dx = at[0] - x;
-      const dz = at[2] - z;
-      c.setPose({ x, y: eye, z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at[1] - eye, Math.hypot(dx, dz)), fov: 1.0 });
+      c.walker().place(x, 1.6, z, 3.5);
     },
-    { x, z, at },
+    { x, z },
   );
+  // aim from the chimp's own eyes once it has settled: they sit lower than the walker's eye height
+  // at placing, and from the couch the remote and controller 1 lie nearly in line
+  await v.ev(() => window.__chimp.settle(6));
+  await v.ev((at) => {
+    const c = window.__chimp;
+    const [x, y, z] = c.chimps.eye().at;
+    const dx = at[0] - x;
+    const dz = at[2] - z;
+    c.setPose({ x, y, z, yaw: Math.atan2(dx, dz), pitch: -Math.atan2(at[1] - y, Math.hypot(dx, dz)), fov: 1.0 });
+  }, at);
   await v.settle(6);
 }
 
@@ -81,7 +88,7 @@ const seatX = table[0][0] - 1.0;
 const midZ = (table[0][2] + table[3][2]) / 2;
 await standAndLook(ann, seatX, midZ + 0.4, spots.remote[0].at);
 let prompt = await ann.ev(() => window.__chimp.state().tvPrompt);
-check(prompt?.item === "remote" && prompt.action === "take", "looking at the remote offers to pick it up", JSON.stringify(prompt));
+check(prompt?.item === "remote" && prompt.action === "take", "looking at the remote offers to pick it up", `${JSON.stringify(prompt)}; eyes ${JSON.stringify(await ann.ev(() => window.__chimp.chimps.eye()))}`);
 await ann.page.keyboard.press("e");
 await ann.settle(4);
 check((await ann.state()).remote?.id === me.ann.id, "E picks up the remote");
@@ -211,13 +218,15 @@ check((await bo.ev((id) => window.__chimp.tv.choose(id), games[0].gameId)) !== n
 check((await ann.ev(() => window.__chimp.tv.turnOff())) === null, "Ann turns the TV off");
 await bo.waitFor(() => window.__chimp.state().tvFailed === null, null, 3000).catch(() => {});
 await bo.settle(4);
-check((await failedFor(bo)) === null && (await bo.ev(() => window.__chimp.tv.card()))?.card === "idle", "Bo's static clears: the TV is off for everyone");
+const boOff = { failed: await failedFor(bo), card: await bo.ev(() => window.__chimp.tv.card()) };
+check(boOff.failed === null && boOff.card?.card === "idle", "Bo's static clears: the TV is off for everyone", JSON.stringify(boOff));
 
 // a server that doesn't answer fails for each player who tries it, and the watcher is unaffected
 check((await ann.ev((id) => window.__chimp.tv.choose(id), failing[1].gameId)) === null, "Ann chooses Faraway Game, whose server doesn't answer");
 await ann.waitFor(() => !!window.__chimp.state().tvFailed, null, 25000).catch(() => {});
 await bo.waitFor(() => !!window.__chimp.state().tvFailed, null, 25000).catch(() => {});
-check((await failedFor(ann))?.reason === "ChimpVibe can't be reached" && (await failedFor(bo))?.reason === "ChimpVibe can't be reached", "it fails for Ann and for Bo, each on their own TV");
+const farFailed = { ann: await failedFor(ann), bo: await failedFor(bo) };
+check(farFailed.ann?.reason === "ChimpVibe can't be reached" && farFailed.bo?.reason === "ChimpVibe can't be reached", "it fails for Ann and for Bo, each on their own TV", JSON.stringify(farFailed));
 check((await failedFor(cy)) === null && (await cy.ev(() => window.__chimp.tv.card()))?.card === "game", "Cy, watching, sees no static");
 check(await ann.page.locator(".focus-bar.bottom .tv-remote button.main", { hasText: /Play|Restart/ }).isDisabled(), "Ann's remote can't start another game until she turns the TV off");
 await ann.page.locator(".focus-bar.bottom .tv-remote button", { hasText: "Turn off" }).click();

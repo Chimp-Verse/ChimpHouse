@@ -294,7 +294,7 @@ const hole = await ev((n) => ({
   z: document.querySelector("iframe.play-frame").style.zIndex,
   mat: window.__chimp.scene.meshes.find((m) => m.metadata?.role === "cabinet-screen" && m.metadata.slot === n)?.material?.name,
 }), SLOT);
-check(hole.z === "0" && hole.mat === "cabinetScreenHole", "it is seen through the scene: under the canvas, through a hole drawn where the screen is", `z-index ${hole.z}, screen drawn with ${hole.mat}`);
+check(hole.z === "0" && hole.mat === "screenHole", "it is seen through the scene: under the canvas, through a hole drawn where the screen is", `z-index ${hole.z}, screen drawn with ${hole.mat}`);
 
 // from the side, with the next cabinet covering part of the screen: still shown, the cabinet in front of it
 await ev((n) => {
@@ -367,7 +367,7 @@ await page.click(".focus-bar .quit");
 await waitFor(() => window.__chimp.state().focus === null, null, 5000);
 await settle(10);
 check((await ev(() => document.querySelectorAll("iframe.play-frame").length)) === 0 && (await ev(() => window.__chimp.arcade.running().length)) === 0, "Quit removes the game's frame");
-check((await ev((n) => window.__chimp.scene.meshes.find((m) => m.metadata?.role === "cabinet-screen" && m.metadata.slot === n)?.material?.name, SLOT)) !== "cabinetScreenHole", "and its screen shows the game's art again");
+check((await ev((n) => window.__chimp.scene.meshes.find((m) => m.metadata?.role === "cabinet-screen" && m.metadata.slot === n)?.material?.name, SLOT)) !== "screenHole", "and its screen shows the game's art again");
 check(!page.frames().some((f) => f.url().includes("arcade/standin.html") || f.url().includes("play.chimpvibe.dev")), "the game's page is gone (its connection ends)");
 check(await ev(() => window.__chimp.state().walking), "and you walk on");
 

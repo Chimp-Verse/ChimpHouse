@@ -636,7 +636,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
           return { name: p.name, controller: p.controller, state: p.state, note: p.note, src: p.src, shown: p.shown, surface: document.querySelector<HTMLElement>(".tv-surface")?.className, left: el?.style.left, top: el?.style.top, width: el?.style.width, height: el?.style.height };
         }),
       /** what the TV shows in the room ("idle" or "game") and how many players it names */
-      card: () => tv.screen?.material && (tv.screen.material as { emissiveTexture?: { metadata?: unknown } }).emissiveTexture?.metadata,
+      card: () => tv.cardInfo(),
       /** the TV's corners on the page now (CSS px): bottom-left, bottom-right, top-right, top-left */
       screenOnPage: () => (tv.screen ? toPage(screenGeometry(tv.screen).corners, scene, canvas) : null),
       /** each controller's and the remote's spot: number and where it is in the world */
