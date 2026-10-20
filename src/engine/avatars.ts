@@ -19,7 +19,7 @@ import { Chimp, SHELLS } from "../avatar/chimp";
 import { type ChimpDna, SLOTS, type Slot, defaultDna, geometryKey, sanitize } from "../avatar/dna";
 import { item, itemColours, knownItem, wornOver } from "../avatar/wardrobe";
 import type { Level } from "../world/context";
-import { levelAt, roomAt } from "../world/layout";
+import { inCourtyard, levelAt, roomAt } from "../world/layout";
 import { emptyProbe } from "./collision";
 import type { FlyCamera } from "./flyCamera";
 import { toPage } from "./focus";
@@ -300,7 +300,8 @@ export class Avatars {
     const c = b.chimp!;
     // lit by the lights of the room it stands in, as the house is
     const at = new Vector3(x, y + 0.8, z);
-    const r = roomAt(at)?.id ?? null;
+    // out in the front courtyard, by its lamps (it isn't one of the house's rooms)
+    const r = roomAt(at)?.id ?? (inCourtyard(at) ? "courtyard" : null);
     const lv = (levelAt(at.y) ?? null) as Level | null;
     if (c.version !== b.litVersion) {
       b.litVersion = c.version;

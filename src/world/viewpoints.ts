@@ -1,5 +1,5 @@
 import type { Pose } from "../engine/flyCamera";
-import { LEVEL, M, PLAN_SCALE, SITE } from "./layout";
+import { COURTYARD, LEVEL, M, PLAN_SCALE, SITE } from "./layout";
 import arrivalLounge from "../../Reference Images/ArrivalLounge.png";
 import communityShowRoom from "../../Reference Images/CommunityShowRoom.png";
 import entryWay from "../../Reference Images/EntryWay.png";
@@ -172,12 +172,21 @@ export const VIEWPOINTS: Viewpoint[] = [
 ];
 
 /**
- * Where every visitor arrives as their chimp (engine/preview.ts): in the entry hall three metres
- * inside the open front doors, on the near half of the rug (the camera clear of the doorway), facing into the hall and the atrium,
- * looking a little down at the chimp from behind it. The walker stands the chimp on the floor
- * under this eye point; the camera goes behind it, back towards the doors.
+ * Where every visitor arrives as their chimp (engine/preview.ts): out in the front courtyard, on the
+ * paving south of the fountain, facing the house's front doors past it, looking a little down at
+ * the chimp from behind it, so the fountain and the house front are the first thing they see. The
+ * walker stands the chimp on the paving under this eye point; the camera goes behind it, towards
+ * the courtyard's south gate. The courtyard's spawn-point slot (roles.ts) marks the same place,
+ * and spawning goes by the slot when there is one.
  */
-export const SPAWN: Pose = V(0, 1.6, 3.0, 0, 10, 1.15);
+export const SPAWN: Pose = {
+  x: COURTYARD.spawn.x,
+  y: LEVEL.ground + 1.6,
+  z: COURTYARD.spawn.z,
+  yaw: Math.atan2(COURTYARD.spawn.faces.x - COURTYARD.spawn.x, COURTYARD.spawn.faces.z - COURTYARD.spawn.z),
+  pitch: deg(4),
+  fov: 1.15,
+};
 
 export function findView(id: string | null | undefined): Viewpoint | undefined {
   return VIEWPOINTS.find((v) => v.id === id);

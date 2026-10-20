@@ -222,6 +222,9 @@ export interface PreviewState {
   message: string;
   error: string | null;
   fps: number;
+  /** the picture's pixels per CSS pixel, and whether adaptive sharpness (engine/adaptiveScale.ts) has softened it */
+  renderScale: number;
+  renderScaleAuto: boolean;
   drawCalls: number;
   area: string;
   pos: [number, number, number];
@@ -325,6 +328,8 @@ class Store {
     message: "Starting…",
     error: null,
     fps: 0,
+    renderScale: 1,
+    renderScaleAuto: false,
     drawCalls: 0,
     area: "",
     pos: [0, 0, 0],

@@ -1,12 +1,15 @@
-import { Color3, Engine, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, Vector3, VertexData } from "@babylonjs/core";
+import { Color3, Engine, EngineInstrumentation, Mesh, MeshBuilder, Scene, StandardMaterial, Texture, TransformNode, Vector3, VertexData } from "@babylonjs/core";
+import { ROLE, find as findRole } from "../world/roles";
 import { buildWorld, World } from "../world/build";
 import { MeshMeta, faceLabel } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
-import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
+import { FLOOR_PLAN, HALL_TRACED, LEVEL, M, ROOMS, STAIR, inCourtyard, levelAt, lowerDeckLoop, roomAt, upperDeckLoop } from "../world/layout";
 import { SPAWN, VIEWPOINTS, Viewpoint, findView } from "../world/viewpoints";
 import floorPlanUrl from "../../Reference Images/FloorPlan.png";
 import { FlyCamera, isTyping } from "./flyCamera";
+import { ADAPTIVE, AdaptiveScale } from "./adaptiveScale";
 import { DEV_TOOLS_ENABLED, FLY_IN_ENABLED } from "./devFlags";
+import { Fountain } from "./fountain";
 import { Lighting } from "./lighting";
 import { PostFx } from "./postfx";
 import { Quality, store } from "./store";
@@ -80,7 +83,26 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // come from the browser), which saves a full-screen copy on every frame
   const engine = new Engine(canvas, false, { preserveDrawingBuffer: false, stencil: true, powerPreference: "high-performance", antialias: false }, false);
   const dpr = window.devicePixelRatio || 1;
-  const applyScale = (q: Quality) => engine.setHardwareScalingLevel(1 / Math.min(dpr, q === "high" ? 1.25 : q === "medium" ? 1.0 : 0.75));
+  // high quality draws 1.25 pixels per CSS pixel, or 1.0 while the computer is struggling (engine/adaptiveScale.ts)
+  const HIGH_SCALES = { full: Math.min(dpr, 1.25), soft: Math.min(dpr, 1.0) };
+  const gpuTimer = new EngineInstrumentation(engine);
+  // the adaptive sharpness' clock: the real one, which a test (adaptive.simulate) can run at its own frame times
+  let clockOffset = 0;
+  let lastFrameAt = 0;
+  const adaptive = new AdaptiveScale({
+    apply: () => applyScale("high"),
+    gpuCapture: (on) => {
+      gpuTimer.captureGPUFrameTime = on;
+    },
+    now: () => performance.now() + clockOffset,
+  });
+  adaptive.enabled = params.get("adaptive") !== "0" && !CAPTURE;
+  adaptive.setGpuSupported(!!engine.getCaps().timerQuery);
+  const applyScale = (q: Quality) => {
+    const scale = q === "high" ? (adaptive.soft ? HIGH_SCALES.soft : HIGH_SCALES.full) : Math.min(dpr, q === "medium" ? 1.0 : 0.75);
+    engine.setHardwareScalingLevel(1 / scale);
+    store.set({ renderScale: scale, renderScaleAuto: q === "high" && adaptive.soft });
+  };
   const scene = new Scene(engine);
   scene.skipPointerMovePicking = true;
   // this visitor's chimp is built in the workers while the house builds here
@@ -98,6 +120,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const lighting = new Lighting(scene, world.sky);
   lighting.attach(world.ctx);
   const post = new PostFx(scene, fly.camera);
+  // the courtyard fountain's water, spray and sound, on its slot (roles.ts ROLE.fountain)
+  const fountain = new Fountain(scene, world.mats, lighting, fly, world.sky.dome);
   // the chimps: this visitor's, which the walker carries, and every other visitor's
   const avatars = new Avatars(scene, fly, lighting);
   // using a screen: a cabinet's game, the theatre's video
@@ -165,6 +189,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       store.set({ night: n });
       lighting.setNight(n);
       post.setNight(n);
+      fountain.setNight(n);
       for (const m of world.ctx.nightOnly) m.setEnabled(n);
     },
     setRoofHidden(v) {
@@ -181,9 +206,12 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     },
     setQuality(q) {
       store.set({ quality: q });
+      // a quality chosen by hand starts the adaptive sharpness again from the full picture
+      adaptive.setQuality(q === "high", HIGH_SCALES);
       applyScale(q);
       lighting.setQuality(q);
       post.setQuality(q);
+      fountain.setQuality(q);
     },
     setWalking(v) {
       if (store.get().focus) return;
@@ -297,6 +325,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   };
 
   function applyView(v: Viewpoint, animate: boolean) {
+    adaptive.grace(animate ? 2500 : 1500); // a jump: new shaders and textures, not load
     store.set({ viewId: v.id });
     if (v.night !== undefined || store.get().night) controller.setNight(!!v.night);
     store.set({ upperHidden: !!v.hideUpper, roofHidden: !!v.hideRoof, planOverlay: !!v.planOverlay });
@@ -446,11 +475,23 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (fly.isOrtho) fly.applyOrtho();
   });
 
-  /** This visitor arrives as their chimp: standing at the spawn point in the entry hall, walking, the camera behind it. */
+  /**
+   * This visitor arrives as their chimp: standing at the spawn point in the front courtyard, walking,
+   * the camera behind it. The spawn-point slot (roles.ts) says where and which way they face; SPAWN
+   * is the same place, for a house without one.
+   */
   function spawn() {
-    fly.setPose(SPAWN);
+    const pose = { ...SPAWN };
+    const node = findRole(scene, ROLE.spawnPoint);
+    if (node instanceof TransformNode) {
+      const wm = node.computeWorldMatrix(true);
+      const at = wm.getTranslation();
+      const front = Vector3.TransformNormal(new Vector3(0, 0, -1), wm);
+      Object.assign(pose, { x: at.x, y: at.y + (SPAWN.y - LEVEL.ground), z: at.z, yaw: Math.atan2(front.x, front.z) });
+    }
+    fly.setPose(pose);
     controller.setWalking(true);
-    if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", SPAWN);
+    if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", pose);
   }
 
   /** The house's export hooks, for the builder's tools only (engine/devFlags.ts). */
@@ -480,18 +521,34 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
 
   // ------------------------------------------------ automation hook (capture tool)
   const waiters: { until: number; resolve: () => void }[] = [];
+  let simulated: { frameMs: { full: number; soft: number }; gpuMs?: { full: number; soft: number } | null } | null = null;
   const hook = {
     ready: false,
     /** whether this page has the developer-only fly-in camera (engine/devFlags.ts): read-only, nothing here turns it on */
     flyIn: FLY_IN_ENABLED,
     scene,
+    /** the courtyard fountain: whether its water is built, reflecting, spraying, and its sound */
+    fountain: () => fountain.info(),
     // goTo and setWalking(false) do nothing without the fly-in camera, and setPose refuses a plan view
     goTo: (id: string) => controller.goTo(id),
     views: () => (FLY_IN_ENABLED ? VIEWPOINTS.map((v) => ({ id: v.id, ref: v.refName ?? null })) : []),
     settle: (n: number) => new Promise<void>((resolve) => waiters.push({ until: frames + n, resolve })),
     whenReady: () => scene.whenReadyAsync(),
     setNight: (n: boolean) => controller.setNight(n),
-    setPose: (p: Parameters<typeof fly.setPose>[0]) => fly.setPose(p),
+    setPose: (p: Parameters<typeof fly.setPose>[0]) => {
+      adaptive.grace(1500);
+      fly.setPose(p);
+    },
+    /** adaptive render sharpness (engine/adaptiveScale.ts): its state, holding it at a scale, and making the frames slow on purpose */
+    adaptive: {
+      state: () => ({ ...adaptive.state(), renderScale: 1 / engine.getHardwareScalingLevel(), gpuTimer: adaptive.wantsGpu }),
+      /** true: the soft scale, false: the full one, null: automatic again */
+      force: (soft: boolean | null) => adaptive.force(soft),
+      /** the frames take `frameMs` at the full scale or the soft one (the sharpness' clock is moved to make them), and `gpuMs` is what the graphics chip reports (null: its real timer); null removes the load */
+      simulate: (load: { frameMs: { full: number; soft: number }; gpuMs?: { full: number; soft: number } | null } | null) => (simulated = load),
+      /** pretend the graphics chip has no frame timer, or has */
+      gpuTimer: (has: boolean) => adaptive.setGpuSupported(has),
+    },
     setWalking: (v: boolean) => controller.setWalking(v),
     // the export hooks the Blender build's tools use (tools/export-house.mjs, export-room, audit-items): builder's tools only
     ...(DEV_TOOLS_ENABLED ? devHooks() : {}),
@@ -837,7 +894,25 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   let t = 0;
   let hudTimer = 0;
   let frames = 0;
+  let wasLoading = true;
   engine.runRenderLoop(() => {
+    // adaptive render sharpness: frames while loading, hidden or exporting say nothing about the load
+    const loading = store.get().loading;
+    if (wasLoading && !loading) adaptive.grace(ADAPTIVE.LOAD_GRACE_MS);
+    wasLoading = loading;
+    let gpuMs: number | null = null;
+    if (adaptive.wantsGpu) gpuMs = gpuTimer.gpuFrameTimeCounter.current * 1e-6;
+    let frameAt = performance.now() + clockOffset;
+    if (simulated) {
+      // the frames take as long as the test says (the clock is moved to make it so), whatever the page really takes
+      const key = adaptive.soft ? "soft" : "full";
+      const want = simulated.frameMs[key];
+      clockOffset += lastFrameAt + want - frameAt;
+      frameAt = lastFrameAt + want;
+      if (simulated.gpuMs) gpuMs = simulated.gpuMs[key];
+    }
+    lastFrameAt = frameAt;
+    adaptive.frame(frameAt, exporting || loading || document.hidden, gpuMs);
     if (exporting) return;
     const dt = Math.min(0.1, engine.getDeltaTime() / 1000);
     t += dt;
@@ -855,6 +930,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     pinball.update(dt);
     airHockey.update();
     foosball.update(dt);
+    fountain.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();
     scene.render();
@@ -904,6 +980,7 @@ function locate(p: Vector3): string {
     if (level === "lower" && pointInPolygon({ x: p.x, z: p.z }, lowerDeckLoop)) return "Lower · Deck";
     if (level === "upper" && pointInPolygon({ x: p.x, z: p.z }, upperDeckLoop)) return "Upper · Deck & balcony";
   }
+  if (inCourtyard(p)) return "Outside · Front Courtyard";
   return p.y > 30 ? "Above the canopy" : "Outside · Jungle";
 }
 

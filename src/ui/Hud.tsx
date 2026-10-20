@@ -328,7 +328,8 @@ function StatusPanel({ s }: { s: PreviewState }) {
             x {s.pos[0]} · y {s.pos[1]} · z {s.pos[2]} · {s.heading}°
           </div>
           <div className="perf">
-            {s.fps} fps · {s.drawCalls} draws · {s.walking ? "walking" : `speed ${s.speed}`}
+            {s.fps} fps · {s.drawCalls} draws · scale {s.renderScale === 1 ? "1.0" : s.renderScale}
+            {s.renderScaleAuto ? " (auto)" : ""} · {s.walking ? "walking" : `speed ${s.speed}`}
           </div>
           {s.walking && s.blocked && <div className="bumped">Bumped into {s.blocked}</div>}
         </>
