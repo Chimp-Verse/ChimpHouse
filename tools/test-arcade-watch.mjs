@@ -9,6 +9,11 @@
 // cabinet shows its art again when Ann quits, and when her page closes. A game
 // whose spectators never say they are showing, or that refuses spectators, leaves
 // the art up with "In use by Ann". E at Ann's cabinet doesn't play it for Bo.
+// Anywhere in the room: a far cabinet (14 m) is live too; the number of live
+// screens is capped per quality (made-up visitors from arcade.testSeats fill the
+// other cabinets); the nearest get the full picture, the rest a smaller one, held
+// 2.5 s before a size changes (no flicker when swaying or walking); a struggling
+// computer keeps the tighter limits (2 live, none beyond 14 m) and recovers.
 //   node tools/test-arcade-watch.mjs [slot]     (default slot 3; QUALITY=high runs both at high quality)
 // Screenshots: $SHOTS/watch-*.png (SHOTS defaults to captures). Exits non-zero when a check fails.
 import { chromium } from "playwright";
@@ -259,6 +264,213 @@ check(gone, "a few seconds out of view, Bo stops watching it: its frame leaves t
 await aim(bo, SLOT);
 const back = await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && w.view === "over"), SLOT, 15000);
 check(back, "looking at it again, he watches it again");
+
+// ------------------------------------------------ the whole room: far cabinets, how many are live, the nearer ones sharper, no flicker
+// More cabinets are in use than a test can seat real visitors at: made-up visitors (arcade.testSeats) take the other slots, each
+// following Ann, so every spectator frame shows Ann's one game. The Game Room's cabinets stand in two rows 11.7 m apart; the farthest
+// sight line in the room, from its south-west corner to slot 4, is about 15 m.
+const OTHERS = [1, 2, 4, 5, 6, 7, 8];
+const CAP = { high: 6, medium: 4, low: 2 };
+const FULL = { high: 640, medium: 560, low: 480 };
+const FAR_W = 480;
+const setQuality = async (v, q) => {
+  await v.ev((q) => [...document.querySelectorAll(".quality button")].find((b) => b.textContent === q)?.click(), q);
+  await v.settle(20);
+};
+/** Stand at (x, z), eyes level, looking along `yaw` (0: towards +z, π/2: towards +x). */
+async function standAt(v, x, z, yaw, fov = 1.1) {
+  await v.ev(
+    async ([x, z, yaw, fov]) => {
+      const c = window.__chimp;
+      c.setWalking(false);
+      c.setPose({ x, y: 1.6, z, yaw, pitch: 0, fov });
+      c.setWalking(true);
+      await c.settle(8);
+    },
+    [x, z, yaw, fov],
+  );
+}
+/** Distance from Bo's eyes to slot n's screen. */
+const screenDist = (v, n) =>
+  v.ev((n) => {
+    const c = window.__chimp;
+    const p = c.scene.meshes.find((m) => m.metadata?.role === "cabinet-screen" && m.metadata.slot === n).getAbsolutePosition();
+    const [x, y, z] = c.chimps.eye().at;
+    return Math.hypot(p.x - x, p.y - y, p.z - z);
+  }, n);
+/** The slots whose game shows on their screen now, and the widths of the frames that show (CSS px). */
+const shown = (v) =>
+  v.ev(() => ({
+    slots: window.__chimp.arcade.watched().filter((w) => w.view === "over").map((w) => w.slot).sort((a, b) => a - b),
+    widths: [...document.querySelectorAll("iframe.play-frame.watched")].filter((f) => f.style.visibility === "visible").map((f) => parseFloat(f.style.width)).sort((a, b) => b - a),
+  }));
+const allShown = (v, count) => v.waitFor((count) => window.__chimp.arcade.watched().filter((w) => w.state === "live" && w.view === "over").length === count, count, 40000);
+/**
+ * How much the foot of slot n's screen changes colour on Bo's page over about a second (the largest distance between the average
+ * colours of 8 screenshots): a live stand-in game's bar changes ten times a second, the cabinet's art doesn't change at all.
+ */
+async function barChange(v, n, name) {
+  const avgs = [];
+  for (let k = 0; k < 8; k++) {
+    const buf = await v.page.screenshot(name && k === 0 ? { path: `${SHOTS}/watch-${name}.png` } : {});
+    const { data, info } = await sharp(buf).raw().toBuffer({ resolveWithObject: true });
+    const sum = [0, 0, 0];
+    let all = 0;
+    for (const u of [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9])
+      for (const w of [0.86, 0.9, 0.94]) {
+        const pt = await screenPoint(v, n, u, w);
+        if (!pt || pt.x < 0 || pt.y < 0 || pt.x >= info.width || pt.y >= info.height) continue;
+        const i = (pt.y * info.width + pt.x) * info.channels;
+        for (let c = 0; c < 3; c++) sum[c] += data[i + c];
+        all++;
+      }
+    if (all) avgs.push(sum.map((x) => x / all));
+    await v.page.waitForTimeout(130);
+  }
+  let max = 0;
+  for (const a of avgs) for (const b of avgs) max = Math.max(max, Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]));
+  return Math.round(max);
+}
+/** Record, every 50 ms, which slots show and the widths of their frames, until stopTrace. */
+const startTrace = (v) =>
+  v.ev(() => {
+    window.__trace = [];
+    window.__traceTimer = setInterval(() => {
+      const ws = window.__chimp.arcade.watched();
+      window.__trace.push({ t: Math.round(performance.now()), over: ws.filter((w) => w.view === "over").map((w) => w.slot).sort((a, b) => a - b).join(","), widths: Object.fromEntries(ws.filter((w) => w.view === "over").map((w) => [w.slot, w.width])) });
+    }, 50);
+  });
+const stopTrace = (v) =>
+  v.ev(() => {
+    clearInterval(window.__traceTimer);
+    return window.__trace;
+  });
+/** How often each slot's frame went from showing to not showing, and changed width, in a trace. */
+function churn(trace) {
+  const lost = new Map();
+  const resized = new Map();
+  for (let i = 1; i < trace.length; i++) {
+    const a = trace[i - 1];
+    const b = trace[i];
+    for (const s of Object.keys(a.widths)) {
+      if (!(s in b.widths)) lost.set(s, (lost.get(s) ?? 0) + 1);
+      else if (a.widths[s] !== b.widths[s]) resized.set(s, (resized.get(s) ?? 0) + 1);
+    }
+  }
+  return { lost: Object.fromEntries(lost), resized: Object.fromEntries(resized) };
+}
+
+// (the stand-in keeps one session per game, so the other cabinets' spectators are given Ann's game to find her in)
+const entries0 = await bo.ev(() => window.__chimp.arcade.entries());
+const annSeat = (await seats(bo)).find((x) => x.slot === SLOT);
+const annGameParam = new URL(entries0.find((g) => g.gameId === annSeat.gameId).playUrl).searchParams.get("game");
+await bo.ev(
+  (g) => window.__chimp.arcade.setGames(g),
+  entries0.map((g) => ({ ...g, playUrl: Object.assign(new URL(g.playUrl), { search: new URLSearchParams([...new URL(g.playUrl).searchParams].map(([k, v]) => [k, k === "game" ? annGameParam : v])).toString() }).href })),
+);
+await bo.settle(10);
+const SW = [4.6, 0.9];
+await standAt(bo, SW[0], SW[1], 0, 1.1);
+await aim(bo, 4);
+const farD = await screenDist(bo, 4);
+const artChange = await barChange(bo, 4);
+await bo.ev((o) => window.__chimp.arcade.testSeats(o.map((slot) => ({ slot, name: "Ann" }))), [4]);
+const farLive = await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && w.view === "over"), 4, 20000);
+check(farD >= 14.2, "the far cabinet is in the same room but over 14 m off (the old limit; the room's longest sight line is about 14.5 m)", `${farD.toFixed(1)} m`);
+check(farLive, "Bo sees the far cabinet's game live on its screen, as the near ones", JSON.stringify(await watched(bo)));
+await bo.settle(10);
+const farChange = await barChange(bo, 4, "9-far-cabinet");
+check(farChange >= 60 && artChange < 25, "the far screen's picture changes as the stand-in game runs (and didn't before, when it showed the art)", `foot of the screen changes by ${farChange}, before: ${artChange}`);
+const farSize = await bo.ev(() => window.__chimp.arcade.screenQuad(4).map((p) => p.y)).then((ys) => Math.max(...ys) - Math.min(...ys));
+console.log(`      (far screen ${Math.round(farSize)} px high at ${farD.toFixed(1)} m)`);
+// a screen too small to read stays art: a cabinet seen from far outside the room is not watched, nor one the eye can't see
+await standAt(bo, SW[0], SW[1], Math.PI, 1.1);
+await bo.settle(10);
+check((await shown(bo)).slots.length === 0, "turned away, the far cabinet no longer shows");
+
+// the cap: at low quality 2 are live, however many are in view; the rest keep their art, saying who is in use
+await setQuality(bo, "low");
+await bo.ev((o) => window.__chimp.arcade.testSeats(o.map((slot) => ({ slot, name: "Ann" }))), OTHERS);
+await standAt(bo, 9, 6.6, Math.PI / 2, 1.9);
+check(await allShown(bo, CAP.low), "low quality: of 8 cabinets in use and in view, 2 are live", JSON.stringify((await watched(bo)).map((w) => [w.slot, w.state, w.view])));
+await bo.settle(15);
+let sh = await shown(bo);
+check(sh.slots.length === CAP.low, "and only 2 show", `slots ${sh.slots}`);
+let rest = [];
+for (let n = 1; n <= 8; n++) if (!sh.slots.includes(n)) rest.push({ n, mat: await screenMat(bo, n), inUse: (await screenTex(bo, n))?.inUse });
+check(rest.length === 6 && rest.every((r) => r.mat !== "screenHole" && r.inUse === "Ann"), "the other 6 keep the cabinet's art with \"In use by Ann\"", JSON.stringify(rest));
+await bo.shot("10-low-two-live");
+
+// medium and high: more are live, the nearer ones at the game's full frame size and the rest smaller
+for (const q of ["medium", "high"]) {
+  await setQuality(bo, q);
+  const slow = await bo.ev(() => window.__chimp.state().renderScaleAuto);
+  const cap = slow ? 2 : CAP[q];
+  check(await allShown(bo, cap), `${q} quality${slow ? " (the computer struggling)" : ""}: ${cap} are live`, JSON.stringify((await watched(bo)).map((w) => [w.slot, w.state, w.view, w.tier])));
+  await bo.settle(15);
+  sh = await shown(bo);
+  const want = Array.from({ length: cap }, (_, i) => (i < (slow ? cap : Math.ceil(cap / 2)) ? FULL[q] : FAR_W));
+  check(sh.slots.length === cap && JSON.stringify(sh.widths) === JSON.stringify(want), `${q}: the nearer half at ${FULL[q]} px, the rest at ${FAR_W} px`, `${sh.widths}`);
+  await bo.shot(`11-${q}-tiers`);
+}
+
+// a struggling computer keeps today's limits: 2 live and none beyond 14 m, even in the room
+await bo.ev(() => window.__chimp.adaptive.force(true));
+await standAt(bo, SW[0], SW[1], 0, 1.1);
+await aim(bo, 4);
+const slowOk = await bo.waitFor(() => window.__chimp.state().renderScaleAuto, null, 5000);
+await bo.settle(30);
+const slowShown = (await shown(bo)).slots;
+const slowDists = [];
+for (const n of slowShown) slowDists.push(+(await screenDist(bo, n)).toFixed(1));
+check(slowOk && slowShown.length >= 1 && slowShown.length <= 2 && slowDists.every((d) => d <= 14.2) && !slowShown.includes(4), "while the computer struggles: at most 2 live, none beyond 14 m, not the 15 m one", `slots ${slowShown}, ${slowDists} m`);
+await bo.ev(() => window.__chimp.adaptive.force(false));
+await bo.waitFor(() => !window.__chimp.state().renderScaleAuto, null, 5000);
+const backFar = await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && w.view === "over"), 4, 25000);
+check(backFar, "and when it recovers, the far cabinet is watched again");
+
+// no flicker. Four cabinets of the north row seen from midway between slots 2 and 3 are all about the same size, so which two
+// of them are the nearest is a toss-up: swaying about must not swap them (low quality, 2 live)
+await setQuality(bo, "low");
+await standAt(bo, 11.97, 6.5, 0, 1.1);
+await allShown(bo, CAP.low);
+await bo.settle(20);
+await startTrace(bo);
+for (let i = 0; i < 14; i++) {
+  await standAt(bo, 11.97 + (i % 2 ? 0.3 : -0.3), 6.5, 0, 1.1);
+  await bo.page.waitForTimeout(200);
+}
+let trace = await stopTrace(bo);
+let c = churn(trace);
+check(trace.length > 20 && Object.keys(c.lost).length === 0 && Object.keys(c.resized).length === 0, "four cabinets of equal size, swaying about: the same two stay live", `${trace.length} samples, lost ${JSON.stringify(c.lost)}, resized ${JSON.stringify(c.resized)}, slots ${[...new Set(trace.map((t) => t.over))].join(" | ")}`);
+// walking across the room changes which are nearest, at medium (4 live, the nearer two full size): each screen changes at most once,
+// and a frame only changes size after its cabinet has stayed in the other class a while
+await setQuality(bo, "medium");
+await standAt(bo, 9, 2.0, Math.PI / 2, 1.9);
+await allShown(bo, CAP.medium);
+await bo.settle(20);
+const widthsBefore = (await shown(bo)).widths;
+await startTrace(bo);
+for (let i = 0; i <= 9; i++) {
+  await standAt(bo, 9, 2.0 + i, Math.PI / 2, 1.9);
+  await bo.page.waitForTimeout(150);
+}
+await bo.page.waitForTimeout(4000);
+trace = await stopTrace(bo);
+c = churn(trace);
+const lostMax = Math.max(0, ...Object.values(c.lost));
+const resizedMax = Math.max(0, ...Object.values(c.resized));
+check(lostMax <= 1 && resizedMax <= 1, "walking across the room: each screen changes at most once, no flicker", `lost ${JSON.stringify(c.lost)}, resized ${JSON.stringify(c.resized)}, widths ${widthsBefore} then ${(await shown(bo)).widths}`);
+const firstResize = trace.findIndex((t, i) => i > 0 && Object.keys(t.widths).some((s) => s in trace[i - 1].widths && t.widths[s] !== trace[i - 1].widths[s]));
+console.log(`      (first resize ${firstResize < 0 ? "none" : `${((trace[firstResize].t - trace[0].t) / 1000).toFixed(1)} s`} into the walk, which took ~2 s)`);
+
+// free the made-up visitors; Bo goes back where he was, at the quality the run started at
+await bo.ev(() => window.__chimp.adaptive.force(null));
+await bo.ev((g) => window.__chimp.arcade.setGames(g), entries0);
+await bo.ev((o) => window.__chimp.arcade.testSeats(o.map((slot) => ({ slot, name: null }))), [4, ...OTHERS.filter((n) => n !== 4)]);
+await setQuality(bo, QUALITY);
+await standBy(bo, SLOT, 3.0, 2.0);
+check(await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && w.view === "over") && window.__chimp.arcade.watched().length === 1, SLOT, 20000), "the made-up visitors gone, Bo watches just Ann's cabinet again", JSON.stringify(await watched(bo)));
 
 // Ann steps back, leaving it running: still hers, still live
 await ann.ev(() => window.__chimp.arcade.stepBack());

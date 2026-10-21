@@ -609,6 +609,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       running: () => arcade.runningGames(),
       /** who is at each cabinet, as the room has it */
       seats: () => arcade.seatList(),
+      /** made-up visitors at cabinets, all following the named player (null frees the slot) */
+      testSeats: (seats: Parameters<typeof arcade.testSeats>[0]) => arcade.testSeats(seats),
       /** the other visitors' games watched live on their screens */
       watched: () => arcade.watchedGames(),
       outOfOrder: () => arcade.outOfOrder(),

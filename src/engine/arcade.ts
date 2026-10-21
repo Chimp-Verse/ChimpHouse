@@ -32,10 +32,14 @@
 // ChimpVibe's spectator mode (engine/embed.ts) following the player, muted and
 // taking no keys or clicks, in a frame of its own laid under the canvas through
 // the screen's hole, as the player's own game is when they step back. Watching
-// costs a running game in the page, so only cabinets in the viewer's room, in
-// view, within WATCH's reach and with some of the screen unblocked are watched,
-// the nearest first, a few at once (fewer, smaller and nearer at lower quality,
-// or while the computer is struggling); one out of view a few seconds goes. A
+// costs a running game in the page, so only cabinets in view with some of the
+// screen unblocked are watched: anywhere in their own room, however far (it is
+// one room), or from outside it within WATCH's reach. The biggest on the page
+// (the nearest) come first, up to WATCH's max at once (fewer at lower quality,
+// and while the computer is struggling today's fewer still, and only near
+// ones): the nearer half at the game's full frame size, the rest at a smaller
+// one (the game's own frame rate can't be lowered from here); one out of view a
+// few seconds goes. A
 // watched game whose frame isn't showing (loading, nobody playing yet, watching
 // refused, or not showing within WATCH_MS) leaves the cabinet's art up, with
 // "In use by <name>" along its foot, so its screen is never blank or frozen.
@@ -52,7 +56,7 @@
 // page wakes a parked ChimpVibe session.
 
 import { Material, Mesh, Scene, TransformNode, Vector3 } from "@babylonjs/core";
-import { roomAt } from "../world/layout";
+import { ROOMS, levelAt, roomAt } from "../world/layout";
 import { SlotMeta } from "../world/context";
 import { Materials } from "../world/materials/library";
 import { Cabinet, buildCabinet } from "../world/props/cabinet";
@@ -98,24 +102,34 @@ const AWAY_TEXT = AWAY_MS % 60000 === 0 ? `${AWAY_MS / 60000} minute${AWAY_MS ==
 
 /**
  * Other visitors' games, watched live on their cabinets' screens, by quality:
- * how many at once, how far away (m), and each frame's own width (CSS px; a
- * transform maps it onto the screen, and ChimpVibe's spectator view works down
- * to about 480 px). While the computer is struggling, one fewer.
+ * how many at once in the cabinet's room (`max`: the nearest first; the nearer
+ * half at `width`, the rest at `farWidth`), and, from outside its room, how far
+ * away (`dist`, m). Each frame's own width is in CSS px; a transform maps it onto
+ * the screen, and ChimpVibe's spectator view works down to about 480 px, so
+ * that is as small as a far one goes. While the computer is struggling today's
+ * limits hold: `slowMax`, and `dist` in the room too.
  */
-const WATCH: Record<Quality, { max: number; dist: number; width: number }> = {
-  high: { max: 3, dist: 14, width: 640 },
-  medium: { max: 2, dist: 11, width: 560 },
-  low: { max: 1, dist: 8, width: 480 },
+const WATCH: Record<Quality, { max: number; slowMax: number; dist: number; width: number; farWidth: number }> = {
+  high: { max: 6, slowMax: 2, dist: 14, width: 640, farWidth: 480 },
+  medium: { max: 4, slowMax: 1, dist: 11, width: 560, farWidth: 480 },
+  low: { max: 2, slowMax: 1, dist: 8, width: 480, farWidth: 480 },
 };
+/** A cabinet already watched counts as this much bigger on the page than it is when the nearest are chosen, so two alike don't trade places. */
+const WATCH_STICKY = 1.3;
+/** A frame's size (full or smaller) changes only once its cabinet has been in the other class this long. */
+const WATCH_TIER_MS = 2500;
 /** How long a watched game may take to say it is showing; then it is given up on, and tried again after WATCH_FAILED_MS. */
 const WATCH_MS = 15_000;
 const WATCH_FAILED_MS = 20_000;
 /** How long before a watched game refused because its player's game wasn't in yet (or dropped) is tried again. */
 const WATCH_RETRY_MS = 3000;
+/** From outside the cabinet's room, its games are watched from no further than this from the room's outline (m): the doorway, not the next room. */
+const WATCH_DOORWAY = 3;
 /** How long a watched game's frame stays, hidden, once its cabinet is out of view: a glance away doesn't reload it. */
 const WATCH_LINGER_MS = 5000;
-/** A screen smaller than this on the page (CSS px high) isn't worth watching. */
-const WATCH_MIN_PX = 28;
+/** A screen smaller than this on the page (CSS px high) isn't worth starting to watch (a cabinet 15 m off is ~16 px at 800 px high); one already watched is kept down to WATCH_KEEP_PX. */
+const WATCH_MIN_PX = 12;
+const WATCH_KEEP_PX = 9;
 
 /** Who is at a cabinet, as every visitor shares it; null: nobody. */
 export type Seat = {
@@ -149,9 +163,27 @@ interface Watched {
   view: "hidden" | "over";
   /** why it isn't showing, for tests */
   note: string | null;
+  /** the frame's size class now, the one it should be in, and since when that has been so (performance.now()) */
+  tier: "near" | "far";
+  tierWant: "near" | "far";
+  tierAt: number;
 }
 
 type Pt = { x: number; y: number };
+
+/** How far p is from a room's outline, on the floor plan (m). */
+function outlineDistance(p: { x: number; z: number }, loop: { x: number; z: number }[]): number {
+  let best = Infinity;
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i];
+    const b = loop[(i + 1) % loop.length];
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const t = Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+    best = Math.min(best, Math.hypot(p.x - a.x - t * dx, p.z - a.z - t * dz));
+  }
+  return best;
+}
 
 /** Where a running game's frame is: hidden (still running), over its screen in perspective, or square on while it is played. */
 type View = "hidden" | "over" | "on";
@@ -593,29 +625,37 @@ export class Arcade {
 
   // ---------------------------------------------------------------- other visitors' games, live on their screens
 
-  /** How many games may be watched at once, how far, and how big their frames are, at the quality the page runs at. */
-  private watchLimits(): { max: number; dist: number; width: number } {
+  /** How many games may be watched at once, how far from outside their room, and how big their frames are, at the quality the page runs at. */
+  private watchLimits(): { max: number; near: number; dist: number; roomDist: number; width: number; farWidth: number } {
     const s = store.get();
     const q = WATCH[s.quality] ?? WATCH.high;
-    return s.renderScaleAuto ? { ...q, max: Math.max(1, q.max - 1) } : q;
+    // a computer that is struggling keeps today's limits: fewer games, and none beyond `dist` even in their room
+    if (s.renderScaleAuto) return { max: q.slowMax, near: q.slowMax, dist: q.dist, roomDist: q.dist, width: q.width, farWidth: q.farWidth };
+    return { max: q.max, near: Math.ceil(q.max / 2), dist: q.dist, roomDist: Infinity, width: q.width, farWidth: q.farWidth };
   }
 
   /**
-   * Each frame: choose the other visitors' games to watch (the nearest in
-   * view, up to the limit), start and end their frames, try again those that
-   * were refused or failed when it is time, and place each on its screen.
+   * Each frame: choose the other visitors' games to watch (the biggest on the
+   * page, up to the limit), start and end their frames, try again those that
+   * were refused or failed when it is time, and place each on its screen. The
+   * nearer half get the full frame size; the rest a smaller one, changed only
+   * after WATCH_TIER_MS in the other class so a cabinet at the boundary doesn't
+   * keep resizing its game.
    */
   private watching(): void {
     const now = performance.now();
     const lim = this.watchLimits();
     const s = store.get();
-    const seen: { n: number; d: number; quad: Pt[] }[] = [];
+    const seen: { n: number; d: number; size: number; quad: Pt[] }[] = [];
     for (const [n, seat] of this.seats) {
       if (seat.id === ME.id || !seat.ready || this.running.has(n) || this.filled.get(n)?.game.gameId !== seat.gameId) continue;
-      const v = this.watchable(n, lim.dist);
-      if (v) seen.push({ n, ...v });
+      const v = this.watchable(n, lim);
+      if (!v) continue;
+      const w = this.watched.get(n);
+      // the page area the screen covers, as a length; one already watched counts for more, so ties don't flip
+      seen.push({ n, ...v, size: v.size * (w && (w.state === "loading" || w.state === "live") ? WATCH_STICKY : 1) });
     }
-    seen.sort((a, b) => a.d - b.d);
+    seen.sort((a, b) => b.size - a.size);
     const quads = new Map<number, Pt[]>();
     let framed = 0;
     for (const { n, quad } of seen) {
@@ -626,9 +666,12 @@ export class Arcade {
         continue;
       }
       if (framed >= lim.max) continue;
+      const want = framed < lim.near ? "near" : "far";
       framed++;
-      if (!w) w = this.watch(n, this.seats.get(n)!);
+      if (!w) w = this.watch(n, this.seats.get(n)!, want);
       w.wanted = now;
+      if (w.tierWant !== want) Object.assign(w, { tierWant: want, tierAt: now });
+      if (w.tier !== w.tierWant && now - w.tierAt >= WATCH_TIER_MS) w.tier = w.tierWant;
       quads.set(n, quad);
     }
     for (const [n, w] of this.watched) {
@@ -644,13 +687,13 @@ export class Arcade {
     const framedNow = [...this.watched].filter(([, w]) => w.state === "loading" || w.state === "live").sort((a, b) => b[1].wanted - a[1].wanted);
     for (const [n] of framedNow.slice(lim.max + 1)) this.unwatch(n);
     this.publishWatched();
-    for (const [n, w] of this.watched) this.placeWatched(n, w, !s.focus && w.state === "live" ? quads.get(n) ?? null : null, lim.width);
+    for (const [n, w] of this.watched) this.placeWatched(n, w, !s.focus && w.state === "live" ? quads.get(n) ?? null : null, w.tier === "near" ? lim.width : lim.farWidth);
   }
 
   /** Start watching the player at slot n: a new frame, following them. */
-  private watch(n: number, seat: NonNullable<Seat>): Watched {
+  private watch(n: number, seat: NonNullable<Seat>, tier: "near" | "far"): Watched {
     const now = performance.now();
-    const w: Watched = { seat, key: "", url: "", state: "loading", since: now, until: 0, wanted: now, frame: null, view: "hidden", note: null };
+    const w: Watched = { seat, key: "", url: "", state: "loading", since: now, until: 0, wanted: now, frame: null, view: "hidden", note: null, tier, tierWant: tier, tierAt: now };
     this.watched.set(n, w);
     this.reload(n, w, now);
     return w;
@@ -685,28 +728,41 @@ export class Arcade {
 
   /**
    * Slot n's cabinet, when another visitor's game there is worth watching from
-   * here: the camera is in its room, in front of the screen, within `dist`, with
-   * some of the screen on the page, big enough to see and not wholly blocked
-   * (checked every few frames). Its distance and its corners on the page, or null.
+   * here: the camera is in front of the screen with some of it on the page, big
+   * enough to see and not wholly blocked (checked every few frames), and either
+   * in the cabinet's room (`roomDist` away at most: any, normally, the room being
+   * one room) or on its level within `dist`, as in the doorway. Its distance,
+   * size on the page (the square root of its area, CSS px) and corners, or null.
    */
-  private watchable(n: number, dist: number): { d: number; quad: Pt[] } | null {
+  private watchable(n: number, lim: { dist: number; roomDist: number }): { d: number; size: number; quad: Pt[] } | null {
     const s = store.get();
     const g = this.geo(n);
     const screen = this.filled.get(n)?.cabinet.screen;
     const cam = this.fly.camera;
     if (!g || !screen || s.help || s.refOverlay === "full" || this.fly.isOrtho) return null;
-    if (roomAt(cam.position)?.id !== (screen.metadata as ScreenMeta).room) return null;
+    const meta = screen.metadata as ScreenMeta;
     const d = Vector3.Distance(cam.position, g.centre);
-    if (d > dist || Vector3.Dot(cam.position.subtract(g.centre), g.normal) <= 0) return null;
+    if (levelAt(cam.position.y) !== meta.level) return null;
+    if (roomAt(cam.position)?.id === meta.room) {
+      if (d > lim.roomDist) return null;
+    } else if (d > lim.dist || outlineDistance(cam.position, ROOMS.find((r) => r.id === meta.room && r.level === meta.level)?.loop ?? []) > WATCH_DOORWAY) return null;
+    if (Vector3.Dot(cam.position.subtract(g.centre), g.normal) <= 0) return null;
     const view = cam.getViewMatrix(true);
     if (g.corners.some((c) => Vector3.TransformCoordinates(c, view).z < cam.minZ)) return null;
     const [bl, br, tr, tl] = toPage(g.corners, this.scene, this.canvas);
     const quad = [tl, tr, br, bl];
     const ys = quad.map((p) => p.y);
-    if (Math.max(...ys) - Math.min(...ys) < WATCH_MIN_PX || onPage(quad, this.canvas.getBoundingClientRect()) <= 0) return null;
+    if (Math.max(...ys) - Math.min(...ys) < (this.watched.has(n) ? WATCH_KEEP_PX : WATCH_MIN_PX) || onPage(quad, this.canvas.getBoundingClientRect()) <= 0) return null;
+    // the checks are spread over the frames, not all on the same one
     let c = this.sight.get(n);
-    if (!c || this.frames - c.at >= 10) this.sight.set(n, (c = { at: this.frames, ok: partlyInSight(this.scene, cam.position, screen, g) }));
-    return c.ok ? { d, quad } : null;
+    if (!c || this.frames - c.at >= 10) this.sight.set(n, (c = { at: this.frames + (c ? 0 : n % 5), ok: partlyInSight(this.scene, cam.position, screen, g) }));
+    if (!c.ok) return null;
+    let area = 0;
+    quad.forEach((p, i) => {
+      const q = quad[(i + 1) % 4];
+      area += p.x * q.y - q.x * p.y;
+    });
+    return { d, size: Math.sqrt(Math.abs(area) / 2), quad };
   }
 
   /**
@@ -767,9 +823,22 @@ export class Arcade {
     return [...this.seats].sort((a, b) => a[0] - b[0]).map(([slot, seat]) => ({ slot, ...seat }));
   }
 
+  /**
+   * Seat other visitors (made up: nobody's page) at slots as if the room had said so, each
+   * following the player named (null: the slot is free again), their games in: for tests of
+   * many cabinets in use, with one real player's game for all the spectators to follow.
+   */
+  testSeats(seats: { slot: number; name: string | null }[]): void {
+    for (const { slot, name } of seats) {
+      const game = this.filled.get(slot)?.game;
+      this.seated(slot, name && game ? { id: `test-${slot}`, name, gameId: game.gameId, ready: true, away: false } : null);
+    }
+  }
+
   /** The other visitors' games being watched, and how each is doing: for tests. */
-  watchedGames(): { slot: number; key: string; name: string; state: Watched["state"]; view: Watched["view"]; note: string | null; framed: boolean }[] {
-    return [...this.watched].map(([slot, w]) => ({ slot, key: w.key, name: w.seat.name, state: w.state, view: w.view, note: w.note, framed: !!w.frame }));
+  watchedGames(): { slot: number; key: string; name: string; state: Watched["state"]; view: Watched["view"]; note: string | null; framed: boolean; tier: Watched["tier"]; width: number }[] {
+    const lim = this.watchLimits();
+    return [...this.watched].map(([slot, w]) => ({ slot, key: w.key, name: w.seat.name, state: w.state, view: w.view, note: w.note, framed: !!w.frame, tier: w.tier, width: w.tier === "near" ? lim.width : lim.farWidth }));
   }
 
   /** Draw slot n's screen as a hole in the canvas, or as itself again. */
