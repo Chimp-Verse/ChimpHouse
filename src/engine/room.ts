@@ -73,6 +73,8 @@ class Room {
   /** states for topics nobody here has shared yet: handed over when they are */
   private unclaimed = new Map<string, TopicState>();
   private goneListeners = new Set<(id: string) => void>();
+  /** visitors known to have left (see hasLeft), until they are heard from again */
+  private left = new Set<string>();
   /** the room's clock less this computer's (ms), and the round trip it was measured over */
   private offset = 0;
   private rtt = Infinity;
@@ -151,6 +153,16 @@ class Room {
     this.goneListeners.add(fn);
   }
 
+  /**
+   * Whether a visitor is known to have left. A page that shares a topic after
+   * the room has welcomed it (a cabinet's seat, as it builds the house) hears of
+   * those who left before its onGone listener was there: state the room still
+   * holds in their name is checked with this.
+   */
+  hasLeft(id: string): boolean {
+    return this.left.has(id);
+  }
+
   // ------------------------------------------------ the connection
 
   private async join(): Promise<void> {
@@ -169,7 +181,11 @@ class Room {
       // a page dropped soon after joining reconnects too (the SDK waits 5 s by default; a page that can't is joined afresh below)
       conn.reconnection.minUptime = 1000;
       conn.onMessage(MSG.welcome, (w: Welcome) => this.welcome(w));
-      conn.onMessage(MSG.state, (m: TopicState) => this.receive(m));
+      conn.onMessage(MSG.state, (m: TopicState) => {
+        // a visitor heard from is here (back, as the same page, after being taken as gone)
+        this.left.delete(m.v.by);
+        this.receive(m);
+      });
       conn.onMessage(MSG.gone, (m: GoneMsg) => this.gone(m.id));
       conn.onMessage(MSG.time, (m: TimeReply) => this.timed(m));
       conn.onMessage(MSG.refused, (m: RefusedMsg) => console.warn(`[room] the server refused ${m.what}: ${m.why}`));
@@ -257,8 +273,13 @@ class Room {
     const m = this.unclaimed.get(topic);
     if (!m) return;
     this.unclaimed.delete(topic);
-    // after the caller has its setter
-    queueMicrotask(() => this.receive(m));
+    // after the caller has its setter, and its onGone listener: the room may hold this state in the
+    // name of visitors who left before this page was listening (everyone else had gone too, so nobody
+    // let go for them), so the listeners hear of them again
+    queueMicrotask(() => {
+      this.receive(m);
+      for (const id of this.left) for (const fn of this.goneListeners) fn(id);
+    });
   }
 
   private timed(m: TimeReply): void {
@@ -273,6 +294,7 @@ class Room {
 
   private gone(id: string): void {
     if (id === ME.id) return;
+    this.left.add(id);
     for (const [prefix, f] of this.families) f.seen.delete(`${prefix}${id}`);
     for (const topic of [...this.unclaimed.keys()]) if (topic.endsWith(`:${id}`)) this.unclaimed.delete(topic);
     for (const fn of this.goneListeners) fn(id);

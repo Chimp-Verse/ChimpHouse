@@ -40,6 +40,20 @@ export interface RunningGame {
   checking: boolean;
 }
 
+/**
+ * Another visitor's game at a cabinet, live on its screen for this visitor
+ * (engine/arcade.ts): ChimpVibe's spectator mode following them, in a frame of
+ * its own, one per try (`key`).
+ */
+export interface WatchedGame {
+  slot: number;
+  key: string;
+  url: string;
+  /** the player followed, as their game knows them */
+  name: string;
+  game: string;
+}
+
 /** A screen in use, and whether the camera is gliding in to it, at it, or gliding back out. */
 export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
 
@@ -253,11 +267,13 @@ export interface PreviewState {
   pointerLocked: boolean;
   toast: string | null;
   /** walking up to a cabinet: the one that E (or a click on its screen) plays */
-  arcadePrompt: { slot: number; name: string; outOfOrder?: boolean; full?: boolean } | null;
+  arcadePrompt: { slot: number; name: string; outOfOrder?: boolean; full?: boolean; taken?: { by: string; away: boolean } } | null;
   /** a screen in use (a cabinet's game, the theatre's video): ChimpHouse's own keys and mouse look do nothing meanwhile */
   focus: Focus | null;
   /** the games running at cabinets, each in its own frame until quit (engine/arcade.ts) */
   arcadeRunning: RunningGame[];
+  /** other visitors' games at cabinets in view, live on their screens (engine/arcade.ts) */
+  arcadeWatched: WatchedGame[];
   /** the screen in use on the page, once the camera is square onto it */
   focusRect: ScreenRect | null;
   theatre: TheatreState;
@@ -355,6 +371,7 @@ class Store {
     arcadePrompt: null,
     focus: null,
     arcadeRunning: [],
+    arcadeWatched: [],
     focusRect: null,
     theatre: { videoId: null, playing: false, at: 0, since: 0, live: false, remotes: [] },
     theatreVideo: null,

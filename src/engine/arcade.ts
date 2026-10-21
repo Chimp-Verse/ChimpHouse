@@ -20,6 +20,26 @@
 // quits by itself after AWAY_MS: its clock runs whenever it isn't being played,
 // however close the visitor stands, and only playing it again resets it.
 //
+// Who is at each cabinet is shared through the room server (engine/room.ts):
+// its seat, one topic per slot ("arcade/seat/<slot>"), saying who plays it,
+// under the name their game was given, and whether their game is in yet. A
+// cabinet is one visitor's at a time, as at a real arcade: walking up to one in
+// use says who has it. Its seat is freed when the game quits (Quit, left alone
+// too long, or failed) or its player leaves (their page closed: onGone).
+//
+// Everyone else sees the game at an occupied cabinet live on its screen, as they
+// walk about, from any angle, as they would someone playing in an arcade: it is
+// ChimpVibe's spectator mode (engine/embed.ts) following the player, muted and
+// taking no keys or clicks, in a frame of its own laid under the canvas through
+// the screen's hole, as the player's own game is when they step back. Watching
+// costs a running game in the page, so only cabinets in the viewer's room, in
+// view, within WATCH's reach and with some of the screen unblocked are watched,
+// the nearest first, a few at once (fewer, smaller and nearer at lower quality,
+// or while the computer is struggling); one out of view a few seconds goes. A
+// watched game whose frame isn't showing (loading, nobody playing yet, watching
+// refused, or not showing within WATCH_MS) leaves the cabinet's art up, with
+// "In use by <name>" along its foot, so its screen is never blank or frozen.
+//
 // A cabinet whose game fails on ChimpVibe's side shows OUT OF ORDER (or GAME
 // FULL) until a visitor tries it again. The play page, in ChimpVibe's embed mode
 // (engine/embed.ts), says so with an "error" message. What such a page can't
@@ -38,12 +58,13 @@ import { Materials } from "../world/materials/library";
 import { Cabinet, buildCabinet } from "../world/props/cabinet";
 import { ROLE, ScreenMeta, findAll } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
-import { ScreenFocus, ScreenGeometry, nothingInTheWay, onPage, pageRect, pickAt, quadTransform, screenGeometry, screenHoleMaterial, squarePose, toPage } from "./focus";
+import { ScreenFocus, ScreenGeometry, nothingInTheWay, onPage, pageRect, partlyInSight, pickAt, quadTransform, screenGeometry, screenHoleMaterial, squarePose, toPage } from "./focus";
 import { ArcadeGame, GameList, loadGameList } from "./gameList";
-import { EmbedErrorCode, EmbedMessage, parseEmbedMessage } from "./embed";
+import { EmbedErrorCode, EmbedMessage, asSpectator, inEmbedMode, parseEmbedMessage } from "./embed";
 import { LOAD_MS, pageProblem } from "./pageCheck";
 import { Lighting } from "./lighting";
-import { ScreenRect, store } from "./store";
+import { ME, room } from "./room";
+import { Quality, ScreenRect, WatchedGame, store } from "./store";
 
 /**
  * Where a visitor can play a cabinet: in front of its screen, at most `ahead`
@@ -75,11 +96,72 @@ const AWAY_MS = (Number(new URLSearchParams(location.search).get("arcadeAway")) 
 
 const AWAY_TEXT = AWAY_MS % 60000 === 0 ? `${AWAY_MS / 60000} minute${AWAY_MS === 60000 ? "" : "s"}` : `${AWAY_MS / 1000} seconds`;
 
+/**
+ * Other visitors' games, watched live on their cabinets' screens, by quality:
+ * how many at once, how far away (m), and each frame's own width (CSS px; a
+ * transform maps it onto the screen, and ChimpVibe's spectator view works down
+ * to about 480 px). While the computer is struggling, one fewer.
+ */
+const WATCH: Record<Quality, { max: number; dist: number; width: number }> = {
+  high: { max: 3, dist: 14, width: 640 },
+  medium: { max: 2, dist: 11, width: 560 },
+  low: { max: 1, dist: 8, width: 480 },
+};
+/** How long a watched game may take to say it is showing; then it is given up on, and tried again after WATCH_FAILED_MS. */
+const WATCH_MS = 15_000;
+const WATCH_FAILED_MS = 20_000;
+/** How long before a watched game refused because its player's game wasn't in yet (or dropped) is tried again. */
+const WATCH_RETRY_MS = 3000;
+/** How long a watched game's frame stays, hidden, once its cabinet is out of view: a glance away doesn't reload it. */
+const WATCH_LINGER_MS = 5000;
+/** A screen smaller than this on the page (CSS px high) isn't worth watching. */
+const WATCH_MIN_PX = 28;
+
+/** Who is at a cabinet, as every visitor shares it; null: nobody. */
+export type Seat = {
+  id: string;
+  /** the name their game was given: whom a spectator follows */
+  name: string;
+  gameId: string;
+  /** their game has said it is ready: from then it can be watched */
+  ready: boolean;
+  /** they stepped back, leaving it running */
+  away: boolean;
+} | null;
+
+/**
+ * Another visitor's game at a cabinet, watched live: loading (its frame
+ * hidden), live (it may show), waiting to try again (nobody was playing yet, or
+ * it dropped), or failed (watching refused, or it never showed; tried again at
+ * `until`, never for a game that refuses spectators).
+ */
+interface Watched {
+  seat: NonNullable<Seat>;
+  key: string;
+  url: string;
+  state: "loading" | "live" | "waiting" | "failed";
+  /** when it started loading, and, waiting or failed, when to try again (performance.now()) */
+  since: number;
+  until: number;
+  /** when its cabinet was last in view and chosen to be watched (performance.now()) */
+  wanted: number;
+  frame: HTMLIFrameElement | null;
+  view: "hidden" | "over";
+  /** why it isn't showing, for tests */
+  note: string | null;
+}
+
+type Pt = { x: number; y: number };
+
 /** Where a running game's frame is: hidden (still running), over its screen in perspective, or square on while it is played. */
 type View = "hidden" | "over" | "on";
 
 interface Running {
   game: ArcadeGame;
+  /** the address its frame loads: the game in embed mode, joined under this visitor's name (whom spectators follow) */
+  url: string;
+  /** the page has said it is ready (embed mode): the game is in, and others can watch it */
+  ready: boolean;
   frame: HTMLIFrameElement | null;
   view: View;
   /** the screen in clear view, last checked at frame `at` */
@@ -110,6 +192,14 @@ export class Arcade {
   private holed = new Map<number, Material>();
   /** cabinets out of order (or full), by slot: why, and ChimpVibe's error code when it gave one */
   private broken = new Map<number, { reason: string; code: EmbedErrorCode | null }>();
+  /** who is at each cabinet, by slot, as the room has it, and the setters for each slot's seat */
+  private seats = new Map<number, NonNullable<Seat>>();
+  private sendSeat = new Map<number, (seat: Seat) => void>();
+  /** other visitors' games, watched live on their cabinets' screens, by slot */
+  private watched = new Map<number, Watched>();
+  private watchTries = 0;
+  /** whether some of each screen can be seen, last checked at frame `at` */
+  private sight = new Map<number, { at: number; ok: boolean }>();
   private frames = 0;
   private fovBefore = 1;
   /** where the list last came from: "chimpvibe" or "fixture" */
@@ -129,6 +219,14 @@ export class Arcade {
   ) {
     this.slots = findAll(scene, ROLE.cabinetSlot).filter((n): n is TransformNode => n instanceof TransformNode);
     for (const s of this.slots) s.computeWorldMatrix(true);
+    // who is at each cabinet, shared; a visitor who leaves (their page closed, or their connection stayed down) frees theirs
+    for (const node of this.slots) {
+      const n = slotNo(node);
+      this.sendSeat.set(n, room.share<Seat>(`arcade/seat/${n}`, null, (seat) => this.seated(n, seat)));
+    }
+    room.onGone((id) => {
+      for (const [n, seat] of this.seats) if (seat.id === id) this.sendSeat.get(n)!(null);
+    });
   }
 
   /** The slots' numbers, in order. */
@@ -167,6 +265,7 @@ export class Arcade {
       }
       if (have) {
         if (this.running.has(n)) void this.quit(n);
+        this.unwatch(n);
         this.geos.delete(n);
         this.broken.delete(n);
         this.lighting.removeCasters(have.cabinet.casters);
@@ -176,6 +275,8 @@ export class Arcade {
       }
       if (game) {
         const cabinet = buildCabinet(this.mats, node, game);
+        const seat = this.seats.get(n);
+        if (seat && seat.id !== ME.id) cabinet.inUse(seat.name);
         this.lighting.addMeshes(cabinet.meshes, cabinet.casters);
         this.filled.set(n, { game, cabinet });
         changed = true;
@@ -191,13 +292,18 @@ export class Arcade {
     const s = store.get();
     if (!s.focus) {
       const at = s.walking && this.fly.enabled ? this.cabinetAt() : null;
-      const outOfOrder = at !== null && this.broken.has(at);
+      // someone else's cabinet: the prompt says who has it, and E doesn't play it
+      const seat = at === null ? undefined : this.seats.get(at);
+      const taken = seat && seat.id !== ME.id ? { by: seat.name, away: seat.away } : undefined;
+      const outOfOrder = at !== null && !taken && this.broken.has(at);
       const full = outOfOrder && this.broken.get(at!)!.code === "full";
-      if ((at ?? null) !== (s.arcadePrompt?.slot ?? null) || outOfOrder !== !!s.arcadePrompt?.outOfOrder || full !== !!s.arcadePrompt?.full)
-        store.set({ arcadePrompt: at === null ? null : { slot: at, name: this.filled.get(at)!.game.name, outOfOrder, full } });
+      const was = s.arcadePrompt;
+      if ((at ?? null) !== (was?.slot ?? null) || outOfOrder !== !!was?.outOfOrder || full !== !!was?.full || taken?.by !== was?.taken?.by || taken?.away !== was?.taken?.away)
+        store.set({ arcadePrompt: at === null ? null : { slot: at, name: this.filled.get(at)!.game.name, outOfOrder, full, ...(taken ? { taken } : {}) } });
     }
     for (const [n, r] of this.running) this.place(n, r);
     this.minding();
+    this.watching();
   }
 
   /** Start each running game's clock when play stops, and stop it when it is played again; quit any left alone for AWAY_MS. */
@@ -211,7 +317,11 @@ export class Arcade {
       } else if (r.awaySince === null) (r.awaySince = now), (changed = true);
       else if (now - r.awaySince >= AWAY_MS) expired.push(n);
     }
-    if (changed) this.publish();
+    if (changed) {
+      this.publish();
+      // the seat says whether its player is at the cabinet
+      for (const [n, r] of this.running) if (this.seats.get(n)?.id === ME.id && this.seats.get(n)!.away !== (r.awaySince !== null)) this.sendSeat.get(n)!(this.mySeat(r));
+    }
     for (const n of expired) {
       const name = this.running.get(n)!.game.name;
       void this.quit(n);
@@ -233,18 +343,27 @@ export class Arcade {
   async use(n: number): Promise<boolean> {
     const f = this.filled.get(n);
     if (!f || store.get().focus || !this.fly.walker || !store.get().walking) return false;
+    const seat = this.seats.get(n);
+    if (seat && seat.id !== ME.id && !this.running.has(n)) {
+      // the prompt already says who is playing it; a click from further off is told
+      if (store.get().arcadePrompt?.slot !== n) this.say(`${seat.name} is playing ${f.game.name}${seat.away ? " (stepped away, leaving it running)" : ""}`);
+      return false;
+    }
     if (!this.running.has(n)) {
       if (this.broken.delete(n)) f.cabinet.outOfOrder(null);
-
-      this.running.set(n, { game: f.game, frame: null, view: "hidden", clear: { at: -100, ok: false }, awaySince: null, loading: null, verified: false });
+      this.unwatch(n);
+      const r: Running = { game: f.game, url: inEmbedMode(f.game.playUrl, ME.name), ready: false, frame: null, view: "hidden", clear: { at: -100, ok: false }, awaySince: null, loading: null, verified: false };
+      this.running.set(n, r);
+      // the cabinet is this visitor's
+      this.sendSeat.get(n)?.(this.mySeat(r));
       this.publish();
-      void this.verify(n, this.running.get(n)!);
+      void this.verify(n, r);
     }
     this.playingSlot = n;
     this.fovBefore = this.fly.camera.fov;
     const { game } = f;
     store.set({ arcadePrompt: null });
-    const info = { kind: "cabinet", slot: n, gameId: game.gameId, name: game.name, author: game.author, url: game.playUrl } as const;
+    const info = { kind: "cabinet", slot: n, gameId: game.gameId, name: game.name, author: game.author, url: this.running.get(n)!.url } as const;
     return this.focus.enter(info, f.cabinet.screen, () => this.screenPose(f.cabinet.screen), GLIDE_IN);
   }
 
@@ -284,6 +403,8 @@ export class Arcade {
     this.running.delete(slot);
     this.hole(slot, false);
     this.publish();
+    // the cabinet is free again
+    if (this.seats.get(slot)?.id === ME.id) this.sendSeat.get(slot)?.(null);
     if (f?.kind === "cabinet" && f.slot === slot) await this.stepBack();
   }
 
@@ -324,6 +445,11 @@ export class Arcade {
       // a page speaking embed mode has loaded and works
       r.verified = true;
       this.publish();
+    }
+    if (msg.type === "ready" && !r.ready && this.running.get(n) === r) {
+      // the game is in: others can watch it now
+      r.ready = true;
+      if (this.seats.get(n)?.id === ME.id) this.sendSeat.get(n)?.(this.mySeat(r));
     }
     return msg;
   }
@@ -379,7 +505,7 @@ export class Arcade {
         gameId: r.game.gameId,
         name: r.game.name,
         author: r.game.author,
-        url: r.game.playUrl,
+        url: r.url,
         quitsAt: r.awaySince === null ? null : r.awaySince + AWAY_MS,
         checking: !r.verified,
       })),
@@ -430,6 +556,220 @@ export class Arcade {
     }
     st.visibility = "visible";
     if (view === "on" && was !== "on") frame.focus();
+  }
+
+  // ---------------------------------------------------------------- who is at each cabinet
+
+  /** This visitor's seat at a cabinet whose game they run. */
+  private mySeat(r: Running): NonNullable<Seat> {
+    return { id: ME.id, name: ME.name, gameId: r.game.gameId, ready: r.ready, away: r.awaySince !== null };
+  }
+
+  /** The room says who is at slot n now (this visitor's own change, or another's). */
+  private seated(n: number, seat: Seat): void {
+    // the room still holds a seat for a visitor who left before this page was listening (everyone else
+    // had gone too, so nobody freed it): it is free, for everyone
+    if (seat && seat.id !== ME.id && room.hasLeft(seat.id)) return this.sendSeat.get(n)?.(null);
+    if (seat) this.seats.set(n, seat);
+    else this.seats.delete(n);
+    const f = this.filled.get(n);
+    const other = seat && seat.id !== ME.id ? seat : null;
+    f?.cabinet.inUse(other?.name ?? null);
+    const r = this.running.get(n);
+    if (r && other) {
+      // two took the cabinet at once, and the room gave it to the other
+      void this.quit(n);
+      this.say(`${other.name} got to ${r.game.name} first`);
+    } else if (r && !seat) {
+      // freed while this visitor's game still runs there (a page that left took the wrong seat with it): take it back
+      queueMicrotask(() => this.running.get(n) === r && !this.seats.has(n) && this.sendSeat.get(n)?.(this.mySeat(r)));
+    }
+    // someone else's game works there: it is no longer out of order for this visitor either
+    if (other?.ready && this.broken.delete(n)) f?.cabinet.outOfOrder(null);
+    const w = this.watched.get(n);
+    if (w && (!other || other.id !== w.seat.id || other.gameId !== w.seat.gameId || !other.ready)) this.unwatch(n);
+    else if (w && other) w.seat = other;
+  }
+
+  // ---------------------------------------------------------------- other visitors' games, live on their screens
+
+  /** How many games may be watched at once, how far, and how big their frames are, at the quality the page runs at. */
+  private watchLimits(): { max: number; dist: number; width: number } {
+    const s = store.get();
+    const q = WATCH[s.quality] ?? WATCH.high;
+    return s.renderScaleAuto ? { ...q, max: Math.max(1, q.max - 1) } : q;
+  }
+
+  /**
+   * Each frame: choose the other visitors' games to watch (the nearest in
+   * view, up to the limit), start and end their frames, try again those that
+   * were refused or failed when it is time, and place each on its screen.
+   */
+  private watching(): void {
+    const now = performance.now();
+    const lim = this.watchLimits();
+    const s = store.get();
+    const seen: { n: number; d: number; quad: Pt[] }[] = [];
+    for (const [n, seat] of this.seats) {
+      if (seat.id === ME.id || !seat.ready || this.running.has(n) || this.filled.get(n)?.game.gameId !== seat.gameId) continue;
+      const v = this.watchable(n, lim.dist);
+      if (v) seen.push({ n, ...v });
+    }
+    seen.sort((a, b) => a.d - b.d);
+    const quads = new Map<number, Pt[]>();
+    let framed = 0;
+    for (const { n, quad } of seen) {
+      let w = this.watched.get(n);
+      // one waiting to try again, or failed, keeps its place without a frame (the cabinet's art shows)
+      if (w && (w.state === "waiting" || w.state === "failed")) {
+        w.wanted = now;
+        continue;
+      }
+      if (framed >= lim.max) continue;
+      framed++;
+      if (!w) w = this.watch(n, this.seats.get(n)!);
+      w.wanted = now;
+      quads.set(n, quad);
+    }
+    for (const [n, w] of this.watched) {
+      const away = now - w.wanted > WATCH_LINGER_MS;
+      if (w.state === "waiting" || w.state === "failed") {
+        if (now < w.until) continue;
+        if (away) this.unwatch(n);
+        else this.reload(n, w, now);
+      } else if (away) this.unwatch(n);
+      else if (w.state === "loading" && now - w.since > WATCH_MS) this.watchFailed(w, "it didn't show in time", now + WATCH_FAILED_MS);
+    }
+    // frames kept for a glance away, past the limit: the least recently seen go
+    const framedNow = [...this.watched].filter(([, w]) => w.state === "loading" || w.state === "live").sort((a, b) => b[1].wanted - a[1].wanted);
+    for (const [n] of framedNow.slice(lim.max + 1)) this.unwatch(n);
+    this.publishWatched();
+    for (const [n, w] of this.watched) this.placeWatched(n, w, !s.focus && w.state === "live" ? quads.get(n) ?? null : null, lim.width);
+  }
+
+  /** Start watching the player at slot n: a new frame, following them. */
+  private watch(n: number, seat: NonNullable<Seat>): Watched {
+    const now = performance.now();
+    const w: Watched = { seat, key: "", url: "", state: "loading", since: now, until: 0, wanted: now, frame: null, view: "hidden", note: null };
+    this.watched.set(n, w);
+    this.reload(n, w, now);
+    return w;
+  }
+
+  /** Load slot n's watched game afresh: a new frame. */
+  private reload(n: number, w: Watched, now: number): void {
+    const playUrl = this.filled.get(n)?.game.playUrl ?? "";
+    Object.assign(w, { key: `${w.seat.gameId}:${w.seat.id}:${++this.watchTries}`, url: asSpectator(playUrl, w.seat.name), state: "loading", since: now, until: 0, frame: null, view: "hidden", note: null });
+  }
+
+  /** A watched game can't show for now: its frame goes, and the cabinet's art shows until `until`. */
+  private watchFailed(w: Watched, note: string, until: number): void {
+    Object.assign(w, { state: "failed", note, until, frame: null });
+  }
+
+  /** Stop watching slot n: its frame goes, and the screen shows itself again. */
+  private unwatch(n: number): void {
+    if (!this.watched.delete(n)) return;
+    this.hole(n, false);
+    this.publishWatched();
+  }
+
+  /** The frames of watched games, in the page (ui/PlayOverlay.tsx): only those loading or live. */
+  private publishWatched(): void {
+    const want: WatchedGame[] = [];
+    for (const [slot, w] of this.watched)
+      if (w.state === "loading" || w.state === "live") want.push({ slot, key: w.key, url: w.url, name: w.seat.name, game: this.filled.get(slot)?.game.name ?? "" });
+    const was = store.get().arcadeWatched;
+    if (want.length !== was.length || want.some((g, i) => g.key !== was[i].key)) store.set({ arcadeWatched: want });
+  }
+
+  /**
+   * Slot n's cabinet, when another visitor's game there is worth watching from
+   * here: the camera is in its room, in front of the screen, within `dist`, with
+   * some of the screen on the page, big enough to see and not wholly blocked
+   * (checked every few frames). Its distance and its corners on the page, or null.
+   */
+  private watchable(n: number, dist: number): { d: number; quad: Pt[] } | null {
+    const s = store.get();
+    const g = this.geo(n);
+    const screen = this.filled.get(n)?.cabinet.screen;
+    const cam = this.fly.camera;
+    if (!g || !screen || s.help || s.refOverlay === "full" || this.fly.isOrtho) return null;
+    if (roomAt(cam.position)?.id !== (screen.metadata as ScreenMeta).room) return null;
+    const d = Vector3.Distance(cam.position, g.centre);
+    if (d > dist || Vector3.Dot(cam.position.subtract(g.centre), g.normal) <= 0) return null;
+    const view = cam.getViewMatrix(true);
+    if (g.corners.some((c) => Vector3.TransformCoordinates(c, view).z < cam.minZ)) return null;
+    const [bl, br, tr, tl] = toPage(g.corners, this.scene, this.canvas);
+    const quad = [tl, tr, br, bl];
+    const ys = quad.map((p) => p.y);
+    if (Math.max(...ys) - Math.min(...ys) < WATCH_MIN_PX || onPage(quad, this.canvas.getBoundingClientRect()) <= 0) return null;
+    let c = this.sight.get(n);
+    if (!c || this.frames - c.at >= 10) this.sight.set(n, (c = { at: this.frames, ok: partlyInSight(this.scene, cam.position, screen, g) }));
+    return c.ok ? { d, quad } : null;
+  }
+
+  /**
+   * Place a watched game's frame for this frame: in perspective under the
+   * canvas, through its screen's hole, while it is live and its cabinet chosen
+   * (`quad`); otherwise hidden, the screen showing the cabinet's art.
+   */
+  private placeWatched(n: number, w: Watched, quad: Pt[] | null, width: number): void {
+    const show = !!quad && !!w.frame;
+    w.view = show ? "over" : "hidden";
+    this.hole(n, show);
+    const st = w.frame?.style;
+    if (!st) return;
+    if (!show) {
+      st.visibility = "hidden";
+      return;
+    }
+    const g = this.geo(n)!;
+    const h = Math.round((width * g.height) / g.width);
+    Object.assign(st, { left: "0px", top: "0px", width: `${width}px`, height: `${h}px`, transformOrigin: "0 0", transform: quadTransform(width, h, quad!), zIndex: "0", pointerEvents: "none", visibility: "visible" });
+  }
+
+  /** A watched game's frame is in the page (ui/PlayOverlay.tsx), or has left it. */
+  attachWatched(slot: number, key: string, el: HTMLIFrameElement): void {
+    const w = this.watched.get(slot);
+    if (w?.key === key) w.frame = el;
+  }
+
+  detachWatched(slot: number, key: string, el: HTMLIFrameElement): void {
+    const w = this.watched.get(slot);
+    if (w?.key === key && w.frame === el) w.frame = null;
+  }
+
+  /**
+   * A message from a watched game's frame (ui/PlayOverlay.tsx checks it came
+   * from that frame and the game's origin): it is showing; nobody plays yet, or
+   * it dropped, so it tries again shortly; or it can't be watched. Its player
+   * being away shows in ChimpVibe's own view, which says so.
+   */
+  receiveWatched(slot: number, key: string, data: unknown): void {
+    const w = this.watched.get(slot);
+    const msg = parseEmbedMessage(data);
+    if (!w || w.key !== key || !msg) return;
+    const now = performance.now();
+    if (msg.type === "ready") {
+      if (w.state === "loading") w.state = "live";
+    } else if ((msg.type === "error" && msg.code === "no-players") || msg.type === "ended") {
+      Object.assign(w, { state: "waiting", note: msg.type === "ended" ? `ended: ${msg.reason}` : "nobody playing yet", until: now + WATCH_RETRY_MS, frame: null });
+    } else if (msg.type === "error") {
+      // a game that refuses spectators isn't asked again while this player is at it
+      this.watchFailed(w, `${msg.code}: ${msg.reason}`, msg.code === "no-spectators" ? Infinity : now + WATCH_FAILED_MS);
+    }
+    this.publishWatched();
+  }
+
+  /** Who is at each cabinet, as the room has it: for tests. */
+  seatList(): { slot: number; id: string; name: string; gameId: string; ready: boolean; away: boolean }[] {
+    return [...this.seats].sort((a, b) => a[0] - b[0]).map(([slot, seat]) => ({ slot, ...seat }));
+  }
+
+  /** The other visitors' games being watched, and how each is doing: for tests. */
+  watchedGames(): { slot: number; key: string; name: string; state: Watched["state"]; view: Watched["view"]; note: string | null; framed: boolean }[] {
+    return [...this.watched].map(([slot, w]) => ({ slot, key: w.key, name: w.seat.name, state: w.state, view: w.view, note: w.note, framed: !!w.frame }));
   }
 
   /** Draw slot n's screen as a hole in the canvas, or as itself again. */
