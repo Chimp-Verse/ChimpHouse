@@ -8,7 +8,10 @@
 // when the cabinet leaves his view and starts again when it comes back; the
 // cabinet shows its art again when Ann quits, and when her page closes. A game
 // whose spectators never say they are showing, or that refuses spectators, leaves
-// the art up with "In use by Ann". E at Ann's cabinet doesn't play it for Bo.
+// the art up, plainly: no "In use by" on any screen. E at Ann's cabinet doesn't play
+// it for Bo. Once her game shows, it stays: a minute in view, the spectator's own
+// messages (ended, nobody playing, follow), her game going quiet for 8 s and the frame changing
+// size never show the art, a dropped frame staying up while a fresh one loads behind it.
 // Anywhere in the room: a far cabinet (14 m) is live too; the number of live
 // screens is capped per quality (made-up visitors from arcade.testSeats fill the
 // other cabinets); the nearest get the full picture, the rest a smaller one, held
@@ -163,7 +166,7 @@ await standBy(bo, SLOT, 3.0, 2.0);
 await bo.settle(10);
 const before = { mat: await screenMat(bo, SLOT), tex: await screenTex(bo, SLOT), seats: await seats(bo), watched: await watched(bo) };
 check(before.seats.length === 0 && before.watched.length === 0, "nobody is at any cabinet, and Bo watches nothing", JSON.stringify(before.seats));
-check(before.mat !== "screenHole" && !!before.tex?.art && !before.tex?.inUse, "Bo sees the cabinet's art", `${before.mat}, art ${before.tex?.art?.split("/").pop()}`);
+check(before.mat !== "screenHole" && !!before.tex?.art && !before.tex?.user && !("inUse" in (before.tex ?? {})), "Bo sees the cabinet's art", `${before.mat}, art ${before.tex?.art?.split("/").pop()}`);
 await bo.shot("1-before");
 
 // ------------------------------------------------ Ann plays: Bo sees her game live, without a key or a click
@@ -265,6 +268,116 @@ await aim(bo, SLOT);
 const back = await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && w.view === "over"), SLOT, 15000);
 check(back, "looking at it again, he watches it again");
 
+// ------------------------------------------------ constantly live: once Ann's game shows, Bo never sees the cabinet's art again while it is in view
+// Every frame Bo's page draws, whether slot SLOT's screen is the hole (the game) or the art: a regression for screens that kept
+// flipping between the game and the art.
+await bo.ev((n) => {
+  const c = window.__chimp;
+  window.__flips = { frames: 0, art: 0, artRuns: 0, log: [] };
+  let was = null;
+  window.__flipObs = c.scene.onAfterRenderObservable.add(() => {
+    const screen = c.scene.meshes.find((m) => m.metadata?.role === "cabinet-screen" && m.metadata.slot === n);
+    const hole = screen?.material?.name === "screenHole";
+    const f = window.__flips;
+    // only frames with the screen on the page count: the art can't be seen otherwise
+    const q = c.arcade.screenQuad(n);
+    const r = c.scene.getEngine().getRenderingCanvas().getBoundingClientRect();
+    const inView = !!screen && c.scene.activeCamera.isInFrustum(screen) && !!q?.some((p) => p.x >= 0 && p.y >= 0 && p.x <= r.width && p.y <= r.height);
+    if (!inView) return;
+    f.frames++;
+    if (!hole) f.art++;
+    if (was === true && !hole) {
+      f.artRuns++;
+      const w = c.arcade.watched().find((w) => w.slot === n);
+      if (f.log.length < 20) f.log.push(`${Math.round(performance.now())} ms: ${JSON.stringify(w ?? "not watched")}`);
+    }
+    was = hole;
+  });
+}, SLOT);
+const flips = () => bo.ev(() => ({ ...window.__flips, log: window.__flips.log.slice() }));
+const resetFlips = () => bo.ev(() => Object.assign(window.__flips, { frames: 0, art: 0, artRuns: 0, log: [] }));
+await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && w.view === "over"), SLOT, 15000);
+await bo.settle(5);
+await resetFlips();
+// a minute in view (from three places, swaying a little as a chimp does), at the page's quality, with the computer judged as it is
+const keyBefore = (await watched(bo)).find((w) => w.slot === SLOT)?.key;
+const spots = [
+  [3.0, 2.0],
+  [6.0, -1.0],
+  [1.6, 0.9],
+];
+const steadyFrom = Date.now();
+for (let i = 0; Date.now() - steadyFrom < 60000; i++) {
+  if (i % 10 === 0) await standBy(bo, SLOT, ...spots[(i / 10) % spots.length]);
+  else await aim(bo, SLOT, (i % 2 ? 1 : -1) * 0.04);
+  await bo.page.waitForTimeout(1200);
+}
+let fl = await flips();
+const steadyW = (await watched(bo)).find((w) => w.slot === SLOT);
+check(fl.frames > 300 && fl.artRuns === 0 && fl.art === 0, "a minute in view, from near and far: the game shows on every frame, never the art", `${fl.frames} frames, ${fl.art} with the art, ${fl.artRuns} flips; ${fl.log.join(" | ")}`);
+check(steadyW?.key === keyBefore && steadyW?.swaps === 0, "and its frame is the same one throughout: never reloaded", `${keyBefore} then ${steadyW?.key}, ${steadyW?.swaps} swaps`);
+
+// the spectator's own messages: the game ended for it and it is playing again, nobody playing for a moment, and who it follows
+// coming and going. Each is sent from Bo's spectator frame itself, as ChimpVibe's would be.
+const liveSpectator = async (v) => {
+  for (const f of v.page.frames().filter((f) => f.url().includes("role=spectator"))) if ((await (await f.frameElement()).evaluate((el) => el.style.visibility)) === "visible") return f;
+  return null;
+};
+const say = async (msg) => (await liveSpectator(bo))?.evaluate((m) => parent.postMessage({ protocol: "chimpvibe-embed", version: 1, ...m }, "*"), msg);
+await standBy(bo, SLOT, 3.0, 2.0);
+await resetFlips();
+const sequences = [
+  ["ended, then a fresh frame takes over", [{ type: "ended", reason: "test" }]],
+  ["nobody playing for a moment", [{ type: "error", code: "no-players", reason: "Nobody is playing" }]],
+  ["the followed player gone and back", [{ type: "follow", name: "Ann", state: "gone" }, { type: "follow", name: "Ann", state: "following" }]],
+  ["any other error from the frame showing", [{ type: "error", code: "unavailable", reason: "test" }]],
+];
+for (const [what, msgs] of sequences) {
+  const swaps0 = (await watched(bo)).find((w) => w.slot === SLOT)?.swaps ?? 0;
+  for (const m of msgs) await say(m);
+  const dropped = msgs.some((m) => m.type !== "follow");
+  const replaced = dropped ? await bo.waitFor(([n, s]) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "live" && !w.stale && w.swaps > s), [SLOT, swaps0], 15000) : true;
+  await bo.page.waitForTimeout(1500);
+  fl = await flips();
+  const w = (await watched(bo)).find((w) => w.slot === SLOT);
+  check(replaced && fl.art === 0 && w?.view === "over" && (await bo.ev(() => document.querySelectorAll("iframe.play-frame.watched").length)) === 1, `${what}: the game stays on the screen${dropped ? ", a fresh frame loading behind it and taking over" : ""}, never the art`, `${fl.art} frames of art; ${JSON.stringify(w)}`);
+}
+// Ann's page goes quiet (a busy computer, a tab in the background, whose timers Chrome holds to once a minute): her
+// spectators keep her (the stand-in until 75 s without a word, as a game's session would), so the same frame stays up.
+// Her stand-in play page says nothing for 8 s (freezing the page instead, through CDP, left its channel deaf afterwards).
+const annPlayer = ann.page.frames().find((f) => f.url().includes("arcade/standin.html") && !f.url().includes("role=spectator"));
+const hush = (on) => annPlayer?.evaluate((on) => {
+  // the stand-in's session channel (a top-level const of its script)
+  if (!window.__said) {
+    window.__said = session.postMessage.bind(session);
+    session.postMessage = (m) => window.__hushed || window.__said(m);
+  }
+  window.__hushed = on;
+}, on);
+await resetFlips();
+const preStall = (await watched(bo)).find((w) => w.slot === SLOT);
+await hush(true);
+await bo.page.waitForTimeout(8000);
+const duringStall = (await watched(bo)).find((w) => w.slot === SLOT);
+await hush(false);
+await bo.page.waitForTimeout(2000);
+const afterStall = (await watched(bo)).find((w) => w.slot === SLOT);
+fl = await flips();
+const same = (w) => w?.state === "live" && !w.stale && w.view === "over" && w.key === preStall?.key && w.swaps === preStall?.swaps;
+check(!!annPlayer && same(duringStall) && same(afterStall) && fl.art === 0, "Ann's page goes quiet 8 s: her game stays on the screen, the same frame throughout, never the art", `before: ${JSON.stringify(preStall)}; during: ${JSON.stringify(duringStall)}; after: ${JSON.stringify(afterStall)}; ${fl.art} frames of art`);
+// a size change (here the quality's frame width) resizes the frame: no reload, no art
+await resetFlips();
+const keySize = (await watched(bo)).find((w) => w.slot === SLOT)?.key;
+const widthWas = (await watched(bo)).find((w) => w.slot === SLOT)?.width;
+await bo.ev((q) => [...document.querySelectorAll(".quality button")].find((b) => b.textContent === q)?.click(), QUALITY === "low" ? "high" : "low");
+await bo.settle(30);
+const resized = (await watched(bo)).find((w) => w.slot === SLOT);
+await bo.ev((q) => [...document.querySelectorAll(".quality button")].find((b) => b.textContent === q)?.click(), QUALITY);
+await bo.settle(30);
+fl = await flips();
+check(resized?.width !== widthWas && resized?.key === keySize && (await watched(bo)).find((w) => w.slot === SLOT)?.key === keySize && fl.art === 0, "its frame changing size doesn't reload it or show the art", `${widthWas} px, then ${resized?.width} px; ${fl.art} frames of art`);
+await bo.ev(() => window.__chimp.scene.onAfterRenderObservable.remove(window.__flipObs));
+
 // ------------------------------------------------ the whole room: far cabinets, how many are live, the nearer ones sharper, no flicker
 // More cabinets are in use than a test can seat real visitors at: made-up visitors (arcade.testSeats) take the other slots, each
 // following Ann, so every spectator frame shows Ann's one game. The Game Room's cabinets stand in two rows 11.7 m apart; the farthest
@@ -360,12 +473,22 @@ function churn(trace) {
   return { lost: Object.fromEntries(lost), resized: Object.fromEntries(resized) };
 }
 
+/**
+ * Bo's cabinets play these games (entries as arcade.entries gives them), and keep them: the page reloads its game list every
+ * 2 minutes, which would put back the games as listed (the other cabinets' spectators back in their own games, where nobody plays).
+ */
+const useGames = (g) =>
+  bo.ev((g) => {
+    clearInterval(window.__keepGames);
+    window.__chimp.arcade.setGames(g);
+    window.__keepGames = setInterval(() => window.__chimp.arcade.setGames(g), 250);
+  }, g);
 // (the stand-in keeps one session per game, so the other cabinets' spectators are given Ann's game to find her in)
 const entries0 = await bo.ev(() => window.__chimp.arcade.entries());
 const annSeat = (await seats(bo)).find((x) => x.slot === SLOT);
 const annGameParam = new URL(entries0.find((g) => g.gameId === annSeat.gameId).playUrl).searchParams.get("game");
-await bo.ev(
-  (g) => window.__chimp.arcade.setGames(g),
+await useGames(
+
   entries0.map((g) => ({ ...g, playUrl: Object.assign(new URL(g.playUrl), { search: new URLSearchParams([...new URL(g.playUrl).searchParams].map(([k, v]) => [k, k === "game" ? annGameParam : v])).toString() }).href })),
 );
 await bo.settle(10);
@@ -392,13 +515,30 @@ check((await shown(bo)).slots.length === 0, "turned away, the far cabinet no lon
 await setQuality(bo, "low");
 await bo.ev((o) => window.__chimp.arcade.testSeats(o.map((slot) => ({ slot, name: "Ann" }))), OTHERS);
 await standAt(bo, 9, 6.6, Math.PI / 2, 1.9);
-check(await allShown(bo, CAP.low), "low quality: of 8 cabinets in use and in view, 2 are live", JSON.stringify((await watched(bo)).map((w) => [w.slot, w.state, w.view])));
+const lowLive = await allShown(bo, CAP.low);
+check(lowLive, "low quality: of 8 cabinets in use and in view, 2 are live", JSON.stringify((await watched(bo)).map((w) => [w.slot, w.state, w.view])));
+if (!lowLive) {
+  // to tell why: whether Ann's stand-in still says she is here (heard in her page and in Bo's), and what Bo's spectators show
+  const hears = (f) =>
+    f?.evaluate(async () => {
+      const ch = new BroadcastChannel(`standin-session:${new URLSearchParams(location.search).get("game") ?? ""}`);
+      let n = 0;
+      ch.onmessage = (e) => e.data?.kind === "here" && n++;
+      await new Promise((r) => setTimeout(r, 1500));
+      ch.close();
+      return n;
+    }).catch((e) => String(e).slice(0, 80));
+  const annP = ann.page.frames().find((f) => f.url().includes("arcade/standin.html") && !f.url().includes("role=spectator"));
+  const specs = bo.page.frames().filter((f) => f.url().includes("role=spectator"));
+  console.log(`      ("here" messages in 1.5 s: in Ann's page ${await hears(annP)}, in Bo's ${await hears(specs[0])})`);
+  for (const f of specs) console.log(`      (spectator: ${await f.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 60)).catch((e) => String(e).slice(0, 60))})`);
+}
 await bo.settle(15);
 let sh = await shown(bo);
 check(sh.slots.length === CAP.low, "and only 2 show", `slots ${sh.slots}`);
 let rest = [];
-for (let n = 1; n <= 8; n++) if (!sh.slots.includes(n)) rest.push({ n, mat: await screenMat(bo, n), inUse: (await screenTex(bo, n))?.inUse });
-check(rest.length === 6 && rest.every((r) => r.mat !== "screenHole" && r.inUse === "Ann"), "the other 6 keep the cabinet's art with \"In use by Ann\"", JSON.stringify(rest));
+for (let n = 1; n <= 8; n++) if (!sh.slots.includes(n)) rest.push({ n, mat: await screenMat(bo, n), tex: await screenTex(bo, n) });
+check(rest.length === 6 && rest.every((r) => r.mat !== "screenHole" && r.tex?.user === "Ann" && !("inUse" in r.tex)), "the other 6 keep the cabinet's art, plainly (no \"In use by\")", JSON.stringify(rest));
 await bo.shot("10-low-two-live");
 
 // medium and high: more are live, the nearer ones at the game's full frame size and the rest smaller
@@ -466,7 +606,7 @@ console.log(`      (first resize ${firstResize < 0 ? "none" : `${((trace[firstRe
 
 // free the made-up visitors; Bo goes back where he was, at the quality the run started at
 await bo.ev(() => window.__chimp.adaptive.force(null));
-await bo.ev((g) => window.__chimp.arcade.setGames(g), entries0);
+await useGames(entries0);
 await bo.ev((o) => window.__chimp.arcade.testSeats(o.map((slot) => ({ slot, name: null }))), [4, ...OTHERS.filter((n) => n !== 4)]);
 await setQuality(bo, QUALITY);
 await standBy(bo, SLOT, 3.0, 2.0);
@@ -484,40 +624,40 @@ await ann.ev((n) => window.__chimp.arcade.quit(n), SLOT);
 const freed = await bo.waitFor(() => window.__chimp.arcade.seats().length === 0 && window.__chimp.arcade.watched().length === 0, null, 5000);
 await bo.settle(10);
 const after = { mat: await screenMat(bo, SLOT), tex: await screenTex(bo, SLOT) };
-check(freed && after.mat !== "screenHole" && !!after.tex?.art && !after.tex?.inUse, "Ann quits: the cabinet is free, and Bo sees its art again", `${after.mat}, in use: ${after.tex?.inUse ?? "nobody"}`);
+check(freed && after.mat !== "screenHole" && !!after.tex?.art && !after.tex?.user, "Ann quits: the cabinet is free, and Bo sees its art again", `${after.mat}, in use: ${after.tex?.user ?? "nobody"}`);
 await bo.shot("5-after-quit");
 
-// ------------------------------------------------ games that can't be watched: the art with "In use by Ann", never blank
+// ------------------------------------------------ games that can't be watched: the art, plainly, never blank
 const entries = await bo.ev(() => window.__chimp.arcade.entries());
 const withParam = (p) => entries.map((g) => ({ ...g, playUrl: `${g.playUrl}&${p}` }));
 // spectators that never say they are showing (a page without embed mode)
-await bo.ev((g) => window.__chimp.arcade.setGames(g), withParam("silent=1"));
+await useGames(withParam("silent=1"));
 await annPlays(ann, SLOT);
 await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "loading"), SLOT, 8000);
 const loading = { mat: await screenMat(bo, SLOT), tex: await screenTex(bo, SLOT) };
-check(loading.mat !== "screenHole" && loading.tex?.inUse === "Ann" && !!loading.tex.art, "while it loads, Bo sees the art with \"In use by Ann\"", `${loading.mat}, in use: ${loading.tex?.inUse}`);
+check(loading.mat !== "screenHole" && loading.tex?.user === "Ann" && !("inUse" in loading.tex) && !!loading.tex.art, "while it loads, Bo sees the art, plainly (no \"In use by\")", `${loading.mat}, in use: ${loading.tex?.user}`);
 await bo.shot("6-in-use");
 const t0 = Date.now();
 const gaveUp = await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "failed"), SLOT, 20000);
 check(gaveUp && Date.now() - t0 < 17000, "a game that doesn't show within 15 s is given up on", `${((Date.now() - t0) / 1000).toFixed(1)} s; ${JSON.stringify(await watched(bo))}`);
-check((await screenMat(bo, SLOT)) !== "screenHole" && (await screenTex(bo, SLOT))?.inUse === "Ann" && !(await bo.ev(() => document.querySelector("iframe.play-frame.watched"))), "and the art stays up, saying who is playing, with no frame left over");
+check((await screenMat(bo, SLOT)) !== "screenHole" && (await screenTex(bo, SLOT))?.user === "Ann" && !(await bo.ev(() => document.querySelector("iframe.play-frame.watched"))), "and the art stays up, with no frame left over");
 await ann.ev((n) => window.__chimp.arcade.quit(n), SLOT);
 await bo.waitFor(() => window.__chimp.arcade.seats().length === 0, null, 5000);
 // a game that refuses spectators
-await bo.ev((g) => window.__chimp.arcade.setGames(g), withParam("nowatch=1"));
+await useGames(withParam("nowatch=1"));
 await annPlays(ann, SLOT);
 const refused = await bo.waitFor((n) => window.__chimp.arcade.watched().some((w) => w.slot === n && w.state === "failed" && /no-spectators/.test(w.note ?? "")), SLOT, 10000);
 await bo.settle(10);
-check(refused && (await screenMat(bo, SLOT)) !== "screenHole" && (await screenTex(bo, SLOT))?.inUse === "Ann", "a game that refuses spectators shows the art with \"In use by Ann\"", JSON.stringify(await watched(bo)));
+check(refused && (await screenMat(bo, SLOT)) !== "screenHole" && (await screenTex(bo, SLOT))?.user === "Ann", "a game that refuses spectators shows the art", JSON.stringify(await watched(bo)));
 await bo.shot("7-refused");
-await bo.ev((g) => window.__chimp.arcade.setGames(g), entries);
+await useGames(entries);
 
 // ------------------------------------------------ Ann's page closes: her cabinet is freed for everyone
 await ann.page.close();
 const left = await bo.waitFor(() => window.__chimp.arcade.seats().length === 0 && window.__chimp.arcade.watched().length === 0, null, 8000);
 await bo.settle(10);
 const closed = { mat: await screenMat(bo, SLOT), tex: await screenTex(bo, SLOT) };
-check(left && closed.mat !== "screenHole" && !closed.tex?.inUse && !!closed.tex?.art, "Ann's page closes: her cabinet is free, and shows its art", JSON.stringify(await seats(bo)));
+check(left && closed.mat !== "screenHole" && !closed.tex?.user && !!closed.tex?.art, "Ann's page closes: her cabinet is free, and shows its art", JSON.stringify(await seats(bo)));
 await bo.shot("8-after-close");
 
 // ------------------------------------------------ the last visitor leaves mid-game: nobody is left to free the cabinet, so the next to come must
@@ -530,7 +670,7 @@ await standBy(cy, SLOT, 1.0, 0);
 await cy.settle(10);
 const ghost = await seats(cy);
 check(!ghost.some((s) => s.id === boId), "Bo's page closes as he plays: the next visitor finds his cabinet free", JSON.stringify(ghost));
-check((await screenTex(cy, SLOT))?.inUse == null && !(await cy.ev(() => window.__chimp.state().arcadePrompt?.taken)), "with its art and no \"In use by Bo\"");
+check((await screenTex(cy, SLOT))?.user == null && !(await cy.ev(() => window.__chimp.state().arcadePrompt?.taken)), "with its art, nobody's");
 check(await annPlays(cy, SLOT), "and can play it");
 
 await browser.close();

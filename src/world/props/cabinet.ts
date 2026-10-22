@@ -34,7 +34,10 @@ export interface Cabinet {
   screen: Mesh;
   /** Show a sign on the screen, OUT OF ORDER by default, with the reason in small print; or the game's art again with null. */
   outOfOrder(reason: string | null, title?: string): void;
-  /** Show "In use by <name>" along the foot of the screen's art, while another visitor plays it; or nothing again with null. */
+  /**
+   * Another visitor plays it (their name), or nobody again (null). Nothing is written on the screen for it (its art
+   * shows wherever their game can't, plainly); the screen only stops offering PRESS E TO PLAY before its art loads.
+   */
   inUse(name: string | null): void;
   dispose(): void;
 }
@@ -142,10 +145,9 @@ export function buildCabinet(mats: Materials, slot: TransformNode, dress: Cabine
     else {
       drawPlaceholder(ctx, w, h, dress.name, c, user === null);
       if (art) drawCover(ctx, art, w, h);
-      if (user !== null) drawInUse(ctx, w, h, user, c);
     }
     screenTex.update(true);
-    screenTex.metadata = { art: broken === null && art ? dress.art : null, outOfOrder: broken, sign: broken === null ? null : sign, inUse: broken === null ? user : null };
+    screenTex.metadata = { art: broken === null && art ? dress.art : null, outOfOrder: broken, sign: broken === null ? null : sign, user };
   };
   paint();
   if (dress.art) {
@@ -273,22 +275,6 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, W: number, H: number, na
   ctx.font = "600 34px Montserrat";
   ctx.fillStyle = c.trim;
   ctx.fillText("PRESS E TO PLAY", W / 2, H / 2 + 70);
-}
-
-/** A band along the foot of the screen saying who is playing it, over its art. */
-function drawInUse(ctx: CanvasRenderingContext2D, W: number, H: number, name: string, c: CabinetColors): void {
-  // big and bold enough to read from across the room
-  const bh = Math.round(H * 0.26);
-  ctx.fillStyle = "rgba(4,5,10,0.94)";
-  ctx.fillRect(0, H - bh, W, bh);
-  ctx.fillStyle = c.trim;
-  ctx.fillRect(0, H - bh, W, 8);
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillStyle = "#ffffff";
-  const text = `In use by ${name}`;
-  fitFont(ctx, text, (px) => `800 ${px}px Nunito`, 104, W - 60);
-  ctx.fillText(text, W / 2, H - bh / 2 + 4);
 }
 
 /** A dead screen with a sign (OUT OF ORDER, GAME FULL) taped across it, and why in small print. */

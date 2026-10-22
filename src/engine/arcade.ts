@@ -39,10 +39,13 @@
 // and while the computer is struggling today's fewer still, and only near
 // ones): the nearer half at the game's full frame size, the rest at a smaller
 // one (the game's own frame rate can't be lowered from here); one out of view a
-// few seconds goes. A
-// watched game whose frame isn't showing (loading, nobody playing yet, watching
-// refused, or not showing within WATCH_MS) leaves the cabinet's art up, with
-// "In use by <name>" along its foot, so its screen is never blank or frozen.
+// few seconds goes. Once a game shows on its screen it stays there, constantly:
+// if its spectator drops (the game ended for it, nobody playing for a moment), the
+// frame stays up and a fresh one loads hidden behind it and takes its place once
+// it shows, so the screen never goes back to the art while its player is at it.
+// Before a game first shows (loading), and where it can't (the game refuses
+// spectators, it never showed within WATCH_MS, or the cabinet isn't among those
+// watched), the cabinet shows its art, never blank.
 //
 // A cabinet whose game fails on ChimpVibe's side shows OUT OF ORDER (or GAME
 // FULL) until a visitor tries it again. The play page, in ChimpVibe's embed mode
@@ -114,7 +117,7 @@ const WATCH: Record<Quality, { max: number; slowMax: number; dist: number; width
   medium: { max: 4, slowMax: 1, dist: 11, width: 560, farWidth: 480 },
   low: { max: 2, slowMax: 1, dist: 8, width: 480, farWidth: 480 },
 };
-/** A cabinet already watched counts as this much bigger on the page than it is when the nearest are chosen, so two alike don't trade places. */
+/** A cabinet showing its game counts as this much bigger on the page than it is when the nearest are chosen, so two alike don't trade places. */
 const WATCH_STICKY = 1.3;
 /** A frame's size (full or smaller) changes only once its cabinet has been in the other class this long. */
 const WATCH_TIER_MS = 2500;
@@ -127,6 +130,12 @@ const WATCH_RETRY_MS = 3000;
 const WATCH_DOORWAY = 3;
 /** How long a watched game's frame stays, hidden, once its cabinet is out of view: a glance away doesn't reload it. */
 const WATCH_LINGER_MS = 5000;
+/**
+ * How long a watched game stays chosen, and showing, through its screen being out of sight or too small: a
+ * blink (a sight check missing it, a step past the size limit) doesn't take the game off its screen. Hidden
+ * longer, it is chosen as any other cabinet is again (its frame staying, hidden, up to WATCH_LINGER_MS).
+ */
+const WATCH_BLINK_MS = 1500;
 /** A screen smaller than this on the page (CSS px high) isn't worth starting to watch (a cabinet 15 m off is ~16 px at 800 px high); one already watched is kept down to WATCH_KEEP_PX. */
 const WATCH_MIN_PX = 12;
 const WATCH_KEEP_PX = 9;
@@ -143,25 +152,42 @@ export type Seat = {
   away: boolean;
 } | null;
 
+/** One try at watching a game: a spectator frame, following the player. */
+interface Feed {
+  key: string;
+  url: string;
+  /** when it started loading (performance.now()) */
+  since: number;
+  frame: HTMLIFrameElement | null;
+}
+
 /**
- * Another visitor's game at a cabinet, watched live: loading (its frame
- * hidden), live (it may show), waiting to try again (nobody was playing yet, or
- * it dropped), or failed (watching refused, or it never showed; tried again at
- * `until`, never for a game that refuses spectators).
+ * Another visitor's game at a cabinet, watched live. `live` is the frame that
+ * has said it is showing: it stays up from then on, so the screen never goes
+ * back to the cabinet's art while its player is at it. When it drops (its
+ * spectator says the game ended, or nobody is playing), it stays up, `stale`,
+ * and a fresh try (`next`) loads hidden behind it, replacing it once it says it
+ * is showing. Before any frame has shown, `next` is the first try, and the
+ * cabinet's art shows until it does; a try that fails waits until `until`
+ * (Infinity: never again, for a game that refuses spectators).
  */
 interface Watched {
   seat: NonNullable<Seat>;
-  key: string;
-  url: string;
-  state: "loading" | "live" | "waiting" | "failed";
-  /** when it started loading, and, waiting or failed, when to try again (performance.now()) */
-  since: number;
+  live: Feed | null;
+  next: Feed | null;
+  /** the live frame dropped: a fresh try replaces it as soon as one shows */
+  stale: boolean;
+  /** with no try loading: why the last one ended ("waiting": nobody playing yet, or it dropped; "failed": refused, or it never showed) and when to try again (performance.now()) */
+  lastEnd: "waiting" | "failed";
   until: number;
+  /** tries in a row that came to nothing, for backing off while a stale frame stays up */
+  misses: number;
+  /** how many times a fresh frame has replaced the one showing, for tests */
+  swaps: number;
   /** when its cabinet was last in view and chosen to be watched (performance.now()) */
   wanted: number;
-  frame: HTMLIFrameElement | null;
   view: "hidden" | "over";
-  /** why it isn't showing, for tests */
+  /** why it isn't showing, or why its frame is stale, for tests */
   note: string | null;
   /** the frame's size class now, the one it should be in, and since when that has been so (performance.now()) */
   tier: "near" | "far";
@@ -637,91 +663,124 @@ export class Arcade {
   /**
    * Each frame: choose the other visitors' games to watch (the biggest on the
    * page, up to the limit), start and end their frames, try again those that
-   * were refused or failed when it is time, and place each on its screen. The
-   * nearer half get the full frame size; the rest a smaller one, changed only
+   * dropped or failed when it is time, and place each on its screen. A screen
+   * showing its game stays up until the one chosen in its place shows. The
+   * nearer half of those showing get the full frame size; the rest a smaller one, changed only
    * after WATCH_TIER_MS in the other class so a cabinet at the boundary doesn't
-   * keep resizing its game.
+   * keep resizing its game (a new size only resizes the frame: it never reloads).
+   * A game already watched stays a candidate (and shows) through a blink out
+   * of sight or too small (WATCH_BLINK_MS), as long as its cabinet passes the
+   * room and distance rules and its screen is on the page; its frame goes once
+   * it hasn't been seen for WATCH_LINGER_MS.
    */
   private watching(): void {
     const now = performance.now();
     const lim = this.watchLimits();
     const s = store.get();
-    const seen: { n: number; d: number; size: number; quad: Pt[] }[] = [];
+    const seen: { n: number; d: number; size: number; inSight: boolean }[] = [];
     for (const [n, seat] of this.seats) {
       if (seat.id === ME.id || !seat.ready || this.running.has(n) || this.filled.get(n)?.game.gameId !== seat.gameId) continue;
       const v = this.watchable(n, lim);
-      if (!v) continue;
       const w = this.watched.get(n);
-      // the page area the screen covers, as a length; one already watched counts for more, so ties don't flip
-      seen.push({ n, ...v, size: v.size * (w && (w.state === "loading" || w.state === "live") ? WATCH_STICKY : 1) });
+      const framed = !!w && !!(w.live || w.next);
+      if (!v || (!v.inSight && !(framed && now - w!.wanted < WATCH_BLINK_MS))) continue;
+      // the page area the screen covers, as a length; one showing its game counts for more, so ties don't flip (only one
+      // showing: frames kept hidden for a glance away, or loading, would otherwise tie with those showing)
+      seen.push({ n, d: v.d, size: v.size * (w?.view === "over" ? WATCH_STICKY : 1), inSight: v.inSight });
     }
     seen.sort((a, b) => b.size - a.size);
-    const quads = new Map<number, Pt[]>();
-    let framed = 0;
-    for (const { n, quad } of seen) {
+    // chosen: the biggest, up to the limit, each with a frame (showing, or a try loading)
+    const chosen: number[] = [];
+    for (const { n, inSight } of seen) {
       let w = this.watched.get(n);
-      // one waiting to try again, or failed, keeps its place without a frame (the cabinet's art shows)
-      if (w && (w.state === "waiting" || w.state === "failed")) {
+      // one waiting to try again with nothing to show keeps its place without a frame (the cabinet's art shows)
+      if (w && !w.live && !w.next) {
         w.wanted = now;
         continue;
       }
-      if (framed >= lim.max) continue;
-      const want = framed < lim.near ? "near" : "far";
-      framed++;
-      if (!w) w = this.watch(n, this.seats.get(n)!, want);
-      w.wanted = now;
+      if (chosen.length >= lim.max) continue;
+      if (!w) w = this.watch(n, this.seats.get(n)!, chosen.length < lim.near ? "near" : "far");
+      if (inSight) w.wanted = now;
+      chosen.push(n);
+    }
+    // shown: the chosen games that are showing; and, while a chosen one is still loading, a game showing that it would
+    // take the place of stays up until it shows (so a try that comes to nothing, tried again and again, never blinks a
+    // screen that is showing its game to the art)
+    const shown: number[] = chosen.filter((n) => this.watched.get(n)!.live);
+    for (const { n, inSight } of seen) {
+      if (shown.length >= lim.max) break;
+      const w = this.watched.get(n);
+      // (only one showing now: one already back to its art isn't brought back for a moment)
+      if (!w?.live || w.view !== "over" || shown.includes(n)) continue;
+      shown.push(n);
+      if (inSight) w.wanted = now;
+    }
+    // the nearer half of those showing get the full frame size (a try loading, by its place among the chosen)
+    const rank = new Map(seen.map((c, i) => [c.n, i]));
+    shown.sort((a, b) => rank.get(a)! - rank.get(b)!);
+    const tierOf = (n: number): "near" | "far" => ((shown.includes(n) ? shown.indexOf(n) : chosen.indexOf(n)) < lim.near ? "near" : "far");
+    for (const n of new Set([...chosen, ...shown])) {
+      const w = this.watched.get(n)!;
+      const want = tierOf(n);
       if (w.tierWant !== want) Object.assign(w, { tierWant: want, tierAt: now });
       if (w.tier !== w.tierWant && now - w.tierAt >= WATCH_TIER_MS) w.tier = w.tierWant;
-      quads.set(n, quad);
     }
     for (const [n, w] of this.watched) {
-      const away = now - w.wanted > WATCH_LINGER_MS;
-      if (w.state === "waiting" || w.state === "failed") {
-        if (now < w.until) continue;
-        if (away) this.unwatch(n);
-        else this.reload(n, w, now);
-      } else if (away) this.unwatch(n);
-      else if (w.state === "loading" && now - w.since > WATCH_MS) this.watchFailed(w, "it didn't show in time", now + WATCH_FAILED_MS);
+      if (now - w.wanted > WATCH_LINGER_MS) {
+        this.unwatch(n);
+        continue;
+      }
+      // a try that doesn't say it is showing in time is given up on (a frame already showing stays up meanwhile)
+      if (w.next && now - w.next.since > WATCH_MS) this.missed(w, "failed", "it didn't show in time", now);
+      // the first try, or a fresh one behind a frame that dropped, when it is time
+      if (!w.next && (w.stale || !w.live) && now >= w.until) w.next = this.feed(n, w, now);
     }
-    // frames kept for a glance away, past the limit: the least recently seen go
-    const framedNow = [...this.watched].filter(([, w]) => w.state === "loading" || w.state === "live").sort((a, b) => b[1].wanted - a[1].wanted);
-    for (const [n] of framedNow.slice(lim.max + 1)) this.unwatch(n);
+    // frames kept for a glance away, beyond those chosen and shown: one, the most recently chosen; the rest go
+    const keep = new Set([...chosen, ...shown]);
+    const lingering = [...this.watched].filter(([n, w]) => (w.live || w.next) && !keep.has(n)).sort((a, b) => b[1].wanted - a[1].wanted);
+    for (const [n] of lingering.slice(1)) this.unwatch(n);
     this.publishWatched();
-    for (const [n, w] of this.watched) this.placeWatched(n, w, !s.focus && w.state === "live" ? quads.get(n) ?? null : null, w.tier === "near" ? lim.width : lim.farWidth);
+    for (const [n, w] of this.watched) this.placeWatched(n, w, !s.focus && w.live?.frame && shown.includes(n) ? this.quadOf(n) : null, w.tier === "near" ? lim.width : lim.farWidth);
   }
 
-  /** Start watching the player at slot n: a new frame, following them. */
+  /** Start watching the player at slot n: a first try, its frame hidden until it says it is showing. */
   private watch(n: number, seat: NonNullable<Seat>, tier: "near" | "far"): Watched {
     const now = performance.now();
-    const w: Watched = { seat, key: "", url: "", state: "loading", since: now, until: 0, wanted: now, frame: null, view: "hidden", note: null, tier, tierWant: tier, tierAt: now };
+    const w: Watched = { seat, live: null, next: null, stale: false, lastEnd: "waiting", until: 0, misses: 0, swaps: 0, wanted: now, view: "hidden", note: null, tier, tierWant: tier, tierAt: now };
+    w.next = this.feed(n, w, now);
     this.watched.set(n, w);
-    this.reload(n, w, now);
     return w;
   }
 
-  /** Load slot n's watched game afresh: a new frame. */
-  private reload(n: number, w: Watched, now: number): void {
+  /** A new try at watching slot n's game: a frame of its own, following its player. */
+  private feed(n: number, w: Watched, now: number): Feed {
     const playUrl = this.filled.get(n)?.game.playUrl ?? "";
-    Object.assign(w, { key: `${w.seat.gameId}:${w.seat.id}:${++this.watchTries}`, url: asSpectator(playUrl, w.seat.name), state: "loading", since: now, until: 0, frame: null, view: "hidden", note: null });
+    return { key: `${w.seat.gameId}:${w.seat.id}:${++this.watchTries}`, url: asSpectator(playUrl, w.seat.name), since: now, frame: null };
   }
 
-  /** A watched game can't show for now: its frame goes, and the cabinet's art shows until `until`. */
-  private watchFailed(w: Watched, note: string, until: number): void {
-    Object.assign(w, { state: "failed", note, until, frame: null });
+  /**
+   * The try loading for a watched game came to nothing: its frame goes, and
+   * another is made at `until`. With a frame still up (stale) the tries come
+   * soon, backing off; with none, the cabinet's art shows meanwhile.
+   */
+  private missed(w: Watched, end: Watched["lastEnd"], note: string, now: number): void {
+    w.misses++;
+    const wait = w.live ? Math.min(WATCH_RETRY_MS * 2 ** (w.misses - 1), WATCH_FAILED_MS) : end === "waiting" ? WATCH_RETRY_MS : WATCH_FAILED_MS;
+    Object.assign(w, { next: null, lastEnd: end, note, until: now + wait });
   }
 
-  /** Stop watching slot n: its frame goes, and the screen shows itself again. */
+  /** Stop watching slot n: its frames go, and the screen shows itself again. */
   private unwatch(n: number): void {
     if (!this.watched.delete(n)) return;
     this.hole(n, false);
     this.publishWatched();
   }
 
-  /** The frames of watched games, in the page (ui/PlayOverlay.tsx): only those loading or live. */
+  /** The frames of watched games, in the page (ui/PlayOverlay.tsx): the one showing and the one loading behind it. */
   private publishWatched(): void {
     const want: WatchedGame[] = [];
     for (const [slot, w] of this.watched)
-      if (w.state === "loading" || w.state === "live") want.push({ slot, key: w.key, url: w.url, name: w.seat.name, game: this.filled.get(slot)?.game.name ?? "" });
+      for (const f of [w.live, w.next]) if (f) want.push({ slot, key: f.key, url: f.url, name: w.seat.name, game: this.filled.get(slot)?.game.name ?? "" });
     const was = store.get().arcadeWatched;
     if (want.length !== was.length || want.some((g, i) => g.key !== was[i].key)) store.set({ arcadeWatched: want });
   }
@@ -732,88 +791,119 @@ export class Arcade {
    * enough to see and not wholly blocked (checked every few frames), and either
    * in the cabinet's room (`roomDist` away at most: any, normally, the room being
    * one room) or on its level within `dist`, as in the doorway. Its distance,
-   * size on the page (the square root of its area, CSS px) and corners, or null.
+   * size on the page (the square root of its area, CSS px) and whether it is big
+   * enough and in sight; or null when the rules or the camera rule it out.
    */
-  private watchable(n: number, lim: { dist: number; roomDist: number }): { d: number; size: number; quad: Pt[] } | null {
-    const s = store.get();
+  private watchable(n: number, lim: { dist: number; roomDist: number }): { d: number; size: number; inSight: boolean } | null {
     const g = this.geo(n);
     const screen = this.filled.get(n)?.cabinet.screen;
     const cam = this.fly.camera;
-    if (!g || !screen || s.help || s.refOverlay === "full" || this.fly.isOrtho) return null;
+    if (!g || !screen) return null;
     const meta = screen.metadata as ScreenMeta;
     const d = Vector3.Distance(cam.position, g.centre);
     if (levelAt(cam.position.y) !== meta.level) return null;
     if (roomAt(cam.position)?.id === meta.room) {
       if (d > lim.roomDist) return null;
     } else if (d > lim.dist || outlineDistance(cam.position, ROOMS.find((r) => r.id === meta.room && r.level === meta.level)?.loop ?? []) > WATCH_DOORWAY) return null;
-    if (Vector3.Dot(cam.position.subtract(g.centre), g.normal) <= 0) return null;
-    const view = cam.getViewMatrix(true);
-    if (g.corners.some((c) => Vector3.TransformCoordinates(c, view).z < cam.minZ)) return null;
-    const [bl, br, tr, tl] = toPage(g.corners, this.scene, this.canvas);
-    const quad = [tl, tr, br, bl];
+    const quad = this.quadOf(n);
+    if (!quad) return null;
     const ys = quad.map((p) => p.y);
-    if (Math.max(...ys) - Math.min(...ys) < (this.watched.has(n) ? WATCH_KEEP_PX : WATCH_MIN_PX) || onPage(quad, this.canvas.getBoundingClientRect()) <= 0) return null;
+    const big = Math.max(...ys) - Math.min(...ys) >= (this.watched.has(n) ? WATCH_KEEP_PX : WATCH_MIN_PX);
     // the checks are spread over the frames, not all on the same one
     let c = this.sight.get(n);
-    if (!c || this.frames - c.at >= 10) this.sight.set(n, (c = { at: this.frames + (c ? 0 : n % 5), ok: partlyInSight(this.scene, cam.position, screen, g) }));
-    if (!c.ok) return null;
+    if (big && (!c || this.frames - c.at >= 10)) this.sight.set(n, (c = { at: this.frames + (c ? 0 : n % 5), ok: partlyInSight(this.scene, cam.position, screen, g) }));
     let area = 0;
     quad.forEach((p, i) => {
       const q = quad[(i + 1) % 4];
       area += p.x * q.y - q.x * p.y;
     });
-    return { d, size: Math.sqrt(Math.abs(area) / 2), quad };
+    return { d, size: Math.sqrt(Math.abs(area) / 2), inSight: big && !!c?.ok };
   }
 
   /**
-   * Place a watched game's frame for this frame: in perspective under the
-   * canvas, through its screen's hole, while it is live and its cabinet chosen
-   * (`quad`); otherwise hidden, the screen showing the cabinet's art.
+   * Slot n's screen on the page (top-left, top-right, bottom-right,
+   * bottom-left), when the camera is in front of it with some of it on the
+   * page; otherwise null. What stands in front of it isn't checked: it covers
+   * the screen's hole as it would the screen.
+   */
+  private quadOf(n: number): Pt[] | null {
+    const s = store.get();
+    const g = this.geo(n);
+    const cam = this.fly.camera;
+    if (!g || s.help || s.refOverlay === "full" || this.fly.isOrtho) return null;
+    if (Vector3.Dot(cam.position.subtract(g.centre), g.normal) <= 0) return null;
+    const view = cam.getViewMatrix(true);
+    if (g.corners.some((c) => Vector3.TransformCoordinates(c, view).z < cam.minZ)) return null;
+    const [bl, br, tr, tl] = toPage(g.corners, this.scene, this.canvas);
+    const quad = [tl, tr, br, bl];
+    return onPage(quad, this.canvas.getBoundingClientRect()) > 0 ? quad : null;
+  }
+
+  /**
+   * Place a watched game's frames for this frame: the one showing it in
+   * perspective under the canvas, through its screen's hole, while its screen
+   * is on the page (`quad`), or hidden, the screen showing the cabinet's art;
+   * one loading behind it hidden, at the same size, ready to take its place.
    */
   private placeWatched(n: number, w: Watched, quad: Pt[] | null, width: number): void {
-    const show = !!quad && !!w.frame;
+    const show = !!quad && !!w.live?.frame;
     w.view = show ? "over" : "hidden";
     this.hole(n, show);
-    const st = w.frame?.style;
+    const g = this.geo(n);
+    const h = g ? Math.round((width * g.height) / g.width) : 0;
+    const next = w.next?.frame?.style;
+    if (next) Object.assign(next, { left: "0px", top: "0px", width: `${width}px`, height: `${h}px`, zIndex: "0", pointerEvents: "none", visibility: "hidden" });
+    const st = w.live?.frame?.style;
     if (!st) return;
     if (!show) {
       st.visibility = "hidden";
       return;
     }
-    const g = this.geo(n)!;
-    const h = Math.round((width * g.height) / g.width);
     Object.assign(st, { left: "0px", top: "0px", width: `${width}px`, height: `${h}px`, transformOrigin: "0 0", transform: quadTransform(width, h, quad!), zIndex: "0", pointerEvents: "none", visibility: "visible" });
   }
 
   /** A watched game's frame is in the page (ui/PlayOverlay.tsx), or has left it. */
   attachWatched(slot: number, key: string, el: HTMLIFrameElement): void {
     const w = this.watched.get(slot);
-    if (w?.key === key) w.frame = el;
+    for (const f of [w?.live, w?.next]) if (f?.key === key) f.frame = el;
   }
 
   detachWatched(slot: number, key: string, el: HTMLIFrameElement): void {
     const w = this.watched.get(slot);
-    if (w?.key === key && w.frame === el) w.frame = null;
+    for (const f of [w?.live, w?.next]) if (f?.key === key && f.frame === el) f.frame = null;
   }
 
   /**
    * A message from a watched game's frame (ui/PlayOverlay.tsx checks it came
-   * from that frame and the game's origin): it is showing; nobody plays yet, or
-   * it dropped, so it tries again shortly; or it can't be watched. Its player
-   * being away shows in ChimpVibe's own view, which says so.
+   * from that frame and the game's origin). A try that says it is showing
+   * takes the screen, replacing a frame that dropped. A frame showing that
+   * drops (the game ended for it, or nobody is playing) stays up, and a fresh
+   * try loads behind it at once; a try that is refused goes, and another comes
+   * shortly. A game that refuses spectators isn't asked again while this player
+   * is at it: its cabinet shows its art. Its player being away shows in
+   * ChimpVibe's own view, which says so.
    */
   receiveWatched(slot: number, key: string, data: unknown): void {
     const w = this.watched.get(slot);
     const msg = parseEmbedMessage(data);
-    if (!w || w.key !== key || !msg) return;
+    if (!w || !msg) return;
+    const feed = w.live?.key === key ? "live" : w.next?.key === key ? "next" : null;
+    if (!feed) return;
     const now = performance.now();
     if (msg.type === "ready") {
-      if (w.state === "loading") w.state = "live";
-    } else if ((msg.type === "error" && msg.code === "no-players") || msg.type === "ended") {
-      Object.assign(w, { state: "waiting", note: msg.type === "ended" ? `ended: ${msg.reason}` : "nobody playing yet", until: now + WATCH_RETRY_MS, frame: null });
-    } else if (msg.type === "error") {
-      // a game that refuses spectators isn't asked again while this player is at it
-      this.watchFailed(w, `${msg.code}: ${msg.reason}`, msg.code === "no-spectators" ? Infinity : now + WATCH_FAILED_MS);
+      if (feed === "next") {
+        if (w.live) w.swaps++;
+        Object.assign(w, { live: w.next, next: null, stale: false, misses: 0, note: null });
+      }
+    } else if (msg.type === "error" && msg.code === "no-spectators") {
+      Object.assign(w, { live: null, next: null, stale: false, lastEnd: "failed", note: `${msg.code}: ${msg.reason}`, until: Infinity });
+    } else if (msg.type === "ended" || msg.type === "error") {
+      const nobody = msg.type === "ended" || msg.code === "no-players";
+      const note = msg.type === "ended" ? `ended: ${msg.reason}` : msg.code === "no-players" ? "nobody playing yet" : `${msg.code}: ${msg.reason}`;
+      if (feed === "live") {
+        Object.assign(w, { stale: true, note });
+        if (!w.next) w.until = now;
+      } else this.missed(w, nobody ? "waiting" : "failed", note, now);
     }
     this.publishWatched();
   }
@@ -835,10 +925,27 @@ export class Arcade {
     }
   }
 
-  /** The other visitors' games being watched, and how each is doing: for tests. */
-  watchedGames(): { slot: number; key: string; name: string; state: Watched["state"]; view: Watched["view"]; note: string | null; framed: boolean; tier: Watched["tier"]; width: number }[] {
+  /**
+   * The other visitors' games being watched, and how each is doing: for tests. `state` is live
+   * while a frame shows the game (`stale`: it dropped, and a fresh try loads behind it), loading
+   * for a first try, else why the last try ended; `swaps` counts fresh frames that replaced one showing.
+   */
+  watchedGames(): { slot: number; key: string; next: string | null; name: string; state: "live" | "loading" | Watched["lastEnd"]; stale: boolean; swaps: number; view: Watched["view"]; note: string | null; framed: boolean; tier: Watched["tier"]; width: number }[] {
     const lim = this.watchLimits();
-    return [...this.watched].map(([slot, w]) => ({ slot, key: w.key, name: w.seat.name, state: w.state, view: w.view, note: w.note, framed: !!w.frame, tier: w.tier, width: w.tier === "near" ? lim.width : lim.farWidth }));
+    return [...this.watched].map(([slot, w]) => ({
+      slot,
+      key: (w.live ?? w.next)?.key ?? "",
+      next: w.live ? w.next?.key ?? null : null,
+      name: w.seat.name,
+      state: w.live ? "live" : w.next ? "loading" : w.lastEnd,
+      stale: w.stale,
+      swaps: w.swaps,
+      view: w.view,
+      note: w.note,
+      framed: !!(w.live ?? w.next)?.frame,
+      tier: w.tier,
+      width: w.tier === "near" ? lim.width : lim.farWidth,
+    }));
   }
 
   /** Draw slot n's screen as a hole in the canvas, or as itself again. */

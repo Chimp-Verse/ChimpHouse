@@ -35,7 +35,9 @@
       browser's tabs are the game's session). &follow=<name> shows that player
       only, with "follow" messages as they come and go; without it, everyone.
       Nobody playing refuses it ("error" no-players), and the last player
-      leaving ends it ("ended" no-players). &nowatch=1 stands in for a game
+      leaving ends it ("ended" no-players): a player leaves when their page
+      closes, or after 75 s without a word (never just for being in a
+      background tab, whose timers Chrome holds to once a minute). &nowatch=1 stands in for a game
       that turns watching off ("error" no-spectators). Following a player, it
       shows their game's frame count live, with the bar in the same colour as
       theirs (standin-game.html).
@@ -152,6 +154,7 @@
         const follow = (q.get("follow") ?? "").trim();
         /** the players, by id: when last heard from, and what their games show */
         const players = new Map();
+        const PLAYER_SILENT_MS = 75_000;
         let state = null;
         let started = false;
         const view = document.createElement("div");
@@ -186,7 +189,10 @@
         };
         const check = () => {
           const now = Date.now();
-          for (const [id, p] of players) if (now - p.at > 3000) players.delete(id);
+          // a player goes when their page says bye, or after PLAYER_SILENT_MS without a word: a player's
+          // tab in the background has its timers held to once a minute (Chrome, after five minutes
+          // hidden), and dropping them sooner kept ending its spectators while they played on
+          for (const [id, p] of players) if (now - p.at > PLAYER_SILENT_MS) players.delete(id);
           if (!started) return;
           if (!players.size) {
             session.close();
