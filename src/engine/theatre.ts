@@ -1,10 +1,15 @@
 // The theatre: YouTube videos and live streams on the theatre screen, chosen by
-// anyone in the preview and watched together.
+// anyone in the house and watched together.
 //
 // The screen and the "Now Showing" lightbox are found by role (world/roles.ts).
 // What the theatre shows is one object, the store's `theatre`: the video,
-// playing or paused, and where it was at a moment, which the room server can
-// later share to keep everyone in step. Each viewer watches through YouTube's
+// playing or paused, where it was at a moment on the room's clock, and who holds
+// each remote. The room server owns it (engine/theatreCommands.ts): this page
+// sends it commands, running each on its own copy at once so its visitor sees
+// it straight away, and follows the state the server sends back, so everyone
+// sees the same video at the same point, and a latecomer joins it where it has
+// got to. With no room server, the page runs the commands alone, as a theatre of
+// its own. Each viewer watches through YouTube's
 // own player, which a browser can't draw into the 3D scene, so it is laid over
 // the screen: square on and with a frame of UI in watch mode (engine/focus.ts,
 // ui/TheatreOverlay.tsx), and in perspective, following the screen, while the
@@ -14,15 +19,21 @@
 //
 // A remote's holder controls the theatre (engine/remotes.ts): their remote's
 // buttons, the videos they choose, and what they do in YouTube's player move the
-// theatre for everyone. Anyone else can still use the player (YouTube's terms
-// don't allow blocking it), but only for themselves: their pause is theirs alone,
-// and pressing play rejoins the theatre.
+// theatre for everyone (the server refuses them from anyone else). Anyone else
+// can still use the player (YouTube's terms don't allow blocking it), but only
+// for themselves: their pause is theirs alone, and pressing play rejoins the
+// theatre.
 //
 // YouTube's terms (see docs/handoffs/2026-10-06-theatre-youtube.md): the player
 // is shown whole, uncovered and big enough, and never plays where it can't be
-// seen, so it pauses whenever it is hidden. The theatre's own state isn't paused
-// by that: like a cinema, it keeps going while someone looks away or steps out,
-// and their player catches up when the screen is back in view.
+// seen, so it pauses whenever it is hidden, or the page itself is (another tab,
+// a minimised window). The theatre's own state isn't paused by that, not even
+// the holder's: like a cinema, it keeps going while someone looks away or steps
+// out, and their player catches up when the screen is back in view. The same goes
+// for an ad: YouTube's player says nothing about ads, and each viewer gets their
+// own at their own moments, so a viewer's ad pauses nobody else, and their player
+// catches up afterwards. A holder leaving the house sends their remote back to
+// the stand, and whatever is showing goes on.
 
 import { DynamicTexture, Mesh, Scene, Vector3 } from "@babylonjs/core";
 import { roomAt } from "../world/layout";
@@ -32,7 +43,10 @@ import { TheatreCard, drawTheatreCard } from "../world/props/theatreScreen";
 import { ROLE, ScreenMeta, find } from "../world/roles";
 import { FlyCamera, Pose } from "./flyCamera";
 import { ScreenFocus, ScreenGeometry, nothingInTheWay, onPage, pickAt, quadTransform, screenGeometry, squarePose, toPage } from "./focus";
-import { VIEWER, store } from "./store";
+import { room } from "./room";
+import { TheatreState, VIEWER, store } from "./store";
+import { THEATRE_TOPIC, TheatreCommand, runTheatreCommand } from "./theatreCommands";
+import { remoteHeldBy, theatreAt } from "./theatreState";
 import { AVATAR } from "./walker";
 import { PLAYER, PlayerEvents, VideoPlayer, embedUrl, fetchVideoInfo, loadThumbnail, parseYouTube, youTubeError, youTubePlayer } from "./youtube";
 
@@ -118,12 +132,48 @@ export class Theatre {
       this.cards.push({ tex, note });
     }
     this.redraw();
+    // the server's state: everyone's commands come back in it, and a latecomer is told how things stand
+    room.watch<TheatreState>(THEATRE_TOPIC, (t) => this.follow(t));
+    // a page that is hidden (another tab, a minimised window) doesn't draw: its player is paused now, and caught up when it is back
+    document.addEventListener("visibilitychange", () => this.place());
   }
 
-  /** Where the theatre's video is now, in seconds. */
-  position(now = Date.now()): number {
-    const t = store.get().theatre;
-    return t.playing ? t.at + (now - t.since) / 1000 : t.at;
+  /** Where the theatre's video is now (the room's clock), in seconds. */
+  position(now = room.now()): number {
+    return theatreAt(store.get().theatre, now);
+  }
+
+  /**
+   * Run a theatre command: on this page's copy at once, so its visitor sees it
+   * straight away, and on the server's (which sends everyone the result, and
+   * puts this page right if it refuses). Returns why not, or null.
+   */
+  tell(cmd: TheatreCommand): string | null {
+    const next = runTheatreCommand(store.get().theatre, VIEWER, cmd, room.now());
+    if (typeof next === "string") return next;
+    this.follow(next);
+    room.command(THEATRE_TOPIC, cmd.name, cmd.args);
+    return null;
+  }
+
+  /**
+   * The theatre is now `next` (this visitor's command, or the server's state):
+   * a new video gets its poster and player; a change to where it is or whether
+   * it plays brings the player to it.
+   */
+  private follow(next: TheatreState): void {
+    const prev = store.get().theatre;
+    if (next === prev) return;
+    const video = next.videoId !== prev.videoId;
+    const moved = !video && (next.playing !== prev.playing || next.at !== prev.at || next.since !== prev.since);
+    store.set(video ? { theatre: next, theatreVideo: null, theatreError: null } : { theatre: next });
+    if (video) {
+      this.thumb = null;
+      if (next.videoId) void this.describe(next.videoId);
+    }
+    if (video || next.live !== prev.live) this.redraw();
+    // the same video: the player follows at once; another gets a player of its own (ui/TheatreOverlay.tsx), started where the theatre is
+    if (moved) this.sync(true);
   }
 
   /** Where the player is now and, while hidden, why. */
@@ -179,7 +229,7 @@ export class Theatre {
 
   /** Whether this visitor holds a remote, and so controls the theatre. */
   holding(): boolean {
-    return store.get().theatre.remotes.includes(VIEWER);
+    return remoteHeldBy(store.get().theatre, VIEWER) !== null;
   }
 
   /**
@@ -190,32 +240,20 @@ export class Theatre {
     if (!this.holding()) return NEED_REMOTE;
     const ref = parseYouTube(input);
     if (!ref) return "That isn't a YouTube link or video ID.";
-    const s = store.get();
-    const again = ref.id === s.theatre.videoId;
-    store.set({ theatre: { ...s.theatre, videoId: ref.id, playing: true, at: ref.start, since: Date.now(), live: ref.live }, theatreVideo: again ? s.theatreVideo : null, theatreError: null });
-    this.ownPause = false;
-    if (!again) {
-      this.thumb = null;
-      void this.describe(ref.id);
-    }
-    this.redraw();
     // the same video again keeps its player, which starts over; another gets a player of its own
-    if (again) this.sync(true);
-    return null;
+    if (store.get().theatreError) store.set({ theatreError: null });
+    this.ownPause = false;
+    const why = this.tell({ name: "choose", args: { videoId: ref.id, start: ref.start, live: ref.live } });
+    this.redraw();
+    return why;
   }
 
   /** The remote's buttons, for everyone: play or pause, or skip back or forward. Returns why not, or null. */
   command(button: "toggle" | "back" | "forward"): string | null {
     if (!this.holding()) return NEED_REMOTE;
-    const t = store.get().theatre;
-    if (!t.videoId) return "Nothing is showing: choose a video first.";
-    const since = Date.now();
-    const at = this.position(since);
-    if (button === "toggle") store.set({ theatre: { ...t, playing: !t.playing, at, since } });
-    else store.set({ theatre: { ...t, at: Math.max(0, at + (button === "back" ? -SKIP : SKIP)), since } });
+    if (!store.get().theatre.videoId) return "Nothing is showing: choose a video first.";
     this.ownPause = false;
-    this.sync(true);
-    return null;
+    return this.tell(button === "toggle" ? { name: "toggle" } : { name: "skip", args: { by: button === "back" ? -SKIP : SKIP } });
   }
 
   // ---------------------------------------------------------------- the player
@@ -285,6 +323,7 @@ export class Theatre {
     let view: View = "hidden";
     let quad: Pt[] | null = null;
     if (!frame) this.why = "no video";
+    else if (document.visibilityState === "hidden") this.why = "the page is hidden";
     else if (this.watching()) view = "watch";
     else if ((quad = this.screenOnPage())) view = "over";
     const was = this.view;
@@ -380,10 +419,7 @@ export class Theatre {
     // a video first plays where it was cued, a live stream at its live edge: far past that
     if (state === PLAYER.playing && !this.played) {
       this.played = true;
-      if (!t.live && p.getCurrentTime() > this.position() + 60) {
-        store.set({ theatre: { ...store.get().theatre, live: true } });
-        this.redraw();
-      }
+      if (!t.live && t.videoId && p.getCurrentTime() > this.position() + 60) this.tell({ name: "live", args: { videoId: t.videoId } });
     }
     const ours = this.answers(state);
     if (!this.holding()) {
@@ -397,12 +433,11 @@ export class Theatre {
       }
       return;
     }
-    // the holder's player is the theatre's: what they do in it, everyone sees
-    const now = store.get().theatre;
-    const since = Date.now();
-    if (state === PLAYER.playing) store.set({ theatre: { ...now, playing: true, at: p.getCurrentTime(), since } });
-    else if (state === PLAYER.paused) store.set({ theatre: { ...now, playing: false, at: p.getCurrentTime(), since } });
-    else if (state === PLAYER.ended) store.set({ theatre: { ...now, playing: false, at: p.getDuration(), since } });
+    // the holder's player is the theatre's: what they do in it, everyone sees (but not its answers to what the theatre asked of it)
+    if (ours) return;
+    if (state === PLAYER.playing) this.tell({ name: "player", args: { playing: true, at: p.getCurrentTime() } });
+    else if (state === PLAYER.paused) this.tell({ name: "player", args: { playing: false, at: p.getCurrentTime() } });
+    else if (state === PLAYER.ended) this.tell({ name: "player", args: { playing: false, at: p.getDuration() } });
   }
 
   /**

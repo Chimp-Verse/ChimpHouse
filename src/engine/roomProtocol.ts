@@ -72,6 +72,8 @@ export interface GoneMsg {
 export interface RefusedMsg {
   what: string;
   why: string;
+  /** a refused command to a topic the server owns: the page puts its own copy back as the server has it */
+  topic?: string;
 }
 
 /** The message types, both ways. */
@@ -101,7 +103,7 @@ export const LIMITS = {
   /** messages a page may send each second, on average, and in a burst: more are dropped */
   messagesPerSecond: 200,
   messageBurst: 400,
-  /** lift commands a page may send each second, on average, and in a burst */
+  /** commands (the lift's and the theatre's) a page may send each second, on average, and in a burst */
   commandsPerSecond: 10,
   commandBurst: 20,
   /** a page sending this many messages in one second is cut off (it isn't a ChimpHouse page) */

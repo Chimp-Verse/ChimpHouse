@@ -7,8 +7,10 @@
 // - Shared topics (share, family): one object each, replaced whole, the newest version winning.
 //   The pages own them; the server keeps the newest of each, so a visitor who arrives later is
 //   told how things stand.
-// - The server's topics (watch, command): the lift. Pages send commands; the server runs them
-//   and sends everyone the result.
+// - The server's topics (watch, command): the lift and the theatre. Pages send commands; the
+//   server runs them and sends everyone the result. A page may run a command on its own copy as
+//   it sends it (the theatre does, so its visitor sees the change at once): the server's state
+//   replaces it when it comes, and a refused command puts the page's copy back as the server has it.
 //
 // The server keeps the room's clock (now()), so timed state reads the same for everyone, and
 // tells everyone when a visitor leaves, so what they held is let go of. A page whose connection
@@ -127,7 +129,12 @@ class Room {
     this.claim(topic);
   }
 
-  /** Ask the server to run a command on a topic it owns (the lift: engine/liftCommands.ts). */
+  /** Whether the page is in the room now: its commands reach the server (otherwise they are lost, and a page runs them alone). */
+  get connected(): boolean {
+    return this.status === "connected" && !!this.conn;
+  }
+
+  /** Ask the server to run a command on a topic it owns (the lift: engine/liftCommands.ts; the theatre: engine/theatreCommands.ts). */
   command(topic: string, name: string, args?: Record<string, unknown>): void {
     this.send(MSG.command, { topic, name, args });
   }
@@ -172,7 +179,7 @@ class Room {
       conn.onMessage(MSG.state, (m: TopicState) => this.receive(m));
       conn.onMessage(MSG.gone, (m: GoneMsg) => this.gone(m.id));
       conn.onMessage(MSG.time, (m: TimeReply) => this.timed(m));
-      conn.onMessage(MSG.refused, (m: RefusedMsg) => console.warn(`[room] the server refused ${m.what}: ${m.why}`));
+      conn.onMessage(MSG.refused, (m: RefusedMsg) => this.refused(m));
       conn.onDrop(() => (this.status = "reconnecting"));
       conn.onReconnect(() => {
         this.status = "connected";
@@ -259,6 +266,13 @@ class Room {
     this.unclaimed.delete(topic);
     // after the caller has its setter
     queueMicrotask(() => this.receive(m));
+  }
+
+  private refused(m: RefusedMsg): void {
+    console.warn(`[room] the server refused ${m.what}: ${m.why}`);
+    // a command the page ran on its own copy: back to the server's state
+    const t = m.topic ? this.topics.get(m.topic) : undefined;
+    if (t?.owned && t.v.n > 0) t.apply(t.state);
   }
 
   private timed(m: TimeReply): void {

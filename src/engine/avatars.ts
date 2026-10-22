@@ -11,8 +11,10 @@
 // - This visitor's chimp turns to the way it goes, looks where the camera looks
 //   (or, with the camera in front of it, at the camera), fades as the camera comes
 //   close, and isn't drawn from its own eyes (first person) or while a screen is in use.
+// - A chimp holds in its right hand what its visitor holds (a theatre remote: setInHand),
+//   so everyone sees who has it.
 
-import { BoundingSphere, Color3, DynamicTexture, Frustum, Mesh, MeshBuilder, Plane, Scene, StandardMaterial, Vector3 } from "@babylonjs/core";
+import { BoundingSphere, Color3, DynamicTexture, Frustum, Mesh, MeshBuilder, Plane, Scene, StandardMaterial, type TransformNode, Vector3 } from "@babylonjs/core";
 import { ChimpAnimator, type Motion } from "../avatar/animator";
 import { chimpModel, itemModel } from "../avatar/builder";
 import { Chimp, SHELLS } from "../avatar/chimp";
@@ -159,6 +161,12 @@ class Body {
   }
 }
 
+/** Something a chimp holds in its hand: its key, and how to build its model (built afresh for each chimp that holds it). */
+export interface InHand {
+  key: string;
+  build: () => { root: TransformNode; meshes: Mesh[] };
+}
+
 /** A remote visitor's chimp, with what they last said about it. */
 interface Remote {
   body: Body | null;
@@ -177,6 +185,8 @@ export class Avatars {
   private lookYaw = 0;
   private lookPitch = 0;
   private others = new Map<string, Remote>();
+  /** what each visitor's chimp holds in its hand, by visitor id */
+  private hands = new Map<string, InHand>();
   private sayPose: (p: Presence) => void;
   private sayDna: (i: Identity) => void;
   private saidAt = 0;
@@ -200,6 +210,12 @@ export class Avatars {
     this.sayPose = room.family<Presence>("chimp:", (topic, p) => this.heardPose(topic.slice("chimp:".length), p));
     room.onGone((id) => this.forget(id));
     this.sayDna({ name: ME.name, dna: this.mine.dna });
+  }
+
+  /** What visitor `who`'s chimp holds in its hand (this visitor's too), or null: it shows the next time their chimp is drawn. */
+  setInHand(who: string, item: InHand | null): void {
+    if (item) this.hands.set(who, item);
+    else this.hands.delete(who);
   }
 
   /** This visitor's chimp's DNA. */
@@ -248,7 +264,7 @@ export class Avatars {
     this.frustum = Frustum.GetPlanes(vp);
     this.updateMine(dt, s.walking, s.quality, !!s.focus);
     const now = room.now();
-    for (const [, r] of this.others) this.updateOther(r, now, dt, s.quality);
+    for (const [id, r] of this.others) this.updateOther(id, r, now, dt, s.quality);
   }
 
   private updateMine(dt: number, walking: boolean, quality: Quality, focus: boolean) {
@@ -291,13 +307,19 @@ export class Avatars {
     const fade = this.fly.firstPerson || focus ? 0 : smoothstepN(0.4, 0.85, d);
     c.setFade(fade);
     c.root.setEnabled(fade > 0.01);
-    this.dress(b, d, quality, w.feet.x, w.groundY, w.feet.z, fade);
+    this.dress(b, ME.id, d, quality, w.feet.x, w.groundY, w.feet.z, fade);
     this.say(true, { x: w.feet.x, y: w.groundY, z: w.feet.z, vx: v.x, vz: v.z, ground: w.onGround });
   }
 
   /** Lights, fur shells and shadow for a body where it stands, `d` from the camera. */
-  private dress(b: Body, d: number, quality: Quality, x: number, y: number, z: number, fade: number) {
+  private dress(b: Body, who: string, d: number, quality: Quality, x: number, y: number, z: number, fade: number) {
     const c = b.chimp!;
+    // what it holds, before it is lit: a new model in hand is lit with the chimp from the frame it shows
+    const hand = this.hands.get(who) ?? null;
+    if (c.holding !== (hand?.key ?? null)) {
+      c.hold(hand?.key ?? null, hand?.build());
+      c.setFade(fade);
+    }
     // lit by the lights of the room it stands in, as the house is
     const at = new Vector3(x, y + 0.8, z);
     // out in the front courtyard, by its lamps (it isn't one of the house's rooms)
@@ -383,7 +405,7 @@ export class Avatars {
     this.others.delete(id);
   }
 
-  private updateOther(r: Remote, now: number, dt: number, quality: Quality) {
+  private updateOther(id: string, r: Remote, now: number, dt: number, quality: Quality) {
     const b = r.body;
     const c = b?.chimp;
     const at = sample(r.said, now - BEHIND);
@@ -410,7 +432,7 @@ export class Avatars {
     r.facing = at.yaw;
     b.animator!.update(dt, { speed, heading: wrap(Math.atan2(at.vx, at.vz) - at.yaw), turn, grounded: at.ground, lookYaw: at.lookYaw, lookPitch: at.lookPitch, feet: this.feetOn(c, at.y) });
     c.setFade(1);
-    this.dress(b, d, quality, at.x, at.y, at.z, 1);
+    this.dress(b, id, d, quality, at.x, at.y, at.z, 1);
     // the name over its head, in front of the camera and not too far off
     const head = new Vector3(at.x, at.y + b.dna.shape.height + 0.22, at.z);
     const ahead = Vector3.TransformCoordinates(head, this.fly.camera.getViewMatrix()).z > this.fly.camera.minZ;
@@ -455,8 +477,8 @@ export class Avatars {
   describe() {
     const c = this.mine.chimp;
     return {
-      mine: c ? { shown: c.root.isEnabled(), at: c.root.position.asArray(), facing: this.facing, height: this.mine.dna.shape.height, lights: { room: this.mine.room, copied: this.mine.lights.describe() }, wearing: c.wearing() } : null,
-      others: [...this.others].map(([id, r]) => ({ id, name: r.name, built: !!r.body?.chimp, shown: !!r.body?.chimp?.root.isEnabled(), heard: r.said.length })),
+      mine: c ? { shown: c.root.isEnabled(), at: c.root.position.asArray(), facing: this.facing, height: this.mine.dna.shape.height, lights: { room: this.mine.room, copied: this.mine.lights.describe() }, wearing: c.wearing(), holding: c.holding } : null,
+      others: [...this.others].map(([id, r]) => ({ id, name: r.name, built: !!r.body?.chimp, shown: !!r.body?.chimp?.root.isEnabled(), heard: r.said.length, holding: r.body?.chimp?.holding ?? null })),
     };
   }
 }
