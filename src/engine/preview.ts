@@ -26,7 +26,7 @@ import * as foosballRobot from "./foosballRobot";
 import * as foosballSpec from "../world/props/foosballSpec";
 import { ButtonId, Lift } from "./lift";
 import { GameTv } from "./gameTv";
-import { ME } from "./room";
+import { ME, room } from "./room";
 import { ClawMachine } from "./clawMachine";
 import { Remotes } from "./remotes";
 import { SnackMachine } from "./snackMachine";
@@ -140,7 +140,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     (msg) => flash(msg, 5000),
   );
   const theatre = new Theatre(scene, world.mats, fly, focus, canvas);
-  const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, (msg) => flash(msg));
+  const remotes = new Remotes(scene, world.mats, lighting, fly, canvas, theatre, avatars, (msg) => flash(msg));
   // the lift: its car and doors are shown from its shared state (engine/liftState.ts)
   const lift = new Lift(scene, world.mats, fly, canvas);
   const tv = new GameTv(scene, world.mats, lighting, fly, focus, canvas, (msg) => flash(msg, 3500));
@@ -664,6 +664,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       parse: (text: string) => parseYouTube(text),
       command: (button: "toggle" | "back" | "forward") => theatre.command(button),
       choose: (text: string) => theatre.choose(text),
+      /** puts the shared theatre back as the house opens with it (nothing showing, the remotes on the stand), for everyone: for tests (the server must allow it) */
+      reset: () => theatre.tell({ name: "reset" }),
+      /** send the server a theatre command as it is, for tests: as a page that skips its own checks would */
+      send: (name: string, args?: Record<string, unknown>) => room.command("theatre", name, args),
       use: () => theatre.use(),
       leave: () => theatre.leave(),
       position: () => theatre.position(),

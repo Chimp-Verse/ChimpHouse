@@ -23,6 +23,8 @@ export const ROLE = {
   theatreRemoteSpot: "theatre-remote-spot",
   /** a theatre remote: its holder controls the screen. Put on its spot at run time */
   theatreRemote: "theatre-remote",
+  /** a theatre remote in its holder's chimp's hand, numbered with its remote. Built at run time, for each chimp holding one */
+  theatreRemoteHeld: "theatre-remote-held",
   /** the lift car: one node that moves between the floors, with its floor-buttons and indicator */
   liftCar: "lift-car",
   /** a landing's call button, numbered with its floor (1 lower, 2 upper) */

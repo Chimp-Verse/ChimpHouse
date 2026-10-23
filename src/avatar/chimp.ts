@@ -72,6 +72,8 @@ export class Chimp {
   version = 0;
   /** each eye's lids, turned about the eye's middle */
   private lids: { upper: Mesh; lower: Mesh }[] = [];
+  /** what the right hand holds (a theatre remote), by its key */
+  private inHand: { key: string; root: TransformNode; meshes: Mesh[] } | null = null;
 
   constructor(
     readonly scene: Scene,
@@ -445,6 +447,43 @@ export class Chimp {
     }
   }
 
+  /** The key of what the right hand holds, or null. */
+  get holding(): string | null {
+    return this.inHand?.key ?? null;
+  }
+
+  /**
+   * Hold a model in the right hand (`key` names it), or, with null, let go of what is
+   * held. The model's root is carried by the hand, in the palm, its front (+Z) pointing
+   * the way the chimp faces at rest; its meshes become the chimp's, lit by its own lights.
+   */
+  hold(key: string | null, model?: { root: TransformNode; meshes: Mesh[] }): void {
+    const was = this.inHand;
+    if (was) {
+      for (const m of was.meshes) this.meshes.splice(this.meshes.indexOf(m), 1);
+      // its materials are shared (the house's): only the meshes go
+      was.root.dispose(false, false);
+      this.inHand = null;
+    }
+    if (key && model) {
+      const hand = this.rig.bones[this.rig.index.rightHand];
+      const along = (i: number) => (hand.tail[i] - hand.head[i]) * 0.6;
+      model.root.parent = this.nodes.rightHand;
+      // in the palm, which faces down and in at rest: a little below the hand's line and toward the body (-X, the right hand)
+      model.root.position.set(along(0) - 0.015, along(1) - 0.03, along(2) + 0.02);
+      model.root.rotation.set(0, 0, 0);
+      model.root.rotationQuaternion = null;
+      for (const m of model.meshes) {
+        m.isPickable = false;
+        m.receiveShadows = true;
+        m.renderingGroupId = 1;
+        this.meshes.push(m);
+      }
+      this.inHand = { key, root: model.root, meshes: model.meshes };
+    } else model?.root.dispose(false, false);
+    this.version++;
+  }
+
   /** Stand the chimp at (x, y, z) facing `yaw` (radians, as the camera's), scaled to `height` metres. */
   place(x: number, y: number, z: number, yaw: number, height: number): void {
     this.root.position.set(x, y, z);
@@ -457,6 +496,7 @@ export class Chimp {
     this.skin.skin.fade = v;
     this.fur.fur.fade = v;
     for (const e of this.eyes) e.visibility = v > 0.5 ? 1 : 0;
+    for (const m of this.inHand?.meshes ?? []) m.visibility = v > 0.5 ? 1 : 0;
     for (const w of this.worn.values())
       for (const d of w.dressed) {
         if (d.cloth) d.cloth.fade = v;

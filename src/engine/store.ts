@@ -2,6 +2,7 @@
 
 import type { FoosballView, FoosballPrompt } from "./foosballMatch";
 import { LiftState, initialLift } from "./liftState";
+import { TheatreState, initialTheatre } from "./theatreState";
 import { ME } from "./room";
 
 export type Quality = "low" | "medium" | "high";
@@ -47,23 +48,11 @@ export type Focus = FocusInfo & { phase: "in" | "on" | "out" };
 export const VIEWER = ME.id;
 
 /**
- * What the theatre is showing, as one object that the room server can later
- * share to keep everyone in step: the video, playing or paused, where it was at
- * a moment, and who holds each remote. Each viewer's own YouTube player follows it.
+ * What the theatre is showing, as one object the room server owns and shares (engine/theatreState.ts):
+ * the video, playing or paused, where it was at a moment, and who holds each remote. Each viewer's
+ * own YouTube player follows it.
  */
-export interface TheatreState {
-  /** the YouTube video or live stream on the screen, or null */
-  videoId: string | null;
-  playing: boolean;
-  /** seconds into the video at `since` */
-  at: number;
-  /** when it was at `at` (Date.now(), ms) */
-  since: number;
-  /** a live stream: viewers join it live, not at `at` */
-  live: boolean;
-  /** who holds each remote (remote n at n - 1), or null while it is on the stand: a holder controls the theatre */
-  remotes: (string | null)[];
-}
+export type { TheatreState } from "./theatreState";
 
 /** About the theatre's video, from YouTube. */
 export interface TheatreVideo {
@@ -356,7 +345,7 @@ class Store {
     focus: null,
     arcadeRunning: [],
     focusRect: null,
-    theatre: { videoId: null, playing: false, at: 0, since: 0, live: false, remotes: [] },
+    theatre: initialTheatre(),
     theatreVideo: null,
     theatreError: null,
     theatrePrompt: false,

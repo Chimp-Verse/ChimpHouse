@@ -8,6 +8,10 @@
 // - The lift: the server's. Pages send commands (engine/liftCommands.ts), the server runs them
 //   one at a time with the rules in engine/liftState.ts, moves the lift on by its own clock, and
 //   sends everyone the result.
+// - The theatre: the server's too, the same way (engine/theatreCommands.ts, engine/theatreState.ts):
+//   what is showing, playing or paused and where, on the server's clock, and who holds each
+//   remote. Only a remote's holder may change what is showing; a remote is held by one visitor at
+//   a time, and goes back to the stand when they leave the house (whatever is showing goes on).
 // - The room's clock: pages ask the time and set theirs by it, so timed state reads the same
 //   everywhere.
 // - Presence: a visitor whose connection drops keeps their place for RECONNECT_GRACE_S while
@@ -15,13 +19,16 @@
 //   back). After that, or at once when they close the page, everyone is told they have gone, and the
 //   server forgets their own topics.
 //
-// Everything is kept in memory: restarting the server starts the lift afresh, and pages put
+// Everything is kept in memory: restarting the server starts the lift and the theatre afresh
+// (nothing showing, both remotes on the stand), and pages put
 // back the shared topics they know as they reconnect (room.ts).
 
 import { Room, type AuthContext, type Client, type Deferred } from "@colyseus/core";
 import { LiftState, advanceLift, initialLift } from "../src/engine/liftState";
 import { LIFT_TOPIC, letGoOfLift, parseLiftCommand, runLiftCommand } from "../src/engine/liftCommands";
-import { LIMITS, MSG, RECONNECT_GRACE_S, newer, type CommandMsg, type JoinOptions, type StateMsg, type TimeAsk, type TopicState, type Version, type Welcome } from "../src/engine/roomProtocol";
+import { THEATRE_TOPIC, letGoOfTheatre, parseTheatreCommand, runTheatreCommand } from "../src/engine/theatreCommands";
+import { initialTheatre, type TheatreState } from "../src/engine/theatreState";
+import { LIMITS, MSG, RECONNECT_GRACE_S, newer, type CommandMsg, type JoinOptions, type RefusedMsg, type StateMsg, type TimeAsk, type TopicState, type Version, type Welcome } from "../src/engine/roomProtocol";
 
 /** How many of the visitors who left a newcomer is told about (they let go of anything those still hold). */
 const DEPARTED = 100;
@@ -63,7 +70,7 @@ interface Visitor {
 }
 
 export interface HouseOptions {
-  /** allow the lift's "reset" command (tests) */
+  /** allow the lift's and the theatre's "reset" commands (tests) */
   testCommands?: boolean;
   /** the sites (origins, e.g. https://chimphouse.example) whose pages may join; any, when not given */
   origins?: string[];
@@ -80,6 +87,8 @@ export class House extends Room {
   private topics = new Map<string, { state: unknown; v: Version; bytes: number }>();
   private lift: LiftState = initialLift(Date.now());
   private liftV: Version = { n: 1, by: "server" };
+  private theatre: TheatreState = initialTheatre();
+  private theatreV: Version = { n: 1, by: "server" };
   private visitors = new Map<string, Visitor>();
   private bySession = new Map<string, Visitor>();
   private departed: string[] = [];
@@ -181,7 +190,8 @@ export class House extends Room {
   private welcome(client: Client, v: Visitor) {
     const topics: TopicState[] = [...this.topics].map(([topic, t]) => ({ topic, state: t.state, v: t.v }));
     topics.push({ topic: LIFT_TOPIC, state: advanceLift(this.lift, Date.now()), v: this.liftV });
-    const w: Welcome = { you: v.id, t: Date.now(), topics, owned: [LIFT_TOPIC], departed: [...this.departed] };
+    topics.push({ topic: THEATRE_TOPIC, state: this.theatre, v: this.theatreV });
+    const w: Welcome = { you: v.id, t: Date.now(), topics, owned: [LIFT_TOPIC, THEATRE_TOPIC], departed: [...this.departed] };
     client.send(MSG.welcome, w);
   }
 
@@ -190,7 +200,7 @@ export class House extends Room {
     if (!v || !this.allowed(client, v, "state")) return;
     const topic = m?.topic;
     if (typeof topic !== "string" || !LIMITS.topic.test(topic)) return this.refuse(client, String(topic).slice(0, 80), "not a topic name");
-    if (topic === LIFT_TOPIC) return this.refuse(client, topic, "the lift takes commands, not states");
+    if (topic === LIFT_TOPIC || topic === THEATRE_TOPIC) return this.refuse(client, topic, `the ${topic} takes commands, not states`);
     // a visitor's own topics (their chimp, "chimp:<id>") are theirs alone to write
     const owner = /:(v-[a-z0-9]+)$/.exec(topic)?.[1];
     if (owner && owner !== v.id) return this.refuse(client, topic, "another visitor's topic");
@@ -219,11 +229,23 @@ export class House extends Room {
       v.dropped++;
       return;
     }
+    if (m?.topic === THEATRE_TOPIC) return this.onTheatreCommand(client, v, m);
     if (m?.topic !== LIFT_TOPIC) return this.refuse(client, String(m?.topic).slice(0, 80), "no commands for that topic");
     const cmd = parseLiftCommand(m.name, m.args);
     if (!cmd) return this.refuse(client, `${LIFT_TOPIC} ${String(m.name).slice(0, 40)}`, "not a lift command");
     if (cmd.name === "reset" && !this.testCommands) return this.refuse(client, "lift reset", "only on a test server");
     this.setLift(runLiftCommand(this.lift, v.id, cmd, Date.now()));
+  }
+
+  private onTheatreCommand(client: Client, v: Visitor, m: CommandMsg) {
+    const what = `${THEATRE_TOPIC} ${String(m.name).slice(0, 40)}`;
+    const cmd = parseTheatreCommand(m.name, m.args);
+    if (!cmd) return this.refuse(client, what, "not a theatre command", THEATRE_TOPIC);
+    if (cmd.name === "reset" && !this.testCommands) return this.refuse(client, what, "only on a test server", THEATRE_TOPIC);
+    const next = runTheatreCommand(this.theatre, v.id, cmd, Date.now());
+    // refused: the page, which ran it on its own copy already, is put back as things stand
+    if (typeof next === "string") return this.refuse(client, what, next, THEATRE_TOPIC);
+    this.setTheatre(next);
   }
 
   /** The visitor's message allowance: false (and the message dropped) when they are sending too fast. */
@@ -233,8 +255,17 @@ export class House extends Room {
     return false;
   }
 
-  private refuse(client: Client, what: string, why: string) {
-    client.send(MSG.refused, { what, why });
+  /** Turn a message down; `topic`, for a refused command to a topic the server owns, puts the page's copy back as the server has it. */
+  private refuse(client: Client, what: string, why: string, topic?: string) {
+    const m: RefusedMsg = topic ? { what, why, topic } : { what, why };
+    client.send(MSG.refused, m);
+  }
+
+  private setTheatre(next: TheatreState) {
+    if (next === this.theatre) return;
+    this.theatre = next;
+    this.theatreV = { n: this.theatreV.n + 1, by: "server" };
+    this.broadcast(MSG.state, { topic: THEATRE_TOPIC, state: next, v: this.theatreV });
   }
 
   private setLift(next: LiftState) {
@@ -250,6 +281,8 @@ export class House extends Room {
     // a visitor's own topics (a family member such as their chimp, "chimp:<id>") go with them
     for (const topic of this.topics.keys()) if (topic.endsWith(`:${id}`)) this.topics.delete(topic);
     this.setLift(letGoOfLift(this.lift, id, Date.now()));
+    // their remote goes back to the stand (a dropped connection keeps it while their page reconnects)
+    this.setTheatre(letGoOfTheatre(this.theatre, id));
     this.broadcast(MSG.gone, { id });
   }
 

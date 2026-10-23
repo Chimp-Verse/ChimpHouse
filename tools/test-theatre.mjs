@@ -51,6 +51,8 @@ const PAUSED = 2;
 
 await page.goto(`${URL}/?pov=first&view=theatre&theatre=standin`);
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
+// the room server keeps the theatre as the last visitors left it: start from the beginning
+await ev(() => window.__chimp.theatre.reset());
 await settle(20);
 
 // ------------------------------------------------ 1. the screen and lightbox, by role
