@@ -96,7 +96,8 @@ export class FlyCamera {
     const c = this.canvas;
     c.addEventListener("click", (e) => {
       // while a screen is in use (a cabinet's game, the theatre's video) the mouse stays free for it and its frame
-      if (e.altKey || store.get().inspectMode || store.get().focus) return;
+      // and in the lobby, where the mouse is for its panel and the chimp stands still
+      if (e.altKey || store.get().inspectMode || store.get().focus || store.get().lobby) return;
       if (this.onClick?.(e)) return;
       if (document.pointerLockElement !== c) {
         // returns a promise in current browsers; it rejects when lock is unavailable
@@ -128,7 +129,7 @@ export class FlyCamera {
       "wheel",
       (e) => {
         e.preventDefault();
-        if (store.get().focus) return;
+        if (store.get().focus || store.get().lobby) return;
         if (FLY_IN_ENABLED && this.orthoState) {
           this.orthoState.halfHeight = Math.max(4, Math.min(80, this.orthoState.halfHeight * (e.deltaY > 0 ? 1.1 : 0.9)));
           this.applyOrtho();
@@ -146,7 +147,7 @@ export class FlyCamera {
       { passive: false },
     );
     window.addEventListener("keydown", (e) => {
-      if (isTyping(e) || store.get().focus) return;
+      if (isTyping(e) || store.get().focus || store.get().lobby) return;
       this.keys.add(e.code);
     });
     window.addEventListener("keyup", (e) => this.keys.delete(e.code));
@@ -154,7 +155,7 @@ export class FlyCamera {
   }
 
   private look(dx: number, dy: number) {
-    if (!this.enabled || this.orthoState || this.mouseTaken?.()) return;
+    if (!this.enabled || this.orthoState || this.mouseTaken?.() || store.get().lobby) return;
     this.transition = null;
     const sens = 0.0022;
     this.yaw += dx * sens;

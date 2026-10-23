@@ -238,6 +238,11 @@ export interface PreviewState {
   wardrobe: boolean;
   /** this visitor's chimp is being (re)built: its new shape comes in a moment */
   chimpBuilding: boolean;
+  /**
+   * The lobby is up (ui/Lobby.tsx): the visitor is choosing a name and a look before going in.
+   * Their chimp stands at the spawn point for them to see, but nobody else sees it, and it can't move.
+   */
+  lobby: boolean;
   /** what the walker is walking into, while it is held up */
   blocked: string | null;
   viewId: string | null;
@@ -339,6 +344,7 @@ class Store {
     firstPerson: false,
     wardrobe: false,
     chimpBuilding: true,
+    lobby: false,
     blocked: null,
     viewId: null,
     night: false,
