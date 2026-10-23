@@ -45,7 +45,7 @@ Nothing in these steps needs to be changed in the code. Signing up, paying, DNS 
 
 ## Part A: the website on Cloudflare Pages (all options)
 
-The build is plain static files: `npm run build` writes `dist/` (an `index.html`, `assets/` with hashed names, and the sounds, textures and small pages from `public/`). Nothing on the page needs a server of its own. Measured on 2026-10-20: 304 files, 56 MB, the largest file 7.5 MB (the main script; the rest are 3.3 MB and under), against Pages' limits of 20,000 files and 25 MiB per file.
+The build is plain static files: `npm run build` writes `dist/` (an `index.html` (the welcome page), `house.html` (the house), `assets/` with hashed names, and the sounds, textures and small pages from `public/`). Nothing on the page needs a server of its own. Measured on 2026-10-20: 304 files, 56 MB, the largest file 7.5 MB (the main script; the rest are 3.3 MB and under), against Pages' limits of 20,000 files and 25 MiB per file.
 
 1. Make a Cloudflare account and, in the dashboard, **Workers & Pages** > **Create** > **Pages** > **Connect to Git** > pick the ChimpHouse repository. (Without Git: `npx wrangler pages deploy dist --project-name chimphouse` after a local build; that uploads, so it is the owner's go-ahead.)
 2. Build settings:
@@ -62,7 +62,7 @@ Details:
 
 - `public/_headers` (copied into `dist/`) gives the hashed files in `assets/` a one-year cache and sets `X-Content-Type-Options: nosniff`. It sets no framing, referrer or content-security rule on purpose: nothing in the page or its code sets one either, so YouTube's player (theatre) and ChimpVibe's games (arcade, Game Room TV) load in their frames. Don't add a `Content-Security-Policy` or `Referrer-Policy: no-referrer` without allowing `https://www.youtube.com`, `https://www.youtube-nocookie.com`, `https://play.chimpvibe.dev` and `https://chimpvibe.dev` as frame and connect sources: YouTube's player refuses to play (error 153) when it isn't told which site is asking.
 - `npm run build` also type-checks the pages and the room server; it needs the development packages, which Pages installs unless `NODE_ENV=production` is set in its build variables (don't set it there).
-- Pages serves `index.html` for any address that isn't a file. The house is one page; there are no other routes.
+- Pages serves `index.html` (the welcome page) for any address that isn't a file. The house is `house.html` (Pages also answers `/house` with it); there are no other routes.
 - The 26 concept-art pictures (about 44 MB of the 56 MB) are in `dist/assets/` because `src/world/viewpoints.ts` imports them for the developer-only viewpoint comparison. Only the developer-only viewpoint comparison shows them, so visitors don't download them; they count toward the upload only.
 
 ### ChimpVibe

@@ -223,7 +223,7 @@ try {
   const waitFor = (fn, arg, timeout = 30000) => page.waitForFunction(fn, arg, { timeout, polling: 100 });
   const st = () => ev(() => window.__chimp.adaptive.state());
   const open = async (query) => {
-    await page.goto(`${URL}/?arcade=standin&theatre=standin${query}`);
+    await page.goto(`${URL}/house.html?arcade=standin&theatre=standin${query}`);
     await waitFor(() => window.__chimp?.ready === true, null, 300000);
     await ev(() => window.__chimp.settle(20));
   };

@@ -13,7 +13,7 @@ const browser = await chromium.launch({ headless: true, args: ["--use-angle=meta
 const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, acceptDownloads: true });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 page.on("console", (m) => m.type() === "error" && console.log("[error]", m.text()));
-await page.goto("http://localhost:5173/?capture=1");
+await page.goto("http://localhost:5173/house.html?capture=1");
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 // nothing needs drawing: the exporter reads textures back far faster with the scene still
 await page.evaluate(() => window.__chimp.scene.getEngine().stopRenderLoop());

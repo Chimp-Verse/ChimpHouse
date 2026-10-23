@@ -8,8 +8,10 @@ This is a look-and-layout preview, with the first room activities (the arcade, t
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173 (the welcome page), the house at /house.html
 ```
+
+The site's root (`index.html`, `src/site/`) is a welcome page: what ChimpHouse is, a short video and a tour of every room, with an **Enter ChimpHouse** button. The house itself is `house.html` (http://localhost:5173/house.html, with the same `?view=`, `?pov=` and other address options as before). The welcome page's pictures are in `public/site/`: `node tools/site-shots.mjs` photographs a chimp in every room for it (with the builder's tools on, see below), and `public/site/concept/` holds small copies of the concept art.
 
 The first load takes a few seconds while textures are painted and shaders compile. You arrive as your chimp, walking, at the spawn point in the entry hall just inside the front doors (`SPAWN` in `src/world/viewpoints.ts`), with the camera behind it. There is no step before it: your chimp is the one you dressed last time, or the default chimp on a first visit.
 
@@ -101,7 +103,7 @@ The Game Room's cabinets hold the ChimpVibe games admitted to ChimpHouse, one pe
 
   Cabinets aren't checked in the background, because loading a play page wakes a parked ChimpVibe session. The stand-in play page sends the messages when its address carries `embed=1`. `&fail=<reason>` (with `&code=`) makes it send an error, and `&silent=1` makes it send nothing.
 - The list comes from ChimpVibe's showcase (`https://chimpvibe.dev/shared/showcase.json`) and is checked every two minutes. Until ChimpVibe serves it, `public/arcade/chimphouse.json` stands in (`node tools/make-arcade-fixture.mjs` rebuilds it from the live catalogue). In development, `/chimpvibe/…` on the dev server is proxied to chimpvibe.dev so the art works as a texture.
-- ChimpVibe's live site only lets itself frame its games so far, so a real game from chimpvibe.dev shows a refusal over the screen. A ChimpVibe server running on this machine can allow ChimpHouse, and its games then play on the cabinets: open `http://localhost:5173/?arcade=local` (exactly `localhost`, since the server refuses 127.0.0.1). The list and art come straight from that server, with CORS. ChimpVibe's local demo script (`scripts/diagnostics/chimphouse-demo.mjs`) was removed from its branch; its history has it (`git show b546dc1:scripts/diagnostics/embed-demo.mjs`, which serves `/shared/showcase.json` on port 56891).
+- ChimpVibe's live site only lets itself frame its games so far, so a real game from chimpvibe.dev shows a refusal over the screen. A ChimpVibe server running on this machine can allow ChimpHouse, and its games then play on the cabinets: open `http://localhost:5173/house.html?arcade=local` (exactly `localhost`, since the server refuses 127.0.0.1). The list and art come straight from that server, with CORS. ChimpVibe's local demo script (`scripts/diagnostics/chimphouse-demo.mjs`) was removed from its branch; its history has it (`git show b546dc1:scripts/diagnostics/embed-demo.mjs`, which serves `/shared/showcase.json` on port 56891).
 - Without the demo, add `?arcade=standin` to the address to play the stand-in on every cabinet instead. It is served from the dev server's other name (127.0.0.1 for localhost) so that it is cross-origin, like a real game. It also matches ChimpVibe's setup: a play page (`public/arcade/standin.html`) with the game (`standin-game.html`) in a locked-down frame inside it. It loses the first key the way ChimpVibe's page can, and shows the keys the game receives.
 
 ## Playing the claw machine
@@ -197,7 +199,7 @@ The theatre screen shows YouTube videos and live streams in YouTube's own player
 
 ### Checking it with real YouTube videos
 
-`tools/test-theatre.mjs` checks the theatre against the stand-in. To check real YouTube, open http://localhost:5173/?view=theatre in your own browser (with `npm run dev` running and the fly-in camera on, see above). Press **F** to walk, go to the stand under the screen, look at a remote and press **E** to pick it up. Then look at the screen and press **E** to watch, paste each of these into the box under the screen and press **Show**:
+`tools/test-theatre.mjs` checks the theatre against the stand-in. To check real YouTube, open http://localhost:5173/house.html?view=theatre in your own browser (with `npm run dev` running and the fly-in camera on, see above). Press **F** to walk, go to the stand under the screen, look at a remote and press **E** to pick it up. Then look at the screen and press **E** to watch, paste each of these into the box under the screen and press **Show**:
 
 | Link | What should happen |
 | --- | --- |
@@ -323,6 +325,8 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `src/engine/` | Engine bootstrap, fly camera and the camera that follows a walking chimp (`flyCamera.ts`), walk mode (`walker.ts`, `collision.ts`), lighting, post-processing, HUD state; using a screen (`focus.ts`: the glide onto it and lining content up over it), the arcade (`arcade.ts`), the theatre (`theatre.ts`, `youtube.ts`), the Game Room TV (`gameTv.ts`), things picked up and put down (`handhelds.ts`), and the state visitors share through the room server (`room.ts`) |
 | `src/avatar/` | The chimps: their DNA (`dna.ts`), skeleton (`rig.ts`), anatomy as distance fields (`anatomy.ts`, `sdf.ts`), meshing and simplifying (`mesher.ts`, `decimate.ts`, `model.ts`, built in two workers by `builder.ts`), materials (skin, fur shells, cloth: `materials.ts`), the chimp in the scene (`chimp.ts`), its animation (`animator.ts`) and the wardrobe's items (`wardrobe.ts`, `items.ts`, `garments.ts`) |
 | `src/engine/avatars.ts`, `src/ui/Wardrobe.tsx` | This visitor's chimp and every other visitor's in the house (where they are, through the room server; their lights, fur detail and shadows), and the wardrobe's panel |
+| `index.html`, `src/site/` | The welcome page at the site's root: the video, the overview and a section per room (`rooms.ts`), linking to the house |
+| `house.html`, `src/main.tsx` | The house |
 | `chimp.html`, `src/lab/chimpLab.ts` | The chimp lab: one chimp, no house |
 | `public/textures/screens/` | Screen artwork extracted from the reference images |
 | `docs/plans/2026-10-02-blender-switch-plan.md` | The plan for moving the house into Blender once the layout is settled |

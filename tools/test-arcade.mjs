@@ -30,7 +30,7 @@ const ev = (fn, arg) => page.evaluate(fn, arg);
 const settle = (n = 10) => ev((n) => window.__chimp.settle(n), n);
 const waitFor = (fn, arg, timeout = 8000) => page.waitForFunction(fn, arg, { timeout, polling: 50 });
 
-await page.goto(`${URL}/?pov=first&view=game${STANDIN ? "&arcade=standin" : ""}`);
+await page.goto(`${URL}/house.html?pov=first&view=game${STANDIN ? "&arcade=standin" : ""}`);
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await ev(() => window.__chimp.arcade.ready());
 await settle(20);
@@ -394,7 +394,7 @@ await shot("7-walked-on");
 
 // ------------------------------------------------ a game left alone quits by itself
 // (3 minutes; here ?arcadeAway=8 makes it 8 s)
-await page.goto(`${URL}/?view=game&arcadeAway=8${STANDIN ? "&arcade=standin" : ""}`);
+await page.goto(`${URL}/house.html?view=game&arcadeAway=8${STANDIN ? "&arcade=standin" : ""}`);
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await ev(() => window.__chimp.arcade.ready());
 await settle(10);

@@ -30,7 +30,7 @@ async function visitor(name, skew = 0) {
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
   if (skew) await page.addInitScript((skew) => { const now = Date.now; Date.now = () => now() + skew; }, skew);
   // walking, the visitor is where their eyes are: ?pov=first puts them at the camera (AGENTS.md)
-  await page.goto(`${URL}/?pov=first&quality=low`);
+  await page.goto(`${URL}/house.html?pov=first&quality=low`);
   await page.waitForFunction(() => window.__chimp?.lift, null, { timeout: 60000 });
   const ev = (fn, a) => page.evaluate(fn, a);
   return {

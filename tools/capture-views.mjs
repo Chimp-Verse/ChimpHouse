@@ -30,7 +30,7 @@ page.on("console", (m) => {
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 
 const t0 = Date.now();
-await page.goto(`${URL}/?capture=1&quality=${process.env.QUALITY ?? "high"}`);
+await page.goto(`${URL}/house.html?capture=1&quality=${process.env.QUALITY ?? "high"}`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 500 });
 console.log(`scene ready in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 const info = await page.evaluate(() => window.__chimp.info());

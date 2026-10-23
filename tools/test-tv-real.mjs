@@ -39,7 +39,7 @@ async function run() {
   // ------------------------------------------------ Ann, in the house
   const ann = await context.newPage();
   ann.on("pageerror", (e) => console.log("[Ann pageerror]", e.message));
-  await ann.goto(`${BASE}/?pov=first&view=game&arcade=local&tv=local&name=Ann&quality=low`);
+  await ann.goto(`${BASE}/house.html?pov=first&view=game&arcade=local&tv=local&name=Ann&quality=low`);
   await ann.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   const ev = (fn, arg) => ann.evaluate(fn, arg);
   const waitFor = (fn, arg, timeout = 8000) => ann.waitForFunction(fn, arg, { timeout, polling: 100 }).then(() => true, () => false);

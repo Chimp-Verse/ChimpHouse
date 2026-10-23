@@ -69,7 +69,7 @@ try {
     });
 
   // the cabinets from the local list: ChimpVibe's own can be empty, leaving no cabinet to walk up to
-  await page.goto(`${URL}/?view=${VIEW}&arcade=fixture`);
+  await page.goto(`${URL}/house.html?view=${VIEW}&arcade=fixture`);
   await waitFor(() => window.__chimp?.ready === true, null, 300000);
   await sleep(300);
 
