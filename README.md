@@ -329,6 +329,7 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `house.html`, `src/main.tsx` | The house |
 | `chimp.html`, `src/lab/chimpLab.ts` | The chimp lab: one chimp, no house |
 | `public/textures/screens/` | Screen artwork extracted from the reference images |
+| `public/models/`, `src/world/models/glb.ts` | Models made by others and shown in the house (credited in `public/models/CREDITS.md`; the files are in Git LFS), and the small reader that turns one into the house's own merged pieces: the showroom's firetruck (`props/firetruckModel.ts`; without the file the plinth keeps the code-built truck) |
 | `docs/plans/2026-10-02-blender-switch-plan.md` | The plan for moving the house into Blender once the layout is settled |
 | `art/ChimpHouse.blend` | The Blender master: links every room and zone, and holds the lights, sun, viewpoint cameras and render settings |
 | `art/rooms/` | One Blender file per room or zone (`upper-theatre.blend`, `structure.blend`…), each opening on its own; edit a room here and the master shows the change |
@@ -370,6 +371,7 @@ Picked: Lower › Arrival Lounge › Long curved teal sofa at (-9.81, 0.44, 2.09
 | `node tools/chimp-house-shots.mjs [out.png] [viewpoints]` | With `npm run dev` running, photograph your chimp in the house, behind and in front, at several viewpoints |
 | `node tools/wardrobe-shots.mjs <items> [views] [bodies] [out.png]` | With `npm run dev` running, photograph clothes on every kind of chimp in the chimp lab: a row per body (the wardrobe's five presets, the slimmest and the biggest chimp the settings make), a column per close view (`head3`, `headBack`, `neckFront`, `torso3`, `wristOut`…), into `captures/wardrobe-<items>.png` |
 | `node tools/chimp-eval.mjs "<js>"` | With `npm run dev` running, run a snippet in the chimp lab (`lab` is its hook) and print the result |
+| `node tools/prep-model.mjs <in.glb> <out.glb> [--texture 1024]` | Prepare a model someone shared for `public/models/`: a copy with its embedded textures scaled down to at most that many pixels a side, everything else unchanged |
 | `node tools/export-house.mjs` | With `npm run dev` running, export every room and zone to `art/test/house/` (one .glb each) with `scene.json`: the house's lights, sun and viewpoint cameras |
 | `blender --background --factory-startup --python tools/blender/build_blend.py -- <out.blend> <export.glb or folder>… [--rooms <dir>]` | Build Blender files from exports: Group › Zone collections (Lower, Upper, Building, Site), shared materials and images, quads and welded vertices rebuilt from glTF's triangles (so items can be reshaped), textures saved as PNGs beside it, each zone's leaves in a "· Foliage" collection, the lights, the sun and a camera per viewpoint. With `--rooms` it writes a file per room, the material library and a master that links them: `-- art/ChimpHouse.blend art/test/house --rooms art/rooms` |
 | `blender --background <file.blend> --python tools/blender/render_views.py -- <out dir> [view…] [--scale 50] [--samples 16]` | Render viewpoint cameras from a Blender file, e.g. to compare with `npm run capture` |

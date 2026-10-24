@@ -7,6 +7,7 @@ import { drawLeafEmblem } from "../materials/textures";
 import { WorldCtx, Zone } from "../context";
 import { makeCanvas } from "../materials/canvas";
 import { canvasMat } from "./tech";
+import { placeFiretruckModel } from "./firetruckModel";
 
 const STAND = "drumHardware";
 
@@ -615,8 +616,12 @@ export function studioMonitor(ctx: WorldCtx, z: Zone, m: Matrix, w: number, h: n
   ctx.g(z, "mint", { castShadow: false }).add(cylinder(0.006, 0.004, 8), xf(w * 0.32, 0.04 + 0.05, -d / 2 - 0.002, 0, 1, 1, 1, -Math.PI / 2).multiply(m));
 }
 
-/** Red firetruck display model (~1.6 m long), centred at m, length along X. */
+/**
+ * Red firetruck display model (~1.6 m long), centred at m, length along X, cab at +X, wheels
+ * on y = 0: its creator's model when it loaded (firetruckModel.ts), else this code-built one.
+ */
 export function firetruck(ctx: WorldCtx, z: Zone, m: Matrix, scale = 1): void {
+  if (placeFiretruckModel(ctx, z, m, scale)) return;
   const s = xf(0, 0, 0, 0, scale).multiply(m);
   const red = ctx.g(z, "red");
   red.add(softBox(0.5, 0.42, 0.5, 0.05), xf(0.55, 0.38, 0).multiply(s), "Firetruck model");

@@ -140,7 +140,7 @@ function buildShowroom(ctx: WorldCtx) {
   const pz = z1 - 2.1 * Math.sqrt(K);
   ctx.g(z, "panelHoney").add(lathe([[1.0, 0], [1.0, 0.42], [0.001, 0.42]], 40, false, false, 7), xf(px, U, pz), "Display plinth");
   ctx.g(z, "amberStrip", { castShadow: false }).add(lathe([[1.01, 0.38], [1.01, 0.4]], 40), xf(px, U, pz));
-  firetruck(ctx, z, xf(px, U + 0.43, pz - 0.05, faceYaw(0.5, -1) + Math.PI / 2), 0.9);
+  firetruck(ctx, z, xf(px, U + 0.42, pz - 0.05, faceYaw(0.5, -1) + Math.PI / 2), 0.9);
   for (let i = 0; i < 7; i++) {
     const a = r() * Math.PI * 2;
     const rr = 0.7 + r() * 0.22;
