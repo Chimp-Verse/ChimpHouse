@@ -11,7 +11,7 @@ npm install
 npm run dev        # http://localhost:5173 (the welcome page), the house at /house.html
 ```
 
-The site's root (`index.html`, `src/site/`) is a welcome page: what ChimpHouse is, a short video and a tour of every room, with an **Enter ChimpHouse** button. The house itself is `house.html` (http://localhost:5173/house.html, with the same `?view=`, `?pov=` and other address options as before). The welcome page's pictures are in `public/site/`: `node tools/site-shots.mjs` photographs a chimp in every room for it (with the builder's tools on, see below), and `public/site/concept/` holds small copies of the concept art.
+The site's root (`index.html`, `src/site/`) is a welcome page: what ChimpHouse is, a short video and a tour of every room, with an **Enter ChimpHouse** button. The house itself is `house.html` (http://localhost:5173/house.html, with the same `?view=`, `?pov=` and other address options as before). The welcome page's pictures are in `public/site/`: `node tools/site-shots.mjs` photographs every room for it from the fly-in camera, with no chimp in the picture, and your chimp for the "Your chimp" card (with the builder's tools on, see below), and `public/site/concept/` holds small copies of the concept art.
 
 The first load takes a few seconds while textures are painted and shaders compile. You arrive as your chimp, walking, at the spawn point in the entry hall just inside the front doors (`SPAWN` in `src/world/viewpoints.ts`), with the camera behind it. There is no step before it: your chimp is the one you dressed last time, or the default chimp on a first visit.
 
