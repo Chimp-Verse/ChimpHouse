@@ -23,14 +23,18 @@ const SHOTS = [
   { id: "courtyard", x: 0, y: 4.0, z: -31.5, yaw: 0, pitch: 5, fov: 1.0 },
   { id: "front-night", x: 0.5, y: 1.5, z: -30, yaw: 0, pitch: 2, fov: 1.0, night: true },
   { id: "aerial", view: "aerial" },
-  // indoors, from a high corner (lower level: up near the 4.8 m ceiling; upper: near 10.4 m)
+  // indoors, most from a high corner (lower level: up near the 4.8 m ceiling; upper: near 10.4 m);
+  // the game room, MixChimp and the showroom closer in, on what the room is for
   { id: "entry", x: 2.8, y: 2.6, z: 0.3, yaw: -10, pitch: 6, fov: 1.3 },
   { id: "lounge", x: -5.5, y: 4.0, z: 1.5, yaw: -48, pitch: 18, fov: 1.3 },
-  { id: "game", x: 7.5, y: 4.0, z: 1.0, yaw: 56, pitch: 18, fov: 1.3 },
+  // closer in: air hockey, the curved sofa and its TV, the arcade cabinets under the ChimpVibe sign
+  { id: "game", x: 8.5, y: 3.0, z: 2.5, yaw: 31.6, pitch: 14.7, fov: 1.0 },
   { id: "trading", x: -15, y: 4.2, z: 16.5, yaw: 80, pitch: 17, fov: 1.25 },
-  { id: "mixchimp", x: 8.6, y: 4.0, z: 16.0, yaw: -15, pitch: 12, fov: 1.25 },
+  // low and close: the production desk under the MIXCHIMP sign and the drum kit on its rug
+  { id: "mixchimp", x: 8.2, y: 1.9, z: 19.6, yaw: -42.5, pitch: 9.3, fov: 1.1 },
   { id: "gallery", x: 0, y: 9.8, z: 13, yaw: 180, pitch: 30, fov: 1.3 },
-  { id: "showroom", x: -8.2, y: 9.6, z: 1.8, yaw: -38, pitch: 18, fov: 1.3 },
+  // at eye height, close on the submission wall, the host desk, the featured build screen and the firetruck's table
+  { id: "showroom", x: -9.3, y: 7.5, z: 6.0, yaw: -22.8, pitch: 5.3, fov: 1.08 },
   { id: "theatre", x: -15.8, y: 9.4, z: 20.6, yaw: 90, pitch: 20, fov: 1.2 },
   { id: "bar", x: 7, y: 8.8, z: 13.6, yaw: 15, pitch: 12, fov: 1.25 },
   // a bird's-eye view over the terrace: the whole pool, the loungers and the fire pits

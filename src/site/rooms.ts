@@ -70,7 +70,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Arcade cabinets", "Game TV", "Pinball", "Claw machine", "Air hockey", "Foosball"],
     concept: "game",
-    alt: "The Game Room from above: arcade cabinets under the ChimpVibe sign, pinball, air hockey and foosball, and the curved teal sofa facing the big TV",
+    alt: "The Game Room up close: the air hockey table and foosball in front, arcade cabinets and pinball under the ChimpVibe sign, and the curved teal sofa facing the big TV",
   },
   {
     id: "trading",
@@ -96,7 +96,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Production desk", "Drum kit and guitars", "Vocal booth"],
     concept: "mixchimp",
-    alt: "The MixChimp Studio from above: the production desk under the lit MixChimp sign and the drum kit on its rug by the glass wall",
+    alt: "The MixChimp Studio up close: the production desk and its screens under the lit MixChimp sign, and the drum kit on its red rug by the glass wall",
   },
   {
     id: "gallery",
@@ -122,7 +122,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Submission wall", "Featured build screen", "Host desk and audience"],
     concept: "showroom",
-    alt: "The Community Builds Showroom from above: the submission wall, the featured build screen, the red firetruck model and teal sofas round a woven rug",
+    alt: "The Community Builds Showroom up close: the submission wall of community builds, the host desk, the Featured Build screen and the red firetruck model on its display table",
   },
   {
     id: "theatre",
