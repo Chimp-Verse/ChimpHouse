@@ -28,7 +28,7 @@ try {
   const ev = (fn, arg) => house.evaluate(fn, arg);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const waitFor = (fn, arg, timeout = 30000) => house.waitForFunction(fn, arg, { timeout, polling: 100 });
-  await house.goto(`${URL}/?view=entry&name=Ann`);
+  await house.goto(`${URL}/house.html?view=entry&name=Ann`);
   await waitFor(() => window.__chimp?.ready === true, null, 300000);
   await ev(() => window.__chimp.setWalking(true));
   await waitFor(() => !!window.__chimp.chimps.describe().mine, null, 60000);

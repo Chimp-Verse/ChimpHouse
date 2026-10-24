@@ -5,7 +5,7 @@ const views = process.argv.slice(2).length ? process.argv.slice(2) : ["entry", "
 const browser = await chromium.launch({ headless: true, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 1672, height: 941 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-await page.goto("http://localhost:5173/?capture=1");
+await page.goto("http://localhost:5173/house.html?capture=1");
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 const out = await page.evaluate(async (views) => {
   const c = window.__chimp;

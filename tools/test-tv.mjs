@@ -29,7 +29,7 @@ async function visitor(name) {
   const page = await context.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
   // three copies of the house in one browser: at low quality, or the third may not fit in an 8 GB Mac's memory
-  await page.goto(`${BASE}/?pov=first&view=game&tv=standin&name=${name}&quality=${QUALITY}`);
+  await page.goto(`${BASE}/house.html?pov=first&view=game&tv=standin&name=${name}&quality=${QUALITY}`);
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000, polling: 200 });
   await page.waitForFunction(() => window.__chimp.tv.catalog()?.games.length > 0, null, { timeout: 15000 });
   const ev = (fn, arg) => page.evaluate(fn, arg);

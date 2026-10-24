@@ -53,7 +53,7 @@ try {
   const settle = (n = 10) => ev((n) => window.__chimp.settle(n), n);
   const shot = (name) => page.screenshot({ path: `${SHOTS}/spawn-${name}.png` });
   const open = async (query) => {
-    await page.goto(`${URL}/?quality=low&arcade=standin${query}`);
+    await page.goto(`${URL}/house.html?quality=low&arcade=standin${query}`);
     await waitFor(() => window.__chimp?.ready === true, null, 300000);
     await waitFor(() => !!window.__chimp.chimps.describe().mine?.shown, null, 60000).catch(() => undefined);
     await settle(20);

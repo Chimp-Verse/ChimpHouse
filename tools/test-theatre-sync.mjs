@@ -52,7 +52,7 @@ async function visitor(name, { offline = false } = {}) {
     };
     if (navigator.keyboard) navigator.keyboard.lock = () => Promise.resolve();
   });
-  await page.goto(`${URL}/?pov=first&quality=low&view=theatre&theatre=standin`);
+  await page.goto(`${URL}/house.html?pov=first&quality=low&view=theatre&theatre=standin`);
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   const ev = (fn, a) => page.evaluate(fn, a);
   const v = {

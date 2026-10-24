@@ -11,7 +11,7 @@ const ARCH = /wall|floor|slab|glazing|glass|roof|ceiling|deck|rail|balustrade|be
 
 const browser = await chromium.launch({ headless: true, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 800, height: 450 } });
-await page.goto("http://localhost:5173/?capture=1");
+await page.goto("http://localhost:5173/house.html?capture=1");
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 const rooms = await page.evaluate(async () => (await import("/src/world/layout.ts")).ROOMS.map((r) => ({ id: r.id, level: r.level })));
 const roomIds = new Set(rooms.map((r) => r.id));

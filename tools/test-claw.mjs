@@ -22,7 +22,7 @@ process.on("uncaughtException", (e) => {
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 page.on("crash", () => console.log("[crash] the page crashed"));
-await page.goto(`${URL}/?pov=first&capture=1`);
+await page.goto(`${URL}/house.html?pov=first&capture=1`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 // from the machine as it opens: the room keeps the last pile, so a fresh one for everyone
 await page.evaluate(() => {

@@ -7,7 +7,7 @@ const [, , out, json, night] = process.argv;
 const poses = JSON.parse(json);
 const browser = await chromium.launch({ headless: true, args: ["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: 1672, height: 941 } });
-await page.goto(`http://localhost:5173/?capture=1${night ? "&night=1" : ""}`);
+await page.goto(`http://localhost:5173/house.html?capture=1${night ? "&night=1" : ""}`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 const tiles = [];
 for (let i = 0; i < poses.length; i++) {

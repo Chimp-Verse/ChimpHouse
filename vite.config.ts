@@ -1,5 +1,8 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { fileURLToPath } from "node:url";
+
+const page = (name: string) => fileURLToPath(new URL(name, import.meta.url));
 
 // `npm run dev:lan` (mode "lan", .env.lan) listens on the home network for
 // ChimpVibe's LAN demo; otherwise on localhost:5173. Both start the room server
@@ -21,6 +24,10 @@ export default defineConfig(({ mode }) => {
     // the glTF exporter is only imported when a room is downloaded; pre-bundle it so that
     // first download doesn't make the dev server reload the page
     optimizeDeps: { include: ["@babylonjs/serializers/glTF/2.0"] },
-    build: { chunkSizeWarningLimit: 8000 },
+    build: {
+      chunkSizeWarningLimit: 8000,
+      // two pages: the welcome page at the site's root, and the house itself (house.html)
+      rolldownOptions: { input: { index: page("index.html"), house: page("house.html") } },
+    },
   };
 });

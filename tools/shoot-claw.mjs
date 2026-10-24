@@ -12,7 +12,7 @@ page.on("crash", () => console.log("[crash] the page crashed"));
 const t0 = Date.now();
 const stamp = (what) => console.log(`[${((Date.now() - t0) / 1000).toFixed(0)}s] ${what}`);
 page.on("console", (m) => (m.type() === "error" || m.type() === "warning") && console.log(`[${m.type()}]`, m.text()));
-await page.goto(`${URL}/?capture=1`);
+await page.goto(`${URL}/house.html?capture=1`);
 await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
 stamp("ready");
 

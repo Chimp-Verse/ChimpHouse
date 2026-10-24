@@ -15,7 +15,7 @@ process.on("SIGTERM", () => void stop().then(() => process.exit(143)));
 try {
   const page = await browser.newPage({ viewport: { width: 960, height: 720 } });
   page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-  await page.goto(`${URL}/?capture=1&view=${views[0]}&quality=high`);
+  await page.goto(`${URL}/house.html?capture=1&view=${views[0]}&quality=high`);
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   // the HUD out of the way: only the scene
   await page.addStyleTag({ content: ".app > :not(.scene):not(.chimp-labels) { display: none !important; }" });

@@ -30,7 +30,7 @@ async function open(viewport = { width: 1400, height: 860 }, query = "capture=1&
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log(`[${name} pageerror]`, e.message));
-  await page.goto(`${URL}/?pov=first&${query}${name ? `&name=${name}` : ""}${process.env.QUALITY && !query.includes("quality") ? `&quality=${process.env.QUALITY}` : ""}`, { timeout: 180000, waitUntil: "domcontentloaded" });
+  await page.goto(`${URL}/house.html?pov=first&${query}${name ? `&name=${name}` : ""}${process.env.QUALITY && !query.includes("quality") ? `&quality=${process.env.QUALITY}` : ""}`, { timeout: 180000, waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => window.__chimp?.ready === true, null, { timeout: 300000 });
   return page;
 }

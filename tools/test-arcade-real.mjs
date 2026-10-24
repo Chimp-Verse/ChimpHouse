@@ -28,7 +28,7 @@ const ev = (fn, arg) => page.evaluate(fn, arg);
 const settle = (n = 10) => ev((n) => window.__chimp.settle(n), n);
 const waitFor = (fn, arg, timeout = 8000) => page.waitForFunction(fn, arg, { timeout, polling: 50 });
 
-await page.goto(`${URL}/?view=game&arcade=local`);
+await page.goto(`${URL}/house.html?view=game&arcade=local`);
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await ev(() => window.__chimp.arcade.ready());
 await settle(20);

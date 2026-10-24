@@ -58,7 +58,7 @@ const geometry = () =>
     return { carX: floor.x, carZ: floor.z, doorZ: doorBox.centerWorld.z, doorX: doorBox.centerWorld.x, callX: call.x, callZ: call.z };
   });
 
-await page.goto(`${URL}/?pov=first&view=entry`);
+await page.goto(`${URL}/house.html?pov=first&view=entry`);
 await waitFor(() => window.__chimp?.ready === true, null, 300000);
 await sleep(500);
 
