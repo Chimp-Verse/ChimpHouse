@@ -8,6 +8,7 @@ import { BAR, CANOPY_BAR, GAME, LEVEL, LIFT_DOOR, LOUNGE, MIX, MIX_CORNER, MIX_D
 import { glazing } from "./elements";
 import { insideTrunk } from "./trunks";
 import { loungeBar } from "../rooms/lounge";
+import { buildBathroom } from "../rooms/bathroom";
 
 export type Edge = "glass" | "wall" | "open";
 
@@ -208,13 +209,21 @@ function buildCoreWalls(ctx: WorldCtx) {
     w.add(box(dm - 0.5 - wc.x0, h, 0.15), xf((wc.x0 + dm - 0.5) / 2, y0 + h / 2, wc.z0));
     w.add(box(wc.x1 + 0.2 - (dm + 0.5), h, 0.15), xf((dm + 0.5 + wc.x1 + 0.2) / 2, y0 + h / 2, wc.z0));
     w.add(box(1.0, h - 2.25, 0.15), xf(dm, y0 + 2.25 + (h - 2.25) / 2, wc.z0));
-    w.add(box(0.15, h, wc.z1 - wc.z0), xf(wc.x0, y0 + h / 2, (wc.z0 + wc.z1) / 2));
+    // the west wall runs right up to the rear wall's inner face, leaving no slit to the stair hall
+    const wz1 = z1 - 0.125;
+    w.add(box(0.15, h, wz1 - wc.z0), xf(wc.x0, y0 + h / 2, (wc.z0 + wz1) / 2));
+    // a walnut barn door on a brass rail, slid open to the east along the corridor wall
     const door = ctx.g(zz, "timberDark");
     door.setLabel("WC door");
-    door.add(box(0.9, 2.2, 0.06), xf((wc.x0 + wc.x1) / 2, y0 + 1.1, wc.z0 - 0.08));
-    const wcFix = ctx.g(zz, "white");
-    wcFix.setLabel("WC fixtures");
-    wcFix.add(box(0.4, 0.42, 0.65), xf(wc.x1 - 0.5, y0 + 0.21, wc.z1 - 0.5));
-    wcFix.add(box(0.55, 0.12, 0.42), xf(wc.x0 + 0.5, y0 + 0.85, wc.z1 - 0.3));
+    const dx = dm + 1.0;
+    const dz = wc.z0 - 0.075 - 0.03;
+    door.add(box(0.9, 2.2, 0.05), xf(dx, y0 + 0.022 + 1.1, dz));
+    for (const ry of [0.35, 1.1, 1.85]) door.add(box(0.82, 0.08, 0.012), xf(dx, y0 + 0.022 + ry, dz - 0.031));
+    const rail = ctx.g(zz, "brass");
+    rail.setLabel("WC door rail");
+    rail.add(box(2.1, 0.035, 0.02), xf(dm + 0.45, y0 + 2.36, wc.z0 - 0.085));
+    for (const s of [-0.3, 0.3]) rail.add(cylinder(0.04, 0.02, 16), xf(dx + s, y0 + 2.36, wc.z0 - 0.105, 0, 1, 1, 1, Math.PI / 2));
+    rail.add(box(0.025, 0.4, 0.025), xf(dx - 0.38, y0 + 1.1, dz - 0.045), "WC door handle");
+    buildBathroom(ctx, level);
   }
 }
