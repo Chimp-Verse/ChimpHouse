@@ -122,7 +122,7 @@ function Video() {
   }, []);
   return (
     <video ref={ref} className="video" src="/site/chimphouse-intro.webm" poster={pic("courtyard")} autoPlay muted loop playsInline controls preload="metadata">
-      A 30-second tour of ChimpHouse.
+      A 52-second tour of ChimpHouse.
     </video>
   );
 }
@@ -245,7 +245,7 @@ export function Site() {
 
         <section className="band tour" id="tour">
           <div className="band-head reveal">
-            <div className="kicker">30 seconds inside</div>
+            <div className="kicker">52 seconds inside</div>
             <h2>Come hang out</h2>
           </div>
           <div className="video-frame reveal">
