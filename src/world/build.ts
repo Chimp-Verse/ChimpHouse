@@ -1,4 +1,5 @@
 import { loadChimpVibeMark } from "./props/lettering3d";
+import { loadFiretruckModel } from "./props/firetruckModel";
 import { Scene } from "@babylonjs/core";
 import { WorldCtx } from "./context";
 import { Materials } from "./materials/library";
@@ -33,7 +34,7 @@ export type Progress = (fraction: number, message: string) => Promise<void>;
 /** Build the whole ChimpHouse scene. */
 export async function buildWorld(scene: Scene, progress: Progress): Promise<World> {
   await fontsReady(["700 64px Cinzel", "500 64px Montserrat", "600 64px Montserrat", "700 64px Montserrat", "800 64px Nunito"]);
-  await loadChimpVibeMark();
+  await Promise.all([loadChimpVibeMark(), loadFiretruckModel()]);
   const mats = new Materials(scene);
   let step = 0;
   const steps = 18;
