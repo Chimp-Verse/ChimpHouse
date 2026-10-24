@@ -121,7 +121,7 @@ function Video() {
     }
   }, []);
   return (
-    <video ref={ref} className="video" src="/site/chimphouse-intro.mp4" poster={pic("courtyard")} autoPlay muted loop playsInline controls preload="metadata">
+    <video ref={ref} className="video" src="/site/chimphouse-intro.webm" poster={pic("courtyard")} autoPlay muted loop playsInline controls preload="metadata">
       A 30-second tour of ChimpHouse.
     </video>
   );
