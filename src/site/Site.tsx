@@ -127,15 +127,53 @@ function Video() {
   );
 }
 
-function RoomSection({ room, index }: { room: Room; index: number }) {
+/** The enlarged view: a native modal dialog (focus is held inside, Esc closes it, focus returns to the inset). It shows the concept art or the real 3D view, switched by a two-option toggle. */
+function Lightbox({ room, onClose }: { room: Room; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [view, setView] = useState<"concept" | "house">("concept");
+  useEffect(() => {
+    const d = ref.current;
+    if (d && !d.open) d.showModal();
+    document.documentElement.classList.add("lb-open");
+    return () => document.documentElement.classList.remove("lb-open");
+  }, []);
+  const concept = view === "concept";
+  const options: ["concept" | "house", string][] = [
+    ["concept", "Concept art"],
+    ["house", "In the house"],
+  ];
+  return (
+    <dialog ref={ref} className="lightbox" aria-label={`${room.name}, enlarged`} onClose={onClose} onClick={(e) => e.target === ref.current && ref.current?.close()}>
+      <div className="lb-body">
+        <button type="button" className="lb-close" aria-label="Close" onClick={() => ref.current?.close()}>
+          &times;
+        </button>
+        <div className="lb-toggle" role="group" aria-label="Which picture to show">
+          {options.map(([v, label]) => (
+            <button key={v} type="button" aria-pressed={view === v} className={view === v ? "on" : ""} onClick={() => setView(v)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <img className="lb-img" key={view} src={concept ? `/site/concept/${room.concept}.webp` : pic(room.id)} alt={concept ? `Concept art for ${room.name}` : room.alt} />
+        <p className="lb-caption">{concept ? `${room.name}: the concept art it was built from.` : `${room.name}: the same place, in the house.`}</p>
+      </div>
+    </dialog>
+  );
+}
+
+function RoomSection({ room, index, onOpen }: { room: Room; index: number; onOpen: (room: Room, from: HTMLElement) => void }) {
   return (
     <section className={`room ${index % 2 ? "flip" : ""}`} id={room.id} aria-labelledby={`${room.id}-name`}>
       <figure className="room-shot reveal">
         <img src={pic(room.id)} srcSet={srcSet(room.id)} sizes="(max-width: 860px) 100vw, 58vw" alt={room.alt} loading="lazy" decoding="async" width={1600} height={900} />
         {room.concept && (
           <figcaption className="concept">
-            <img src={`/site/concept/${room.concept}.webp`} alt="" loading="lazy" decoding="async" width={720} height={405} />
-            <span>Concept art</span>
+            <button type="button" className="concept-btn" aria-haspopup="dialog" aria-label={`Enlarge the concept art for ${room.name}`} onClick={(e) => onOpen(room, e.currentTarget)}>
+              <img src={`/site/concept/${room.concept}.webp`} alt="" loading="lazy" decoding="async" width={720} height={405} />
+              <span>Concept art</span>
+              <em>Click to enlarge</em>
+            </button>
           </figcaption>
         )}
       </figure>
@@ -160,6 +198,12 @@ export function Site() {
   useReveal();
   useScrollVars();
   const current = useCurrentRoom();
+  const [open, setOpen] = useState<Room | null>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const close = () => {
+    setOpen(null);
+    opener.current?.focus();
+  };
   const lower = ROOMS.filter((r) => r.where.startsWith("Lower") || r.where.startsWith("Arrival"));
   const upper = ROOMS.filter((r) => r.where.startsWith("Upper"));
   return (
@@ -287,7 +331,15 @@ export function Site() {
             ))}
           </nav>
           {ROOMS.map((r, i) => (
-            <RoomSection key={r.id} room={r} index={i} />
+            <RoomSection
+              key={r.id}
+              room={r}
+              index={i}
+              onOpen={(room, from) => {
+                opener.current = from;
+                setOpen(room);
+              }}
+            />
           ))}
         </div>
 
@@ -308,6 +360,7 @@ export function Site() {
         <span>ChimpHouse is part of ChimpVerse, made with the ChimpVibe community.</span>
         <a href={HOUSE}>Enter ChimpHouse</a>
       </footer>
+      {open && <Lightbox room={open} onClose={close} />}
     </>
   );
 }
