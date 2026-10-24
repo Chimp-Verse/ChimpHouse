@@ -31,7 +31,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Fountain and planted paths", "Broad timber stairs", "Lanterns after dark"],
     concept: "front",
-    alt: "A chimp standing in the front courtyard, the fountain and the curved timber front of ChimpHouse ahead",
+    alt: "The front courtyard from above the path: the fountain in its round paved court, the broad timber stairs and the curved timber front of ChimpHouse",
   },
   {
     id: "entry",
@@ -44,7 +44,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Emblem rug welcome area", "Atrium open to both floors", "Stair and lift upstairs"],
     concept: "entry",
-    alt: "A chimp at the glass front doors looking into the entry hall, its emblem rug and the gallery above",
+    alt: "The entry hall just inside the front doors: the botanical-emblem rug, the tree trunks and the gallery ringing the atrium above",
   },
   {
     id: "lounge",
@@ -57,7 +57,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Curved teal sofa", "Refreshments counter", "Jungle views"],
     concept: "lounge",
-    alt: "A chimp in the arrival lounge, with round tables, a woven rug and the refreshments counter behind",
+    alt: "The Arrival Lounge from above: the curved teal sofa along the glass wall, round tables on a woven rug and the refreshments counter beside the tree trunk",
   },
   {
     id: "game",
@@ -70,7 +70,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Arcade cabinets", "Game TV", "Pinball", "Claw machine", "Air hockey", "Foosball"],
     concept: "game",
-    alt: "A chimp in the Game Room by the curved teal sofa, the big TV, pinball tables and the claw machine",
+    alt: "The Game Room from above: arcade cabinets under the ChimpVibe sign, pinball, air hockey and foosball, and the curved teal sofa facing the big TV",
   },
   {
     id: "trading",
@@ -83,7 +83,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Simulated market wall", "Multi-monitor desks", "Order book and tape"],
     concept: "trading",
-    alt: "A chimp in the Trading Room facing the big Simulated Market chart and the trading desks",
+    alt: "The Trading Room from above: the big Simulated Market screen over the trading desks and their monitors",
   },
   {
     id: "mixchimp",
@@ -96,7 +96,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Production desk", "Drum kit and guitars", "Vocal booth"],
     concept: "mixchimp",
-    alt: "A chimp in the MixChimp Studio between the production desk and the drum kit, under the MixChimp sign",
+    alt: "The MixChimp Studio from above: the production desk under the lit MixChimp sign and the drum kit on its rug by the glass wall",
   },
   {
     id: "gallery",
@@ -109,7 +109,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Atrium overlook", "Signs to every room", "Lift and stair"],
     concept: "gallery",
-    alt: "A chimp on the upper gallery beside the round glass railing around the atrium",
+    alt: "The upper gallery from above: the round glass railing around the atrium, the emblem rug far below and the signs to the rooms",
   },
   {
     id: "showroom",
@@ -122,7 +122,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Submission wall", "Featured build screen", "Host desk and audience"],
     concept: "showroom",
-    alt: "A chimp in the Community Builds Showroom near the featured build screen and the red firetruck model",
+    alt: "The Community Builds Showroom from above: the submission wall, the featured build screen, the red firetruck model and teal sofas round a woven rug",
   },
   {
     id: "theatre",
@@ -135,7 +135,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Big screen", "YouTube and live streams", "Shared remotes"],
     concept: "theatre",
-    alt: "A chimp in the theatre between rows of teal sofas, facing the big ChimpHouse Theatre screen",
+    alt: "The theatre from the back row: two rows of teal sofas facing the big ChimpHouse Theatre screen and its speakers",
   },
   {
     id: "bar",
@@ -148,7 +148,7 @@ export const ROOMS: Room[] = [
     ],
     things: ["Curved bar", "Sofas round a fire pit", "Open to the pool"],
     concept: "poolbar",
-    alt: "A chimp standing by the fire pit and teal sofas, the Canopy Bar behind",
+    alt: "The Canopy Bar & Lounge: the bar with its stools and glowing shelves under the Canopy Bar sign, teal sofas and armchairs round low tables, and the treetops beyond",
   },
   {
     id: "pool",
@@ -160,7 +160,7 @@ export const ROOMS: Room[] = [
       "At night the pool glows cyan against the amber bar and the mint lights of the house.",
     ],
     things: ["Infinity pool", "Loungers", "Canopy views"],
-    alt: "A chimp wading in the turquoise pool, the Canopy Bar and the jungle beyond",
+    alt: "A bird's-eye view of the pool terrace: the turquoise infinity pool with its floats, loungers along the water and sofas round the fire pits",
   },
   {
     id: "bridge",
@@ -173,6 +173,6 @@ export const ROOMS: Room[] = [
     ],
     things: ["Suspension bridge", "Side entrance", "Views through the leaves"],
     concept: "bridge",
-    alt: "A chimp crossing the canopy bridge towards the side entrance of ChimpHouse",
+    alt: "The canopy bridge seen from the jungle beside it, its timber deck and cable handrails spanning the treetops to the side entrance of ChimpHouse",
   },
 ];
