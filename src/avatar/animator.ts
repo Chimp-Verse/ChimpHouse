@@ -570,8 +570,9 @@ export class ChimpAnimator {
         // sitting sideways on a chair's edge, the elbows tucked in, not out into its back (or a desk it is pulled up to)
         const turn = seat?.turn ?? 0;
         let tuck = edge && seat?.from === "side" && seat.back != null ? Math.abs(Math.sin(turn)) * (1 - smooth(clamp(tb / 0.7, 0, 1))) : 0;
-        // (and beside something close at its elbows, seated: a counter's end, a booth's wall)
-        const beside = seat?.elbows?.[i === 0 ? 1 : 0] ?? Infinity;
+        // (and on a stool, beside something close at its elbows, seated: a counter's end, a booth's wall;
+        // not a sofa's cushions, which its arms rest on)
+        const beside = seat?.back == null ? seat?.elbows?.[i === 0 ? 1 : 0] ?? Infinity : Infinity;
         tuck = Math.max(tuck, clamp((0.55 * k - beside) / (0.25 * k), 0, 1) * w);
         this.reach(side, i, hand, bodyYaw, smooth(clamp(ta / 0.3, 0, 1)), tuck);
       }
@@ -627,8 +628,8 @@ export class ChimpAnimator {
     if (back === null && shape.room !== undefined) {
       const toes = hz + aH + b * Math.sin(0.15) + B.toe * k + 0.02;
       const over = toes - shape.room;
-      // (never so far back that the knees are on the seat: the legs hang over its edge still)
-      if (over > 0) hz = Math.max(hz - Math.min(over, Math.max(0, (shape.rear ?? 0.2) - B.rump * k * 0.6)), Math.min(hz, depth + 0.01 - aH));
+      // (never so far back that the knees are on the seat: the legs hang over its edge still, the calves clear of a cushion's rounded side)
+      if (over > 0) hz = Math.max(hz - Math.min(over, Math.max(0, (shape.rear ?? 0.2) - B.rump * k * 0.6)), Math.min(hz, depth + 0.045 - aH));
     }
     const slouch = back !== null ? hz - hz0 : 0;
     // the body leans back as the seat's back does (and further, slouched), upright on a backless one
@@ -686,7 +687,8 @@ export class ChimpAnimator {
           ay = footY;
           if (shape.footrest !== undefined) {
             const ring = Math.min(depth * 0.85, 0.17);
-            az = clamp(ring, kz - run, kz + run * 0.3);
+            // (the shin no further back under the seat than about upright: the calf clear of the cushion's front)
+            az = clamp(Math.max(ring, kz - 0.03 * k), kz - run, kz + run * 0.3);
             ay = ky - Math.sqrt(Math.max(1e-6, b * b - (az - kz) ** 2));
             fp = 0.3;
             planted = false;
@@ -799,7 +801,8 @@ export class ChimpAnimator {
     const hand = [mix(a.hand[0], b.hand[0]), mix(a.hand[1], b.hand[1])];
     // something in front by the feet (a desk's front panel): sliding back onto the seat sooner, as
     // far as keeps the knees and toes clear of it as the legs swing round to it
-    if (seat.room !== undefined && Number.isFinite(seat.room)) {
+    // (legs hanging down: on a lounging seat they lie along it, over its front)
+    if (seat.legs === "down" && seat.room !== undefined && Number.isFinite(seat.room)) {
       const turn = seat.turn ?? 0;
       const fx = Math.sin(turn);
       const fz = Math.cos(turn);

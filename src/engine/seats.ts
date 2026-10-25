@@ -228,8 +228,11 @@ export class Seats {
       // top, the next stool's cushion, and over it, a counter's top: where an arm hangs)
       const room = (d: Vector3) => {
         let r = Infinity;
-        const from = wide + 0.04;
-        for (const up of [0.3, 0.6, 0.9, p.height - 0.03, p.height + 0.28]) r = Math.min(r, from + w.world.raycast(seat.at.x + d.x * from, seat.floor + up, seat.at.z + d.z * from, d.x, 0, d.z, 2) - wide);
+        for (const up of [0.3, 0.6, 0.9, p.height - 0.03, p.height + 0.28]) {
+          // (from past the seat's own side: under its top, past what it stands on, a lounger's side rail)
+          const from = (up < p.height - 0.05 ? Math.max(wide, p.sideBase ?? 0) : wide) + 0.04;
+          r = Math.min(r, from + w.world.raycast(seat.at.x + d.x * from, seat.floor + up, seat.at.z + d.z * from, d.x, 0, d.z, 2) - wide);
+        }
         return r;
       };
       const mine = Vector3.Dot(w.feet.subtract(seat.at), right) < 0 ? right.scale(-1) : right;
@@ -239,7 +242,7 @@ export class Seats {
       const ro = room(other);
       to = rm < need && ro > rm ? other : mine;
       // both sides crowded (a stool in a row of them): beside it and back, toward where the visitor came from
-      if (Math.max(rm, ro) < need) {
+      if (seat.info.turn && Math.max(rm, ro) < need) {
         const slant = to.scale(0.6).subtractInPlace(f.scale(0.8)).normalize();
         if (room(slant) > Math.max(rm, ro)) to = slant;
       }
