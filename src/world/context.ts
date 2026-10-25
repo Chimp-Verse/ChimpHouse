@@ -54,6 +54,31 @@ export interface SlotMeta {
   stand: [number, number, number];
 }
 
+/**
+ * How a seat is sat on (a seat slot's `seat`, roles.ts ROLE.seat): what the chimp's seated pose
+ * (avatar/animator.ts) and the seats (engine/seats.ts) need, whoever built the seat. The room export
+ * carries it as flat custom properties (seatKind, seatHeight…), so a seat modelled in Blender says the same.
+ */
+export interface SeatInfo {
+  /** what it is, for the prompt and a seat modelled for it */
+  kind: "sofa" | "armchair" | "chair" | "stool" | "pouf" | "bench" | "lounger" | "daybed" | "beanBag" | "eggChair" | "toilet";
+  /** the seat's top above the floor the sitter's feet rest on (m): the slot is on the top, where the hips go */
+  height: number;
+  /** how far a sitter leans back against its back (radians); 0 without a back */
+  recline: number;
+  /** the legs: "down" to the floor (or to a foot rail, or hanging), or "out" along the seat (a lounger, a daybed) */
+  legs: "down" | "out";
+  /** a foot rail's height above the floor (a bar stool's ring), if it has one */
+  footrest?: number;
+  /** a sitter faces the way they looked as they sat (a stool, a pouf), not the slot's front */
+  turn?: boolean;
+}
+
+/** A seat's slot: where it is, and how it is sat on. */
+export interface SeatMeta extends SlotMeta {
+  seat: SeatInfo;
+}
+
 const ROOM_NAMES: Record<string, string> = {
   entryHall: "Entry Hall & Atrium",
   arrivalLounge: "Arrival Lounge",

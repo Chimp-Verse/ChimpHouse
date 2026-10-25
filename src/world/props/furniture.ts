@@ -6,6 +6,7 @@ import { P2, pathLength, pointAt, resample } from "../geometry/curves";
 import { Geo, at, beam, box, cylinder, disc, fixWinding, lathe, softBox, sweep, torus, xf } from "../geometry/geo";
 import { WorldCtx, Zone } from "../context";
 import { yawAlong } from "../structure/elements";
+import { seat } from "./seats";
 
 export type Rand = () => number;
 
@@ -53,6 +54,8 @@ export function sofa(
     local.add(softBox(seg - 0.03, 0.2, depth - 0.24, 0.07, 0.025), xf(0, y + 0.31, 0.06));
     local.add(softBox(seg - 0.05, 0.46, 0.22, 0.09, 0.03), xf(0, y + 0.62, -(depth / 2 - 0.21), 0, 1, 1, 1, -0.12));
     g.add(local, m);
+    // a place to sit on each module: the hips just in front of the back cushion, facing out (+Z)
+    seat(ctx, z, xf(0, y + 0.4, -(depth / 2 - 0.45), Math.PI).multiply(m), { kind: "sofa", height: 0.4, recline: 0.14, legs: "down" }, label);
   }
   if (arms) {
     for (const end of [0, len]) {
@@ -86,6 +89,7 @@ export function pouf(ctx: WorldCtx, z: Zone, pos: Vector3, r: number, h: number,
   prof.splice(1, 0, [r * 0.85, 0.005]);
   prof.push([0.001, h]);
   ctx.g(z, mat).add(lathe(prof, 28), xf(pos.x, pos.y, pos.z), label);
+  seat(ctx, z, xf(pos.x, pos.y + h - 0.02, pos.z), { kind: "pouf", height: h - 0.02, recline: 0, legs: "down", turn: true }, label);
 }
 
 /** Drum coffee table with vertical slats (panel texture) and round top. */
@@ -107,6 +111,8 @@ export function stool(ctx: WorldCtx, z: Zone, pos: Vector3, h: number, seatMat: 
   legs.add(torus(0.17, 0.012, 20, 5), xf(pos.x, pos.y + h * 0.33, pos.z));
   ctx.g(z, seatMat).add(softBox(0.4, 0.1, 0.4, 0.05, 0.02), xf(pos.x, pos.y + h - 0.02, pos.z), label);
   ctx.g(z, seatMat).add(cylinder(0.2, 0.08, 20), xf(pos.x, pos.y + h - 0.09, pos.z));
+  // sat on facing the way the sitter looks (to the counter), feet on the ring
+  seat(ctx, z, xf(pos.x, pos.y + h + 0.02, pos.z), { kind: "stool", height: h + 0.02, recline: 0, legs: "down", footrest: h * 0.33 + 0.01, turn: true }, label);
 }
 
 /** Rounded tub armchair facing -Z in local space. */
@@ -135,6 +141,7 @@ export function armchair(ctx: WorldCtx, z: Zone, pos: Vector3, yaw: number, mat:
   g.add(softBox(0.62, 0.14, 0.58, 0.06, 0.03), xf(0, 0.48, -0.04));
   ctx.g(z, mat).add(g, m, "Armchair");
   if (pillow) ctx.g(z, pillow).add(softBox(0.42, 0.38, 0.13, 0.05, 0.04), xf(0, 0.72, 0.18, 0, 1, 1, 1, 0.3).multiply(m), "Cushion");
+  seat(ctx, z, xf(0, 0.52, 0.02).multiply(m), { kind: "armchair", height: 0.52, recline: 0.18, legs: "down" }, "Armchair");
 }
 
 /** Round woven rug with its own texture material. */
@@ -207,6 +214,8 @@ export function lounger(ctx: WorldCtx, z: Zone, pos: Vector3, yaw: number, o: { 
   cush.add(softBox(0.42, 0.1, 0.22, 0.045, 0.03), xf(pc.x, pc.y, pc.z, 0, 1, 1, 1, -th));
   ctx.g(z, "cream").add(cush, m, "Lounger cushion");
   if (o.towel) ctx.g(z, o.towel).add(cylinder(0.055, 0.52, 16), xf(-0.26, h + 0.075 + 0.055, zf + 0.2, 0, 1, 1, 1, 0, -Math.PI / 2).multiply(m), "Rolled towel");
+  // lying back on the raised backrest, the legs out along the cushion toward the foot
+  seat(ctx, z, xf(0, h + 0.07, zh - 0.12).multiply(m), { kind: "lounger", height: h + 0.07, recline: th, legs: "out" }, "Sun lounger");
 }
 
 /** Wall shelving unit with warm under-shelf strips. Local: back on +Z, facing -Z. */

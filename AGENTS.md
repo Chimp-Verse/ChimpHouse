@@ -23,6 +23,7 @@ The house is live, not a fixed scene (the plan's "Dynamic rooms and the order of
 These are built on the code world before the Blender cut-over, and built to survive it:
 
 - Attach behaviour by **role** and **slot**: the client finds "the theatre screen" or "cabinet slot 3" through metadata on the object, which the Blender files will carry too, never through how the code happens to build it. Give each new screen, slot or interactive spot its role in the code that creates it.
+- Every seat-type prop (a sofa, chair, stool, bench…) adds a seat slot for each sitter with `seat()` (`world/props/seats.ts`), on the seat's top, facing the way its sitter does, saying how it is sat on; chimps sit by that alone (`engine/seats.ts`). `tools/test-sit.mjs` checks every seat can be sat on.
 - Keep dynamic things as runtime data: the list of admitted games and each game's art come from ChimpVibe, screen images are placeholders, and video and game content loads when someone uses it.
 - Show another site's content (a YouTube player, a game hosted on ChimpVibe's site) as an overlay lined up with its screen or in a panel: browsers don't let it be drawn onto a 3D surface. Content running in ChimpVerse's own page can be drawn onto the screen.
 

@@ -59,6 +59,14 @@ export class Walker {
   eye = AVATAR.eye;
   private cp = new Float64Array(3);
   private under = emptyProbe();
+  /**
+   * Sitting (engine/seats.ts): the feet held at a seat's place on the floor and the eye at the seated
+   * chimp's, easing there; no walking or falling meanwhile. `release`: getting up, easing back to a
+   * place to stand, where walking takes over again.
+   */
+  private held: { x: number; z: number; floor: number; eye: number; release: boolean } | null = null;
+  /** Whether the walking keys were held this frame while sitting: a sitter who walks gets up. */
+  wantsToMove = false;
 
   /** the house's solid triangles; replaced when cabinets come or go */
   constructor(public world: CollisionWorld) {}
@@ -78,6 +86,25 @@ export class Walker {
     return { x: this.vel.x, z: this.vel.z };
   }
 
+  /** Sitting on a seat, or getting up from one (see `sit`). */
+  get seated(): boolean {
+    return !!this.held;
+  }
+
+  /** Sit: the feet ease to (x, z) on the floor at `floor`, the eye to `eye` above it; walking stops until `stand`. */
+  sit(x: number, z: number, floor: number, eye: number): void {
+    this.held = { x, z, floor, eye, release: false };
+    this.vel.setAll(0);
+    this.vy = 0;
+    this.slideX = this.slideZ = 0;
+  }
+
+  /** Get up: ease back to (x, z) on the floor at `floor` (a place to stand), then walk on from there. */
+  stand(x: number, z: number, floor: number): void {
+    if (!this.held) return;
+    this.held = { x, z, floor, eye: this.eye, release: true };
+  }
+
   /** On the ground (not falling). */
   get onGround(): boolean {
     return this.grounded;
@@ -90,6 +117,8 @@ export class Walker {
    */
   place(x: number, y: number, z: number, drop: number): boolean {
     this.world.syncMovers();
+    // put somewhere else (a viewpoint), a sitter is up at once
+    this.held = null;
     const p = emptyProbe(this.under);
     this.world.probe(x, z, y, y - drop, p);
     if (p.anyY === -Infinity) return false;
@@ -111,6 +140,11 @@ export class Walker {
   update(dt: number, wantX: number, wantZ: number): void {
     // the lift car and its doors are where they are this frame (engine/lift.ts moves them first)
     this.world.syncMovers();
+    if (this.held) {
+      this.hold(dt, Math.hypot(wantX, wantZ) > 0);
+      return;
+    }
+    this.wantsToMove = false;
     const blend = 1 - Math.exp(-dt * 12);
     this.vel.x += (wantX - this.vel.x) * blend;
     this.vel.z += (wantZ - this.vel.z) * blend;
@@ -147,6 +181,26 @@ export class Walker {
       this.safe.copyFrom(this.feet);
     }
     if (this.feet.y < this.safe.y - 60) this.place(this.safe.x, this.safe.y + 0.5, this.safe.z, 1);
+  }
+
+  /** Sitting, or getting up: the feet and eye ease to the seat's (or the place to stand), nothing else moves. */
+  private hold(dt: number, want: boolean) {
+    const h = this.held!;
+    this.wantsToMove = want;
+    const k = 1 - Math.exp(-dt * 5);
+    this.feet.x += (h.x - this.feet.x) * k;
+    this.feet.z += (h.z - this.feet.z) * k;
+    this.feet.y = h.floor;
+    this.vel.setAll(0);
+    this.vy = 0;
+    this.grounded = true;
+    this.camY += (h.floor + h.eye - this.camY) * (1 - Math.exp(-dt * 6));
+    if (h.release && Math.hypot(h.x - this.feet.x, h.z - this.feet.z) < 0.03) {
+      // up: walking again from the place to stand, the eye easing on up from where it is
+      const eye = this.camY;
+      if (!this.place(h.x, h.floor + 0.3, h.z, 1.5)) this.held = null;
+      this.camY = eye;
+    }
   }
 
   private step(h: number) {

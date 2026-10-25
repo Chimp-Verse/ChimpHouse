@@ -8,6 +8,7 @@
 import { Matrix } from "@babylonjs/core";
 import { lathe, softBox, torus, xf } from "../geometry/geo";
 import { WorldCtx, Zone } from "../context";
+import { seat } from "./seats";
 
 /** The games room's shared colours and neons, which its other builders and the room itself use too. */
 function mats(ctx: WorldCtx) {
@@ -48,5 +49,7 @@ export function beanBag(ctx: WorldCtx, z: Zone, m: Matrix, mat: string): void {
   // the seat hollow and the raised back
   ctx.g(z, mat).add(softBox(0.62, 0.22, 0.42, 0.1, 0.06), xf(0, 0.48, 0.18, 0, 1, 1, 1, -0.35).multiply(m), "Bean bag");
   ctx.g(z, "white").add(torus(0.05, 0.006, 12, 4), xf(0.33, 0.33, -0.25, 0.6, 1, 1, 1, Math.PI / 2).multiply(m));
+  // sunk low into its hollow, leaning back into the raised back, knees up
+  seat(ctx, z, xf(0, 0.32, -0.02).multiply(m), { kind: "beanBag", height: 0.32, recline: 0.45, legs: "down" }, "Bean bag");
 }
 

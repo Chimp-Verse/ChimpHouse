@@ -191,7 +191,7 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {!s.pointerLocked && s.walking && (
         <div className="hint">
-          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · wheel to bring the camera in or out · <b>V</b> your chimp's eyes · <b>C</b> dress your chimp · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote or controller, pick up a plush or use the lift ·{" "}
+          Click to look around · <b>WASD</b> walk · <b>Shift</b> run · right-drag to look · wheel to bring the camera in or out · <b>V</b> your chimp's eyes · <b>C</b> dress your chimp · <b>E</b> play a cabinet or a game-room machine, watch the screen, take a remote or controller, pick up a plush, use the lift or sit down ·{" "}
           {FLY_IN_ENABLED && (
             <>
               <b>F</b> fly ·{" "}
@@ -302,7 +302,24 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
         </div>
       )}
       <PlushPrompt s={s} />
-      {s.walking && s.snackPrompt && !s.plushPrompt && (
+      {s.walking && s.seatPrompt && (
+        <div className="play-prompt low">
+          {s.seatPrompt.action === "taken" ? (
+            <>
+              {s.seatPrompt.who} is sitting there<span>one chimp to a seat</span>
+            </>
+          ) : s.seatPrompt.action === "sit" ? (
+            <>
+              <kbd>E</kbd>Sit down<span>on the {s.seatPrompt.label}</span>
+            </>
+          ) : (
+            <>
+              <kbd>E</kbd>Stand up<span>or walk, or Esc</span>
+            </>
+          )}
+        </div>
+      )}
+      {s.walking && s.snackPrompt && !s.plushPrompt && s.seatPrompt?.action !== "sit" && (
         <div className="play-prompt low">
           <kbd>E</kbd>
           {s.snackPrompt.label}
@@ -388,6 +405,7 @@ function Help({ onClose }: { onClose: () => void }) {
             <tr><td>Foosball: flick right, click or Space</td><td>Kick with the glowing rod (nearest the ball), harder the faster the flick; a click spins it right round</td></tr>
             <tr><td>Foosball: wheel or 1–4, right button or Shift, Esc</td><td>Pick another rod (goalie, defence, midfield, attack) / lift your men while held / leave the table</td></tr>
             <tr><td>K / J / L, B (with a remote)</td><td>Play or pause / back 10 s / forward 10 s, for everyone; put the remote back on the stand</td></tr>
+            <tr><td>E (at a seat)</td><td>Sit down on the sofa, chair, stool, bench or lounger you look at, when nothing else there takes E; E again (or walking, or Esc) gets up. One chimp to a seat, and everyone sees you sitting</td></tr>
             <tr><td>E (at the snack machine)</td><td>Step up to it, or press the key you point at; type a code (A–E, then 1–6), then push the flap (click it, or Enter) to take your snack; E eats it</td></tr>
             {FLY_IN_ENABLED && <tr><td>1–9, 0, [ ]</td><td>Jump to viewpoints / previous / next</td></tr>}
             {DEV_TOOLS_ENABLED && <tr><td>N</td><td>Day / night</td></tr>}

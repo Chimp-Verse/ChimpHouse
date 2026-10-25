@@ -24,6 +24,7 @@ import { trunkSpan } from "../structure/trunks";
 import { arcDeg, faceToward, panel, roomLight } from "./common";
 import type { PoolInfo } from "./pool";
 import { rugs } from "./rugs";
+import { seat, seatAt } from "../props/seats";
 
 const U = LEVEL.upper;
 /** Underside of the bar canopy. */
@@ -470,6 +471,9 @@ function treeBench(ctx: WorldCtx, z: Zone, span: { x: number; z: number; R: numb
     const a = (i / 6) * Math.PI * 2 + 0.3;
     const rr = Ri + 0.13;
     ctx.g(z, pill[i]).add(softBox(0.42, 0.4, 0.13, 0.06, 0.05), xf(span.x + Math.cos(a) * rr, U + H + 0.32, span.z + Math.sin(a) * rr, Math.atan2(-Math.cos(a), -Math.sin(a)) + Math.PI, 1, 1, 1, -0.25), "Cushion");
+    // a place to sit at each cushion, back to the trunk, facing out
+    const rs = Ri + 0.3;
+    seatAt(ctx, z, span.x + Math.cos(a) * rs, U + H + 0.1, span.z + Math.sin(a) * rs, Math.atan2(-Math.cos(a), -Math.sin(a)), { kind: "bench", height: H + 0.1, recline: 0.12, legs: "down" }, "Tree bench");
   }
   void r;
 }
@@ -520,6 +524,8 @@ function cabana(ctx: WorldCtx, z: Zone, m: Matrix, r: Rand) {
   const pill = ["tealBright", "mustard", "coral", "tealDeep", "mustard"];
   for (let i = 0; i < 5; i++) ctx.g(z, pill[i]).add(softBox(0.45, 0.42, 0.14, 0.06, 0.05), xf(-W / 2 + 0.4 + i * 0.37, 0.72, D / 2 - 0.3, (r() - 0.5) * 0.2, 1, 1, 1, -0.3).multiply(m), "Cushion");
   ctx.g(z, "timber").add(box(0.5, 0.03, 0.34), xf(0.35, 0.535, -0.35, 0.2).multiply(m), "Serving tray");
+  // three places along the back, leaning on the pillows with the legs out on the mattress
+  for (const x of [-0.65, 0, 0.65]) seat(ctx, z, xf(x, 0.5, D / 2 - 0.55).multiply(m), { kind: "daybed", height: 0.5, recline: 0.35, legs: "out" }, "Daybed");
   cocktail(ctx, z, pt(m, 0.25, 0.55, -0.38), 2, r);
   cocktail(ctx, z, pt(m, 0.45, 0.55, -0.3), 0, r);
   // curtains gathered and tied at each post

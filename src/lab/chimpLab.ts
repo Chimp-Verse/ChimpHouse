@@ -22,7 +22,7 @@ import { PostFx } from "../engine/postfx";
 import { type ChimpDna, type ShapeKey, PRESETS, defaultDna, presetDna, randomDna, sanitize } from "../avatar/dna";
 import { buildModel } from "../avatar/model";
 import { Chimp, SHELLS } from "../avatar/chimp";
-import { ChimpAnimator, type Motion } from "../avatar/animator";
+import { ChimpAnimator, type Motion, type SeatPose } from "../avatar/animator";
 import { buildAnatomy } from "../avatar/anatomy";
 import { buildItem } from "../avatar/items";
 import { item, itemColours, wornOver } from "../avatar/wardrobe";
@@ -197,11 +197,17 @@ function setView(name: string) {
 build(dna);
 setView(params.get("view") ?? "front");
 
-// what the chimp does: stand, walk, jog or run on the spot (a treadmill), or hold its rest pose
+// what the chimp does: stand, walk, jog or run on the spot (a treadmill), sit (on a sofa, perched
+// on a bar stool, lying back on a lounger: the seat itself isn't there), or hold its rest pose
 const PACES: Record<string, number> = { idle: 0, walk: 1.2, jog: 2.5, run: 5.5 };
+const SEATS: Record<string, SeatPose> = {
+  sit: { height: 0.4, recline: 0.14, legs: "down" },
+  perch: { height: 0.77, recline: 0, legs: "down", footrest: 0.26 },
+  lounge: { height: 0.39, recline: 0.7, legs: "out" },
+};
 let anim = params.get("anim") ?? "idle";
 let frozen = false;
-const motion = (): Motion => ({ speed: PACES[anim] ?? 0, heading: 0, turn: 0, grounded: true, lookYaw: 0, lookPitch: 0 });
+const motion = (): Motion => ({ speed: PACES[anim] ?? 0, heading: 0, turn: 0, grounded: true, lookYaw: 0, lookPitch: 0, seat: SEATS[anim] });
 
 /** Run the animation from the start for `seconds` in even steps, then hold it there (for photographs). */
 function simulate(name: string, seconds: number) {

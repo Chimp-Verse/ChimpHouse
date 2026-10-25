@@ -12,6 +12,9 @@
 // - Arms swing loose from the shoulders when walking and pump when running.
 // - At rest: breathing, slow shifts of weight, glances about, blinks.
 // - The head turns toward where the chimp looks, the eyes leading it.
+// - Sitting (Motion.seat): it lowers its hips onto the seat, leans back as far as the seat's
+//   back lets it, and puts its feet on the floor (or a stool's foot rail; hanging, from a seat too
+//   high; out along a lounger), its hands in its lap; it eases into that and back out of it.
 //
 // Bones are turned by name (VRM humanoid names), with their rest pose read from
 // the rig, so a Blender chimp with the same skeleton moves the same way.
@@ -34,7 +37,29 @@ export interface Motion {
   lookPitch: number;
   /** the ground under each foot (left, right) above the ground the body stands on, metres (world): a step up or down */
   feet?: [number, number];
+  /**
+   * Sitting on a seat (the chimp's root on the floor under it, facing the way the sitter faces), or
+   * sitting down onto it; left out, it stands, getting up out of the last seat's pose.
+   */
+  seat?: SeatPose;
 }
+
+/** How a chimp sits on a seat (world/context.ts SeatInfo has the same fields): what the seated pose needs. */
+export interface SeatPose {
+  /** the seat's top above the floor the root stands on (m, world) */
+  height: number;
+  /** how far it leans back against the seat's back (radians); 0 sits upright */
+  recline: number;
+  /** the legs: down to the floor (or the foot rail, or hanging), or out along the seat */
+  legs: "down" | "out";
+  /** a foot rail's height above the floor (m, world), if the seat has one */
+  footrest?: number;
+}
+
+/** How long sitting down, or getting up, takes (s). */
+const SIT_TIME = 0.75;
+/** The hip joints over the seat's top as a chimp sits (rest units): its buttocks under them. */
+const HIP_ABOVE = 0.085;
 
 const TAU = Math.PI * 2;
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
@@ -81,6 +106,9 @@ export class ChimpAnimator {
   private blinkAt = 1.5;
   private blink = 0;
   private legs: LegRest[] = [];
+  /** how far into sitting (0 standing, 1 seated; eased), and the seat it sits on, or got up from last */
+  private sitT = 0;
+  private sitPose: SeatPose | null = null;
   private q = { a: new Quaternion(), b: new Quaternion(), c: new Quaternion(), d: new Quaternion() };
   /** each bone's turn in the character's frame this frame (parents before children) */
   private G: Record<string, Quaternion> = {};
@@ -97,6 +125,11 @@ export class ChimpAnimator {
     for (const b of r.bones) this.G[b.name] = Quaternion.Identity();
   }
 
+  /** How far it has sat down: 0 standing, 1 seated (eased as the pose is). */
+  get sitting(): number {
+    return this.sitPose ? smooth(this.sitT) : 0;
+  }
+
   /** The chimp's scale (height / rest height): speeds are worked in its own rest units. */
   private get scale(): number {
     return this.chimp.root.scaling.y || 1;
@@ -106,6 +139,11 @@ export class ChimpAnimator {
     dt = Math.min(dt, 0.1);
     this.time += dt;
     const k = this.scale;
+    // ---------------------------------------------------------------- sitting: how far into the seated pose
+    if (m.seat) this.sitPose = m.seat;
+    this.sitT = clamp(this.sitT + (m.seat ? dt : -dt) / SIT_TIME, 0, 1);
+    const w = this.sitting;
+    const seat = this.sitPose;
     // ---------------------------------------------------------------- gait
     const v = m.grounded ? m.speed / k : 0;
     this.speed = ease(this.speed, v, 8, dt);
@@ -117,7 +155,8 @@ export class ChimpAnimator {
     const moving = smooth(clamp((s - 0.04) / 0.5, 0, 1));
     // turning on the spot, it steps round rather than sliding its feet
     this.turning = ease(this.turning, clamp((Math.abs(m.turn) - 0.6) / 2.4, 0, 1) * (1 - moving), 10, dt);
-    const stepping = Math.max(moving, this.turning * 0.8);
+    // seated, it doesn't step: it turns as it sits down
+    const stepping = Math.max(moving, this.turning * 0.8) * (1 - w);
     // cycles per second rise with speed; the stride is what that leaves
     const freq = 0.82 + 0.3 * s + 0.6 * this.turning;
     this.phase = (this.phase + freq * dt * stepping) % 1;
@@ -146,20 +185,25 @@ export class ChimpAnimator {
     // the body moves along its heading: sway is across that, not across the facing
     const ch = Math.cos(this.heading);
     const sh = Math.sin(this.heading);
-    hipsNode.position.set(hipsRest.x + sway * ch, hipsRest.y + bob + crouch, hipsRest.z - sway * sh - 0.012 * g * moving);
+    // sitting: the hip joints over the seat's top, where the root is (the seat's place)
+    const seatY = seat ? seat.height / k + HIP_ABOVE : 0;
+    hipsNode.position.set(lerp(hipsRest.x + sway * ch, 0, w), lerp(hipsRest.y + bob + crouch, seatY, w), lerp(hipsRest.z - sway * sh - 0.012 * g * moving, 0, w));
     const twist = Math.sin(TAU * p) * lerp(0.1, 0.16, g) * moving;
-    const list = Math.cos(TAU * (p - duty / 2)) * 0.05 * moving * (1 - g) - shift * 0.025 * (1 - moving);
+    const list = (Math.cos(TAU * (p - duty / 2)) * 0.05 * moving * (1 - g) - shift * 0.025 * (1 - moving)) * (1 - 0.7 * w);
     const G = this.G;
-    rot(Y, twist + this.heading * 0.15 * moving, G.hips).multiplyInPlace(rot(Z, list + this.bank * 0.5, this.q.a)).multiplyInPlace(rot(X, this.lean * 0.35 + 0.13, this.q.b));
+    // the whole body's lean, sitting: back against the seat's back, a touch of a slouch on a backless one
+    const recline = seat ? seat.recline : 0;
+    const sitLean = 0.04 - recline;
+    rot(Y, twist + this.heading * 0.15 * moving, G.hips).multiplyInPlace(rot(Z, list + this.bank * 0.5, this.q.a)).multiplyInPlace(rot(X, lerp(this.lean * 0.35 + 0.13, sitLean - 0.16, w), this.q.b));
     this.set("hips", G.hips, null);
 
     // ---------------------------------------------------------------- spine: the stoop, the lean, breathing, the counter-twist
     const stoop = 0.15;
     const spineTurns: [string, number, number, number][] = [
       // name, pitch (forward +), yaw, roll
-      ["spine", stoop * 0.3 + this.lean * 0.3 + breath * 0.008, -twist * 0.5, -list * 0.4],
-      ["chest", stoop * 0.35 + this.lean * 0.25 + breath * 0.014, -twist * 0.7, -list * 0.3 + this.bank * 0.25],
-      ["upperChest", stoop * 0.35 + this.lean * 0.15 + breath * 0.01, -twist * 0.4, this.bank * 0.25],
+      ["spine", lerp(stoop * 0.3 + this.lean * 0.3, 0.06, w) + breath * 0.008, -twist * 0.5, -list * 0.4],
+      ["chest", lerp(stoop * 0.35 + this.lean * 0.25, 0.06, w) + breath * 0.014, -twist * 0.7, -list * 0.3 + this.bank * 0.25],
+      ["upperChest", lerp(stoop * 0.35 + this.lean * 0.15, 0.04, w) + breath * 0.01, -twist * 0.4, this.bank * 0.25],
     ];
     let parent = "hips";
     for (const [name, pitch, yaw, roll] of spineTurns) {
@@ -172,7 +216,8 @@ export class ChimpAnimator {
 
     // ---------------------------------------------------------------- head: level with the world, turned to the look
     this.look(dt, m, moving);
-    const wantHead = rot(Y, this.lookYaw, this.q.a).multiplyInPlace(rot(X, -this.lookPitch - 0.05 * moving, this.q.b));
+    // leaning back, the head goes back a little with the body
+    const wantHead = rot(Y, this.lookYaw, this.q.a).multiplyInPlace(rot(X, -this.lookPitch - 0.05 * moving - recline * 0.4 * w, this.q.b));
     // half the turn in the neck, half in the head
     const toHead = Quaternion.Inverse(G.upperChest).multiplyInPlace(wantHead);
     const neckLocal = Quaternion.Slerp(Quaternion.Identity(), toHead, 0.45);
@@ -220,7 +265,13 @@ export class ChimpAnimator {
       foot.z += along * ch;
       // a stance foot turned in toward the line of travel when running
       foot.x -= sign * 0.025 * g * moving;
-      this.leg(side, i, foot, pitch * (1 - this.air) + 0.3 * this.air);
+      pitch = pitch * (1 - this.air) + 0.3 * this.air;
+      if (w > 0 && seat) {
+        const sat = this.seatedFoot(leg, seat, seatY, k);
+        Vector3.LerpToRef(foot, sat.at, w, foot);
+        pitch = lerp(pitch, sat.pitch, w);
+      }
+      this.leg(side, i, foot, pitch);
     });
 
     // ---------------------------------------------------------------- arms
@@ -228,10 +279,12 @@ export class ChimpAnimator {
       const sign = i === 0 ? -1 : 1;
       // the left arm swings forward with the right leg
       const swing = Math.cos(TAU * p) * (i === 0 ? -1 : 1) * lerp(0.22, 0.6, g) * moving;
-      const hang = 0.5 - 0.06 * g * moving;
-      const elbow = lerp(0.2, 0.3, moving) + lerp(0, 1.15, g) * moving + Math.max(0, swing) * 0.5 * (1 - g) + breath * 0.02;
+      // sitting, the hands in the lap (lying back on a lounger, beside it)
+      const out = seat?.legs === "out";
+      const hang = lerp(0.5 - 0.06 * g * moving, out ? 0.4 : 0.42, w);
+      const elbow = lerp(lerp(0.2, 0.3, moving) + lerp(0, 1.15, g) * moving + Math.max(0, swing) * 0.5 * (1 - g), out ? 0.3 : 0.6, w) + breath * 0.02;
       // hanging close in from the A-pose, a touch forward, swinging about the shoulder; running pumps forward more than back
-      const fwd = 0.2 + swing + 0.12 * g * moving + 0.4 * this.air;
+      const fwd = lerp(0.2 + swing + 0.12 * g * moving + 0.4 * this.air, out ? 0 : 0.26 + recline * 0.3, w);
       const ua = rot(Z, -sign * hang + sign * 0.35 * this.air, this.q.a);
       const sw = rot(X, -fwd, this.q.b);
       // the shoulder itself: a chimp's hunch forward, lifting with the breath and the swing
@@ -253,6 +306,24 @@ export class ChimpAnimator {
       this.local(`${side}ThumbProximal`, rot(this.hinge(`${side}ThumbProximal`), 0.15 + curl * 0.3, this.q.a));
       this.local(`${side}ThumbDistal`, rot(this.hinge(`${side}ThumbDistal`), 0.2 + curl * 0.35, this.q.a));
     });
+  }
+
+  /**
+   * Where a foot goes sitting (rest units, the root's space) and its pitch: on the floor (or the
+   * foot rail) a thigh's length ahead with the shin down to it; hanging under the knee from a seat
+   * too high for the floor; out along the seat for a lounger. Knees a little apart.
+   */
+  private seatedFoot(leg: LegRest, seat: SeatPose, hipY: number, k: number): { at: Vector3; pitch: number } {
+    const x = leg.ankle.x * 1.25;
+    if (seat.legs === "out") return { at: new Vector3(x * 0.9, hipY - HIP_ABOVE + leg.ankle.y * 0.6, (leg.a + leg.b) * 0.93), pitch: -0.9 };
+    const floor = (seat.footrest ?? 0) / k + leg.ankle.y;
+    // the lowest a foot hangs: the shin straight down from a knee out level with the hip
+    const hang = hipY - leg.b * 0.95;
+    const y = Math.max(floor, hang);
+    // a low seat (a bean bag) brings the knees up: the feet further out
+    const z = leg.a * (seat.footrest !== undefined ? 0.7 : 0.92) + Math.max(0, floor - hang) * 0.55;
+    const pitch = y > floor + 0.02 ? 0.5 : seat.footrest !== undefined ? 0.25 : 0;
+    return { at: new Vector3(x, y, z), pitch };
   }
 
   /** Where the head is looking: the wanted look, or glances about when there is none. */

@@ -13,9 +13,12 @@
 //   close, and isn't drawn from its own eyes (first person) or while a screen is in use.
 // - A chimp holds in its right hand what its visitor holds (a theatre remote: setInHand),
 //   so everyone sees who has it.
+// - A chimp sits where its visitor sits (engine/seats.ts sets `mySeat`): on the floor under the
+//   seat, facing the way the sitter does, in the seated pose. Its visitor says which seat, so
+//   everyone else's page sits it on the same one.
 
 import { BoundingSphere, Color3, DynamicTexture, Frustum, Mesh, MeshBuilder, Plane, Scene, StandardMaterial, type TransformNode, Vector3 } from "@babylonjs/core";
-import { ChimpAnimator, type Motion } from "../avatar/animator";
+import { ChimpAnimator, type Motion, type SeatPose } from "../avatar/animator";
 import { chimpModel, itemModel } from "../avatar/builder";
 import { Chimp, SHELLS } from "../avatar/chimp";
 import { type ChimpDna, SLOTS, type Slot, defaultDna, geometryKey, sanitize } from "../avatar/dna";
@@ -49,8 +52,18 @@ interface Presence {
   ground: boolean;
   lookYaw: number;
   lookPitch: number;
+  /** the seat it sits on (its number: world/props/seats.ts), while it sits; x, y, z are then the floor under the seat */
+  seat?: number;
   /** the room's clock when this was so */
   t: number;
+}
+
+/** Where this visitor's chimp sits (engine/seats.ts): the seat, the floor under it, the way it faces, and how it is sat on. */
+export interface MySeat {
+  n: number;
+  floor: number;
+  yaw: number;
+  pose: SeatPose;
 }
 
 /** A visitor's chimp's look, and who they are. */
@@ -195,6 +208,10 @@ export class Avatars {
   private frustum: Plane[] = [];
   private probe = emptyProbe();
   private sphere = new BoundingSphere(Vector3.Zero(), Vector3.Zero());
+  /** where this visitor's chimp sits, while it does (engine/seats.ts) */
+  mySeat: MySeat | null = null;
+  /** how seat n is sat on, for other visitors' chimps that sit on it (engine/seats.ts sets it) */
+  seatPose: (n: number) => SeatPose | null = () => null;
 
   constructor(
     private scene: Scene,
@@ -216,6 +233,24 @@ export class Avatars {
   setInHand(who: string, item: InHand | null): void {
     if (item) this.hands.set(who, item);
     else this.hands.delete(who);
+  }
+
+  /** A visitor's name, as their chimp's label shows it (this visitor's own too), or null for one not heard of. */
+  nameOf(id: string): string | null {
+    if (id === ME.id) return ME.name;
+    return this.others.get(id)?.name || null;
+  }
+
+  /**
+   * How high this visitor's chimp's eyes are above the floor sitting on a seat like `pose` (m): the
+   * seat, the hips over it, and the body up from them, leaning back as far as the seat lets it.
+   */
+  seatedEye(pose: SeatPose): number {
+    const c = this.mine.chimp;
+    if (!c) return pose.height + 0.75;
+    const k = this.mine.dna.shape.height / c.baseHeight;
+    const up = c.rig.marks.eyeL[1] - 0.07 - c.rest.hips.y;
+    return pose.height + k * (0.085 + up * Math.cos(pose.recline) * 0.97);
   }
 
   /** This visitor's chimp's DNA. */
@@ -283,8 +318,10 @@ export class Avatars {
     const v = w.velocity;
     const speed = Math.hypot(v.x, v.z);
     const camYaw = this.cameraYaw();
-    // first person: the chimp faces the way the camera does; else it turns to the way it goes
-    if (this.fly.firstPerson) this.facing = camYaw;
+    const seat = this.mySeat;
+    // sitting, it turns to face the way the seat does; first person, the way the camera does; else to the way it goes
+    if (seat) this.facing = turnToward(this.facing, seat.yaw, 7 * dt);
+    else if (this.fly.firstPerson) this.facing = camYaw;
     else if (speed > 0.15 && !this.fly.holdStill) this.facing = turnToward(this.facing, Math.atan2(v.x, v.z), 9 * dt);
     const turn = wrap(this.facing - this.lastFacing) / Math.max(dt, 1e-3);
     this.lastFacing = this.facing;
@@ -298,17 +335,19 @@ export class Avatars {
     this.lookYaw = lerpN(rel, atCamYaw, facingCam);
     this.lookPitch = lerpN(-pitch * 0.7, atCamPitch, facingCam);
     const height = b.dna.shape.height;
-    c.place(w.feet.x, w.groundY, w.feet.z, this.facing, height);
-    const motion: Motion = { speed, heading: wrap(Math.atan2(v.x, v.z) - this.facing), turn, grounded: w.onGround, lookYaw: this.lookYaw, lookPitch: this.lookPitch, feet: this.feetOn(c, w.groundY) };
+    // sitting, or getting up: on the floor under the seat (the walker's eye is the seated chimp's)
+    const y = w.seated ? w.feet.y : w.groundY;
+    c.place(w.feet.x, y, w.feet.z, this.facing, height);
+    const motion: Motion = { speed, heading: wrap(Math.atan2(v.x, v.z) - this.facing), turn, grounded: w.onGround, lookYaw: this.lookYaw, lookPitch: this.lookPitch, feet: this.feetOn(c, y), seat: seat?.pose };
     b.animator!.update(dt, motion);
     // fade as the camera comes close; not drawn from its own eyes, or while a screen is in use
-    const head = new Vector3(w.feet.x, w.groundY + height * 0.85, w.feet.z);
+    const head = new Vector3(w.feet.x, w.seated ? w.eyeY + 0.08 : w.groundY + height * 0.85, w.feet.z);
     const d = Vector3.Distance(this.fly.camera.position, head);
     const fade = this.fly.firstPerson || focus ? 0 : smoothstepN(0.4, 0.85, d);
     c.setFade(fade);
     c.root.setEnabled(fade > 0.01);
-    this.dress(b, ME.id, d, quality, w.feet.x, w.groundY, w.feet.z, fade);
-    this.say(true, { x: w.feet.x, y: w.groundY, z: w.feet.z, vx: v.x, vz: v.z, ground: w.onGround });
+    this.dress(b, ME.id, d, quality, w.feet.x, y, w.feet.z, fade);
+    this.say(true, { x: w.feet.x, y, z: w.feet.z, vx: v.x, vz: v.z, ground: w.onGround, seat: seat?.n });
   }
 
   /** Lights, fur shells and shadow for a body where it stands, `d` from the camera. */
@@ -339,11 +378,12 @@ export class Avatars {
   }
 
   /** Tell the room where this visitor's chimp is: often while it moves, now and then while it stands. */
-  private say(walking: boolean, at?: { x: number; y: number; z: number; vx: number; vz: number; ground: boolean }) {
+  private say(walking: boolean, at?: { x: number; y: number; z: number; vx: number; vz: number; ground: boolean; seat?: number }) {
     const now = room.now();
     const last = this.lastSaid;
-    const moving = !!at && Math.hypot(at.vx, at.vz) > 0.05;
-    const changed = !last || last.walking !== walking || Math.abs(wrap(last.yaw - this.facing)) > 0.05 || Math.abs(last.lookYaw - this.lookYaw) > 0.1;
+    // sliding onto a seat or off it moves the chimp without walking: said as often as walking
+    const moving = !!at && (Math.hypot(at.vx, at.vz) > 0.05 || (!!last && Math.hypot(at.x - last.x, at.z - last.z) > 0.01));
+    const changed = !last || last.walking !== walking || last.seat !== at?.seat || Math.abs(wrap(last.yaw - this.facing)) > 0.05 || Math.abs(last.lookYaw - this.lookYaw) > 0.1;
     const every = moving ? SAY_MOVING : SAY_STILL;
     if (!changed && now - this.saidAt < every) return;
     if (!walking && last && !last.walking && now - this.saidAt < SAY_STILL) return;
@@ -358,6 +398,7 @@ export class Avatars {
       ground: at?.ground ?? true,
       lookYaw: round3(this.lookYaw),
       lookPitch: round3(this.lookPitch),
+      ...(at?.seat !== undefined && { seat: at.seat }),
       t: Math.round(now),
     };
     this.saidAt = now;
@@ -430,7 +471,9 @@ export class Avatars {
     const speed = Math.hypot(at.vx, at.vz);
     const turn = wrap(at.yaw - r.facing) / Math.max(dt, 1e-3);
     r.facing = at.yaw;
-    b.animator!.update(dt, { speed, heading: wrap(Math.atan2(at.vx, at.vz) - at.yaw), turn, grounded: at.ground, lookYaw: at.lookYaw, lookPitch: at.lookPitch, feet: this.feetOn(c, at.y) });
+    // sitting where its visitor says, on this page's copy of the seat
+    const seat = typeof at.seat === "number" ? this.seatPose(at.seat) ?? undefined : undefined;
+    b.animator!.update(dt, { speed, heading: wrap(Math.atan2(at.vx, at.vz) - at.yaw), turn, grounded: at.ground, lookYaw: at.lookYaw, lookPitch: at.lookPitch, feet: this.feetOn(c, at.y), seat });
     c.setFade(1);
     this.dress(b, id, d, quality, at.x, at.y, at.z, 1);
     // the name over its head, in front of the camera and not too far off
@@ -477,8 +520,20 @@ export class Avatars {
   describe() {
     const c = this.mine.chimp;
     return {
-      mine: c ? { shown: c.root.isEnabled(), at: c.root.position.asArray(), facing: this.facing, height: this.mine.dna.shape.height, lights: { room: this.mine.room, copied: this.mine.lights.describe() }, wearing: c.wearing(), holding: c.holding } : null,
-      others: [...this.others].map(([id, r]) => ({ id, name: r.name, built: !!r.body?.chimp, shown: !!r.body?.chimp?.root.isEnabled(), heard: r.said.length, holding: r.body?.chimp?.holding ?? null })),
+      mine: c
+        ? { shown: c.root.isEnabled(), at: c.root.position.asArray(), facing: this.facing, height: this.mine.dna.shape.height, lights: { room: this.mine.room, copied: this.mine.lights.describe() }, wearing: c.wearing(), holding: c.holding, seat: this.mySeat?.n ?? null, sitting: this.mine.animator?.sitting ?? 0, hips: c.nodes.hips.getAbsolutePosition().asArray() }
+        : null,
+      others: [...this.others].map(([id, r]) => ({
+        id,
+        name: r.name,
+        built: !!r.body?.chimp,
+        shown: !!r.body?.chimp?.root.isEnabled(),
+        heard: r.said.length,
+        holding: r.body?.chimp?.holding ?? null,
+        at: r.body?.chimp?.root.position.asArray() ?? null,
+        seat: r.said[r.said.length - 1]?.seat ?? null,
+        sitting: r.body?.animator?.sitting ?? 0,
+      })),
     };
   }
 }
@@ -519,6 +574,7 @@ function sample(said: Presence[], t: number): Presence | null {
   const k = Math.max(0, Math.min(1, (t - a.t) / Math.max(1, b.t - a.t)));
   return {
     walking: b.walking,
+    seat: b.seat,
     x: lerpN(a.x, b.x, k),
     y: lerpN(a.y, b.y, k),
     z: lerpN(a.z, b.z, k),

@@ -12,6 +12,8 @@
 //   what is showing, playing or paused and where, on the server's clock, and who holds each
 //   remote. Only a remote's holder may change what is showing; a remote is held by one visitor at
 //   a time, and goes back to the stand when they leave the house (whatever is showing goes on).
+// - The seats: the server's too (engine/seatState.ts): who sits on which seat, one visitor a seat.
+//   A visitor sitting on a taken seat is refused; one who leaves the house gets up.
 // - The room's clock: pages ask the time and set theirs by it, so timed state reads the same
 //   everywhere.
 // - Presence: a visitor whose connection drops keeps their place for RECONNECT_GRACE_S while
@@ -20,7 +22,7 @@
 //   server forgets their own topics.
 //
 // Everything is kept in memory: restarting the server starts the lift and the theatre afresh
-// (nothing showing, both remotes on the stand), and pages put
+// (nothing showing, both remotes on the stand) and every seat free, and pages put
 // back the shared topics they know as they reconnect (room.ts).
 
 import { Room, type AuthContext, type Client, type Deferred } from "@colyseus/core";
@@ -28,6 +30,7 @@ import { LiftState, advanceLift, initialLift } from "../src/engine/liftState";
 import { LIFT_TOPIC, letGoOfLift, parseLiftCommand, runLiftCommand } from "../src/engine/liftCommands";
 import { THEATRE_TOPIC, letGoOfTheatre, parseTheatreCommand, runTheatreCommand } from "../src/engine/theatreCommands";
 import { initialTheatre, type TheatreState } from "../src/engine/theatreState";
+import { SEATS_TOPIC, initialSeats, letGoOfSeats, parseSeatCommand, runSeatCommand, type SeatsState } from "../src/engine/seatState";
 import { LIMITS, MSG, RECONNECT_GRACE_S, newer, type CommandMsg, type JoinOptions, type RefusedMsg, type StateMsg, type TimeAsk, type TopicState, type Version, type Welcome } from "../src/engine/roomProtocol";
 
 /** How many of the visitors who left a newcomer is told about (they let go of anything those still hold). */
@@ -89,6 +92,8 @@ export class House extends Room {
   private liftV: Version = { n: 1, by: "server" };
   private theatre: TheatreState = initialTheatre();
   private theatreV: Version = { n: 1, by: "server" };
+  private seats: SeatsState = initialSeats();
+  private seatsV: Version = { n: 1, by: "server" };
   private visitors = new Map<string, Visitor>();
   private bySession = new Map<string, Visitor>();
   private departed: string[] = [];
@@ -191,7 +196,8 @@ export class House extends Room {
     const topics: TopicState[] = [...this.topics].map(([topic, t]) => ({ topic, state: t.state, v: t.v }));
     topics.push({ topic: LIFT_TOPIC, state: advanceLift(this.lift, Date.now()), v: this.liftV });
     topics.push({ topic: THEATRE_TOPIC, state: this.theatre, v: this.theatreV });
-    const w: Welcome = { you: v.id, t: Date.now(), topics, owned: [LIFT_TOPIC, THEATRE_TOPIC], departed: [...this.departed] };
+    topics.push({ topic: SEATS_TOPIC, state: this.seats, v: this.seatsV });
+    const w: Welcome = { you: v.id, t: Date.now(), topics, owned: [LIFT_TOPIC, THEATRE_TOPIC, SEATS_TOPIC], departed: [...this.departed] };
     client.send(MSG.welcome, w);
   }
 
@@ -200,7 +206,7 @@ export class House extends Room {
     if (!v || !this.allowed(client, v, "state")) return;
     const topic = m?.topic;
     if (typeof topic !== "string" || !LIMITS.topic.test(topic)) return this.refuse(client, String(topic).slice(0, 80), "not a topic name");
-    if (topic === LIFT_TOPIC || topic === THEATRE_TOPIC) return this.refuse(client, topic, `the ${topic} takes commands, not states`);
+    if (topic === LIFT_TOPIC || topic === THEATRE_TOPIC || topic === SEATS_TOPIC) return this.refuse(client, topic, `the ${topic} takes commands, not states`);
     // a visitor's own topics (their chimp, "chimp:<id>") are theirs alone to write
     const owner = /:(v-[a-z0-9]+)$/.exec(topic)?.[1];
     if (owner && owner !== v.id) return this.refuse(client, topic, "another visitor's topic");
@@ -230,6 +236,7 @@ export class House extends Room {
       return;
     }
     if (m?.topic === THEATRE_TOPIC) return this.onTheatreCommand(client, v, m);
+    if (m?.topic === SEATS_TOPIC) return this.onSeatCommand(client, v, m);
     if (m?.topic !== LIFT_TOPIC) return this.refuse(client, String(m?.topic).slice(0, 80), "no commands for that topic");
     const cmd = parseLiftCommand(m.name, m.args);
     if (!cmd) return this.refuse(client, `${LIFT_TOPIC} ${String(m.name).slice(0, 40)}`, "not a lift command");
@@ -246,6 +253,24 @@ export class House extends Room {
     // refused: the page, which ran it on its own copy already, is put back as things stand
     if (typeof next === "string") return this.refuse(client, what, next, THEATRE_TOPIC);
     this.setTheatre(next);
+  }
+
+  private onSeatCommand(client: Client, v: Visitor, m: CommandMsg) {
+    const what = `${SEATS_TOPIC} ${String(m.name).slice(0, 40)}`;
+    const cmd = parseSeatCommand(m.name, m.args);
+    if (!cmd) return this.refuse(client, what, "not a seat command", SEATS_TOPIC);
+    if (cmd.name === "reset" && !this.testCommands) return this.refuse(client, what, "only on a test server", SEATS_TOPIC);
+    const next = runSeatCommand(this.seats, v.id, cmd);
+    // refused (someone sits there): the page, which sat on its own copy already, is put back as things stand
+    if (typeof next === "string") return this.refuse(client, what, next, SEATS_TOPIC);
+    this.setSeats(next);
+  }
+
+  private setSeats(next: SeatsState) {
+    if (next === this.seats) return;
+    this.seats = next;
+    this.seatsV = { n: this.seatsV.n + 1, by: "server" };
+    this.broadcast(MSG.state, { topic: SEATS_TOPIC, state: next, v: this.seatsV });
   }
 
   /** The visitor's message allowance: false (and the message dropped) when they are sending too fast. */
@@ -283,6 +308,8 @@ export class House extends Room {
     this.setLift(letGoOfLift(this.lift, id, Date.now()));
     // their remote goes back to the stand (a dropped connection keeps it while their page reconnects)
     this.setTheatre(letGoOfTheatre(this.theatre, id));
+    // and their seat is free (a dropped connection keeps it while their page reconnects)
+    this.setSeats(letGoOfSeats(this.seats, id));
     this.broadcast(MSG.gone, { id });
   }
 

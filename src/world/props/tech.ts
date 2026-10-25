@@ -4,6 +4,7 @@
 import { Matrix, Mesh, Vector3 } from "@babylonjs/core";
 import { beam, box, cylinder, lathe, plane, softBox, xf } from "../geometry/geo";
 import { WorldCtx, Zone } from "../context";
+import { seat } from "./seats";
 import { loadImageTexture } from "../materials/library";
 import { makeCanvas, toTexture } from "../materials/canvas";
 
@@ -86,6 +87,7 @@ export function taskChair(ctx: WorldCtx, z: Zone, m: Matrix, mesh = "sage"): voi
   base.add(cylinder(0.03, 0.38, 10), xf(0, 0.08, 0).multiply(m), "Task chair");
   ctx.g(z, mesh).add(softBox(0.52, 0.09, 0.5, 0.04, 0.02), xf(0, 0.48, 0).multiply(m), "Task chair");
   ctx.g(z, mesh).add(softBox(0.5, 0.62, 0.06, 0.03, 0.02), xf(0, 0.88, 0.27, 0, 1, 1, 1, 0.12).multiply(m), "Task chair");
+  seat(ctx, z, xf(0, 0.52, 0.02).multiply(m), { kind: "chair", height: 0.52, recline: 0.1, legs: "down" }, "Task chair");
   const frame = ctx.g(z, "charcoal");
   frame.add(box(0.54, 0.04, 0.05), xf(0, 1.2, 0.31).multiply(m));
   for (const sx of [-0.28, 0.28]) {
