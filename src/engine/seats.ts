@@ -37,6 +37,8 @@ const AIM_UP = 0.15;
 /** Getting up, the chimp steps this far clear of the seat's edge (m): the walking body's radius and a little. */
 const CLEAR = 0.38;
 
+const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
+
 /** A seat in the house, found by its role. */
 interface Seat {
   n: number;
@@ -175,12 +177,42 @@ export class Seats {
     if (this.tell({ name: "sit", args: { seat: n } })) return false;
     this.askedAt = performance.now();
     const look = seat.info.turn ? new Vector3(this.fly.aim.x, 0, this.fly.aim.z) : seat.front.clone();
-    const f = look.lengthSquared() > 1e-6 ? look.normalize() : seat.front.clone();
+    let f = look.lengthSquared() > 1e-6 ? look.normalize() : seat.front.clone();
+    // a stool tucked in at the end of a counter, its top over the stool's side: turned to face it,
+    // not with the counter over one side of the lap
+    if (seat.info.turn) {
+      const near = (d: Vector3) => {
+        let r = Infinity;
+        for (const up of [0.3, 0.38]) r = Math.min(r, w.world.raycast(seat.at.x, seat.at.y + up, seat.at.z, d.x, 0, d.z, 1));
+        return r;
+      };
+      const right = new Vector3(f.z, 0, -f.x);
+      const [r, l] = [near(right), near(right.scale(-1))];
+      if (Math.min(r, l) < 0.3 && near(f) > Math.min(r, l)) f = r < l ? right : right.scale(-1);
+    }
     const seatYaw = Math.atan2(f.x, f.z);
     let p = this.pose(seat);
     // a stool faces the way the visitor looks: what is in front of the feet that way
     if (seat.info.turn) p = { ...p, room: roomAhead((x, y, z, dx, dy, dz, max) => w.world.raycast(x, y, z, dx, dy, dz, max), seat.at.x, seat.at.z, f.x, f.z, seat.floor, seat.floor + p.height, Math.max(p.depth ?? 0.3, p.base ?? 0)) };
-    const { out: off, along } = this.avatars.standOff(p);
+    // a bar or a counter top over the lap, the way the sitter will face: its edge and its height over the seat
+    for (let d = 0.1; d < 0.56; d += 0.03) {
+      const top = seat.at.y + 0.6 - w.world.raycast(seat.at.x + f.x * d, seat.at.y + 0.6, seat.at.z + f.z * d, 0, -1, 0, 0.6);
+      if (top - seat.at.y > 0.12 && top - seat.at.y < 0.5) {
+        p = { ...p, bar: { at: d, top: top - seat.at.y } };
+        break;
+      }
+    }
+    // beside the sitter at its elbows (over the seat, a little in front of the hips), right and left
+    // (at the elbows' height: not the seat's own armrests under them)
+    {
+      const right = new Vector3(f.z, 0, -f.x);
+      const elbows: [number, number] = [Infinity, Infinity];
+      [right, right.scale(-1)].forEach((d, i) => {
+        for (const up of [0.3, 0.38]) for (const a of [-0.05, 0.12]) elbows[i] = Math.min(elbows[i], w.world.raycast(seat.at.x + f.x * a, seat.at.y + up, seat.at.z + f.z * a, d.x, 0, d.z, 1));
+      });
+      p = { ...p, elbows };
+    }
+    const { out: off, along, arm } = this.avatars.standOff(p);
     // what is in front the way the sitter will face (for a stool, the way the visitor looks: the bar)
     let clear = Infinity;
     const from0 = (p.depth ?? 0.3) + 0.02;
@@ -192,21 +224,39 @@ export class Seats {
     if (p.from === "side") {
       const right = new Vector3(f.z, 0, -f.x);
       const wide = p.width ?? 0.25;
-      // the room from the seat's side out (at a chimp's shins, hips and chest)
+      // the room from the seat's side out (at a chimp's shins, hips and chest, just under the seat's
+      // top, the next stool's cushion, and over it, a counter's top: where an arm hangs)
       const room = (d: Vector3) => {
         let r = Infinity;
-        for (const up of [0.3, 0.6, 0.9]) r = Math.min(r, w.world.raycast(seat.at.x + d.x * wide, seat.floor + up, seat.at.z + d.z * wide, d.x, 0, d.z, 2));
+        const from = wide + 0.04;
+        for (const up of [0.3, 0.6, 0.9, p.height - 0.03, p.height + 0.28]) r = Math.min(r, from + w.world.raycast(seat.at.x + d.x * from, seat.floor + up, seat.at.z + d.z * from, d.x, 0, d.z, 2) - wide);
         return r;
       };
       const mine = Vector3.Dot(w.feet.subtract(seat.at), right) < 0 ? right.scale(-1) : right;
       const other = mine.scale(-1);
       const need = off + 0.32 - wide;
-      to = room(mine) < need && room(other) > room(mine) ? other : mine;
+      const rm = room(mine);
+      const ro = room(other);
+      to = rm < need && ro > rm ? other : mine;
+      // both sides crowded (a stool in a row of them): beside it and back, toward where the visitor came from
+      if (Math.max(rm, ro) < need) {
+        const slant = to.scale(0.6).subtractInPlace(f.scale(0.8)).normalize();
+        if (room(slant) > Math.max(rm, ro)) to = slant;
+      }
       edge = p.width ?? 0.25;
     }
-    // beside it, a little back from what it faces (a counter's edge, a desk's)
+    // beside it, a little back from what it faces (a counter's edge, a desk's): far enough that the
+    // arm hanging that side, beside it as it faces along the seat's side, is clear of it
     const stand = seat.at.add(to.scale(off)).addInPlace(f.scale(along));
-    if (p.from === "side") stand.subtractInPlace(f.scale(Math.max(0, Math.min(0.12, 0.45 - clear))));
+    if (p.from === "side") {
+      // (what it faces there, where it stands beside the seat: a desk curving round toward it)
+      let here = clear;
+      for (const up of [0.5, 0.75, 1.0, p.height + 0.28]) for (const a of [-0.15, 0, 0.15]) {
+        const o = seat.at.add(to.scale(off + a)).subtractInPlace(f.scale(0.2));
+        here = Math.min(here, w.world.raycast(o.x, seat.floor + up, o.z, f.x, 0, f.z, 2) - 0.2);
+      }
+      stand.subtractInPlace(f.scale(clamp(Math.max(0.45 - clear, along + arm - here), 0, 0.3)));
+    }
     this.mine = { seat, out: seat.at.add(to.scale(Math.max(off, edge + CLEAR))) };
     const back = this.avatars.seatedEyeBack(p);
     w.sit(stand.x, stand.z, seat.floor, this.avatars.seatedEye(p), seat.at.x - f.x * back, seat.at.z - f.z * back);
@@ -252,6 +302,8 @@ export class Seats {
       base: sh?.base ?? 0,
       sideBase: sh?.sideBase ?? 0,
       room: sh?.room ?? Infinity,
+      rise: sh?.rise ?? 0,
+      riseAt: sh?.riseAt ?? Infinity,
       // from beside it: a stool, a pouf, a lounger, or a seat pulled up to something (a desk, a counter, a piano) where its sitter would stand to sit down
       from: info.from ?? (info.turn || info.legs === "out" || (sh && !sh.arms && sh.clear < sh.depth + 0.6) ? "side" : "front"),
       ...(info.footrest !== undefined && { footrest: info.footrest }),

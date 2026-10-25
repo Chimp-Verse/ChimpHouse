@@ -1,6 +1,6 @@
 // How far a sitting chimp goes into the furniture: every seat in the house, sat on by chimps of
-// three bodies (the default; the smallest, short in the leg; the biggest, long in the leg, burly and
-// round), in a real browser against the running preview (npm run dev, with the fly-in flag).
+// three bodies (an average one; the smallest, short in the leg and arm; the biggest, long in the leg
+// and arm, burly and round), in a real browser against the running preview (npm run dev, with the fly-in flag).
 //
 // For each seat and body the chimp walks up and sits as a visitor would (seats.sit), then gets up.
 // At the end of the sit and at several moments of sitting down and getting up, every vertex of the
@@ -24,10 +24,11 @@ const LIMIT = Number(process.env.LIMIT ?? 1.5);
 const OUT = process.env.OUT ?? ".evani/tmp/sit-clip/clip.json";
 const ONLY = process.env.SEATS ? process.env.SEATS.split(",").map((s) => s.trim()) : null;
 const BODIES = (process.env.BODIES ?? "default,small,big").split(",");
+// (each set in full, so every run measures the same chimps: a new visitor's own chimp is made at random)
 const SHAPES = {
-  default: {},
-  small: { height: 1.3, legs: 0, build: 0, belly: 0 },
-  big: { height: 1.8, legs: 1, build: 1, belly: 1 },
+  default: { height: 1.5, legs: 0.5, build: 0.5, belly: 0.4, arms: 0.5 },
+  small: { height: 1.3, legs: 0, build: 0, belly: 0, arms: 0 },
+  big: { height: 1.8, legs: 1, build: 1, belly: 1, arms: 1 },
 };
 await mkdir(dirname(OUT), { recursive: true });
 
@@ -400,18 +401,25 @@ process.on("SIGTERM", () => void stop().then(() => process.exit(143)));
 const results = [];
 let failed = 0;
 try {
-  const page = await browser.newPage({ viewport: { width: 640, height: 400 } });
-  await page.addInitScript(() => {
-    Element.prototype.requestPointerLock = function () {
-      return Promise.resolve();
-    };
-    Element.prototype.requestFullscreen = function () {
-      return Promise.resolve();
-    };
-    if (navigator.keyboard) navigator.keyboard.lock = () => Promise.resolve();
-  });
-  await page.addInitScript(clipLib);
-  page.on("pageerror", (e) => console.log("[pageerror]", e.message));
+  /** The page; made again if its renderer crashes (a new one, as a fresh visitor). */
+  let page = null;
+  const newPage = async () => {
+    await page?.close().catch(() => undefined);
+    page = await browser.newPage({ viewport: { width: 640, height: 400 } });
+    await page.addInitScript(() => {
+      Element.prototype.requestPointerLock = function () {
+        return Promise.resolve();
+      };
+      Element.prototype.requestFullscreen = function () {
+        return Promise.resolve();
+      };
+      if (navigator.keyboard) navigator.keyboard.lock = () => Promise.resolve();
+    });
+    await page.addInitScript(clipLib);
+    page.on("pageerror", (e) => console.log("[pageerror]", e.message));
+    page.on("crash", () => console.log("[the page crashed]"));
+  };
+  await newPage();
   const ev = (fn, arg) => page.evaluate(fn, arg);
   const settle = (n) => ev((n) => window.__chimp.settle(n), n);
   /** The house open and walking, every seat free, the camera behind the chimp (so it is drawn, and its skeleton posed, as everyone sees it). */
@@ -425,8 +433,29 @@ try {
     await settle(10);
   };
   await open(true);
-  /** A page reloaded under the run (the dev server restarted, a file changed): open again, and go on. */
-  const reloaded = (e) => /context was destroyed|navigation|Target closed|__chimp/.test(String(e?.message ?? e));
+  /**
+   * The page reloaded under the run (the dev server sent a reload: a source file changed, or its
+   * dependencies were optimized again), or its renderer crashed: open the house again, as it was.
+   */
+  const reloaded = (e) => /context was destroyed|navigation|Target closed|crashed|has been closed|__chimp/.test(String(e?.message ?? e));
+  let reopens = 0;
+  const reopen = async (where, again) => {
+    if (++reopens > 12) throw new Error(`the page went away ${reopens} times: giving up at ${where}`);
+    console.log(`  (the page went away at ${where}: opening the house again)`);
+    if (page.isClosed() || (await page.evaluate(() => 1).catch(() => 0)) !== 1) await newPage();
+    await open(true);
+    await again?.();
+  };
+  /** Run `fn`, opening the house again (then `again`: the chimp as it was) and trying again, up to twice more, if the page goes away under it. */
+  const retrying = async (where, again, fn) => {
+    for (let attempt = 0; ; attempt++)
+      try {
+        return await fn();
+      } catch (e) {
+        if (attempt >= 2 || !reloaded(e)) throw e;
+        await reopen(where, again);
+      }
+  };
   const all = await ev(() => window.__chimp.seats.describe().seats);
   const seats = all.filter((s) => !ONLY || ONLY.includes(s.kind) || ONLY.includes(String(s.n)) || ONLY.some((o) => s.label.startsWith(o)));
   console.log(`${seats.length} of ${all.length} seats, bodies ${BODIES.join(", ")}`);
@@ -464,44 +493,45 @@ try {
     await page.waitForFunction((h) => window.__chimp.chimps.describe().mine?.height === h, SHAPES[body].height ?? 1.5, { timeout: 60000 }).catch(() => undefined);
     await settle(20);
   };
+  /** Sit on seat s and get up, measuring; null when there is nowhere to stand near it. */
+  const sitOn = async (s) => {
+    if (!(await approach(s))) return null;
+    await settle(3);
+    // the furniture round the seat: 1.3 m about it, floor to 1.6 m over the seat
+    await ev(([s]) => {
+      const r = 1.3;
+      window.__clip.prepare([s.at[0] - r, s.floor - 0.1, s.at[2] - r], [s.at[0] + r, s.at[1] + 1.6, s.at[2] + r], window.__chimp.chimps.body().root);
+    }, [s]);
+    const r = await ev(([n, lim, at]) => window.__clip.run(n, lim, at), [s.n, LIMIT, AT]);
+    await settle(2);
+    return r;
+  };
   for (const body of BODIES) {
-    await setBody(body);
-    for (const s of seats) for (let attempt = 0; attempt < 2; attempt++) try {
-      if (!(await approach(s))) {
+    await retrying(`${body}'s body`, null, () => setBody(body));
+    for (const s of seats) {
+      const r = await retrying(`${body} ${s.n}`, () => setBody(body), () => sitOn(s));
+      if (!r) {
         results.push({ body, n: s.n, kind: s.kind, label: s.label, error: "nowhere to stand near it" });
-        console.log(`  ${body} ${s.n} ${s.label}: nowhere to stand near it`);
+        failed++;
+        console.log(`  FAIL ${body} ${s.n} ${s.label}: nowhere to stand near it`);
         continue;
       }
-      await settle(3);
-      // the furniture round the seat: 1.3 m about it, floor to 1.6 m over the seat
-      await ev(([s]) => {
-        const r = 1.3;
-        window.__clip.prepare([s.at[0] - r, s.floor - 0.1, s.at[2] - r], [s.at[0] + r, s.at[1] + 1.6, s.at[2] + r], window.__chimp.chimps.body().root);
-      }, [s]);
-      const r = await ev(([n, lim, at]) => window.__clip.run(n, lim, at), [s.n, LIMIT, AT]);
       const worst = (l) => l.reduce((a, b) => (b.skin.cm > a.skin.cm ? b : a), { skin: { cm: 0 } });
       const tr = worst([...r.down, ...r.up]);
-      const row = { body, n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, transition: tr.skin, transitionAt: tr.at ?? null, frames: { down: r.down.map((f) => f.skin.cm), up: r.up.map((f) => f.skin.cm) } };
+      const row = { body, n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, transition: tr.skin, transitionAt: tr.at ?? null, phase: r.down.includes(tr) ? "down" : r.up.includes(tr) ? "up" : null, frames: { down: r.down.map((f) => f.skin.cm), up: r.up.map((f) => f.skin.cm) } };
       results.push(row);
       const bad = !!r.error || (row.seated?.cm ?? 99) > LIMIT || row.transition.cm > LIMIT;
       if (bad) failed++;
       console.log(
-        `  ${bad ? "FAIL" : "ok  "} ${body.padEnd(7)} ${String(s.n).padStart(5)} ${s.kind.padEnd(8)} ${s.label.slice(0, 28).padEnd(28)} seated ${(row.seated?.cm ?? NaN).toFixed(1).padStart(5)} cm${row.seated?.bone ? ` (${row.seated.bone} in ${row.seated.into})` : ""}  moving ${row.transition.cm.toFixed(1).padStart(5)} cm${row.transition.bone ? ` (${row.transition.bone} in ${row.transition.into} at ${row.transitionAt})` : ""}${r.error ? `  ${r.error}` : ""}`,
+        `  ${bad ? "FAIL" : "ok  "} ${body.padEnd(7)} ${String(s.n).padStart(5)} ${s.kind.padEnd(8)} ${s.label.slice(0, 28).padEnd(28)} seated ${(row.seated?.cm ?? NaN).toFixed(1).padStart(5)} cm${row.seated?.bone ? ` (${row.seated.bone} in ${row.seated.into})` : ""}  moving ${row.transition.cm.toFixed(1).padStart(5)} cm${row.transition.bone ? ` (${row.transition.bone} in ${row.transition.into} ${row.phase} at ${row.transitionAt})` : ""}${r.error ? `  ${r.error}` : ""}`,
       );
-      await settle(2);
-      break;
-    } catch (e) {
-      if (attempt > 0 || !reloaded(e)) throw e;
-      console.log(`  (the page reloaded at ${body} ${s.n}: opening the house again)`);
-      await open(false).catch(() => open(true));
-      await setBody(body);
     }
   }
 
   // a hat and a backpack on the Game Room's couch
   if (process.env.WEAR !== "0") {
     const couch = all.filter((s) => s.label.startsWith("Curved console sofa"));
-    if (couch.length) {
+    const dress = async () => {
       await ev(async () => {
         const c = window.__chimp.chimps;
         const d = structuredClone(c.dna());
@@ -510,14 +540,12 @@ try {
         await c.setDna(d);
       });
       await settle(40);
+    };
+    if (couch.length) {
+      await retrying("dressing", null, dress);
       for (const s of couch) {
-        if (!(await approach(s))) continue;
-        await settle(3);
-        await ev(([s]) => {
-          const r = 1.3;
-          window.__clip.prepare([s.at[0] - r, s.floor - 0.1, s.at[2] - r], [s.at[0] + r, s.at[1] + 1.6, s.at[2] + r], window.__chimp.chimps.body().root);
-        }, [s]);
-        const r = await ev(([n, lim, at]) => window.__clip.run(n, lim, at), [s.n, LIMIT, AT]);
+        const r = await retrying(`dressed ${s.n}`, dress, () => sitOn(s));
+        if (!r) continue;
         const worn = r.seated?.worn ?? { cm: NaN };
         const row = { body: "dressed", n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, worn, transition: { cm: Math.max(0, ...[...r.down, ...r.up].map((f) => f.skin.cm)) }, wornMoving: Math.max(0, ...[...r.down, ...r.up].map((f) => f.worn.cm)) };
         results.push(row);

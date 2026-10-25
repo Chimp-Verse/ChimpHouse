@@ -34,6 +34,10 @@ export interface SeatShape {
   sideBase: number;
   /** how far in front of the slot the way is clear down by the feet (a bar's front panel, a desk's); FAR when it is */
   room: number;
+  /** how far the top rises above `height` in front of the slot, where legs lie out along it (a lounger's rolled towel); 0 when flat */
+  rise: number;
+  /** from the slot forward to where that rise begins (FAR when it is flat) */
+  riseAt: number;
 }
 
 /** A ray from (x, y, z) along a unit direction: how far it goes before a solid surface, up to max. */
@@ -55,7 +59,8 @@ export function roomAhead(ray: Ray, x: number, z: number, fx: number, fz: number
   const rz = -fx;
   const from = past + 0.05;
   let room = FAR;
-  for (let up = 0.08; up < h - 0.05; up += 0.12) for (const a of [-0.12, 0.12]) room = Math.min(room, from + ray(x + fx * from + rx * a, floor + up, z + fz * from + rz * a, fx, 0, fz, FAR));
+  // (across the width a sitter's feet take, a big chimp's wide set feet too)
+  for (let up = 0.08; up < h - 0.05; up += 0.12) for (const a of [-0.32, -0.16, 0, 0.16, 0.32]) room = Math.min(room, from + ray(x + fx * from + rx * a, floor + up, z + fz * from + rz * a, fx, 0, fz, FAR));
   return room;
 }
 
@@ -114,6 +119,8 @@ export function measureSeat(ray: Ray, x: number, y: number, z: number, fx: numbe
   const low = behind(0.12);
   const mid = behind(0.24);
   const high = behind(0.36);
+  // and at the shoulders, leaning back: a headrest pillow standing out of the back's slope
+  const top3 = behind(0.46);
   const back0 = low ?? (high !== null && high < 0.3 ? high : null);
   let recline = info.recline;
   // how it leans: the steeper of low to middle and low to high (a lounger's headrest pillow stands out of its back's slope)
@@ -128,11 +135,22 @@ export function measureSeat(ray: Ray, x: number, y: number, z: number, fx: numbe
     const tan = Math.tan(recline);
     if (mid !== null) backAt = Math.min(backAt, mid - 0.12 * tan);
     if (high !== null) backAt = Math.min(backAt, high - 0.24 * tan);
+    if (top3 !== null) backAt = Math.min(backAt, top3 - 0.34 * tan);
   }
   const back = backAt ?? back0;
   // the top again where the hips go: in front of the back (a sofa's pillow leans on the cushion behind the slot)
   if (back !== null && back < 0.14) h = topAt(0.14 - back);
   const depth = edge(fx, fz);
+  // where legs lie out along it, from past the hips to the front edge: anything on the top there (a rolled towel)
+  let rise = 0;
+  let riseAt = FAR;
+  for (let a = 0.25; a < depth - 0.02; a += 0.04)
+    for (const b of [-0.1, 0, 0.1]) {
+      const t = top(x + fx * a + rx * b, z + fz * a + rz * b, h, 0.3);
+      if (t >= h + 0.3 || t - h < 0.02) continue;
+      rise = Math.max(rise, t - h);
+      riseAt = Math.min(riseAt, a);
+    }
   const width = Math.min(edge(rx, rz), edge(-rx, -rz));
   const rear = back ?? edge(-fx, -fz);
   // what is under the front edge, where hanging feet go: a sofa's plinth stands out past its cushion
@@ -168,5 +186,5 @@ export function measureSeat(ray: Ray, x: number, y: number, z: number, fx: numbe
         const dd = ray(x + rx * d * fromS + fx * b, floor + up, z + rz * d * fromS + fz * b, -rx * d, 0, -rz * d, fromS);
         if (dd < fromS && fromS - dd < width + 0.15) sideBase = Math.max(sideBase, fromS - dd);
       }
-  return { height: h - floor, depth, rear, back, recline, width, base, clear, sides: [side(rx, rz), side(-rx, -rz)], arms, sideBase, room: roomAhead(ray, x, z, fx, fz, floor, h, Math.max(depth, base)) };
+  return { height: h - floor, depth, rear, back, recline, width, base, clear, sides: [side(rx, rz), side(-rx, -rz)], arms, sideBase, room: roomAhead(ray, x, z, fx, fz, floor, h, Math.max(depth, base)), rise, riseAt };
 }

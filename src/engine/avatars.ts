@@ -283,8 +283,8 @@ export class Avatars {
   }
 
   /** How far from a seat like `pose` this visitor's chimp stands to sit down on it (m): see ChimpAnimator.standOff. */
-  standOff(pose: SeatPose): { out: number; along: number } {
-    return this.mine.animator?.standOff(pose) ?? { out: (pose.from === "side" ? pose.width ?? 0.25 : pose.depth ?? 0.3) + 0.25, along: 0 };
+  standOff(pose: SeatPose): { out: number; along: number; arm: number } {
+    return this.mine.animator?.standOff(pose) ?? { out: (pose.from === "side" ? pose.width ?? 0.25 : pose.depth ?? 0.3) + 0.25, along: 0, arm: 0.4 };
   }
 
   /** This visitor's chimp's DNA. */

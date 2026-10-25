@@ -75,6 +75,14 @@ export interface SeatPose {
   sideBase?: number;
   /** how far in front of the slot the way is clear down by the feet (a bar's front panel), the way the sitter faces; left out: clear */
   room?: number;
+  /** how far the top rises in front of the slot, where legs lie out along it (a lounger's rolled towel); left out: flat */
+  rise?: number;
+  /** from the slot forward to where that rise begins */
+  riseAt?: number;
+  /** how far the way is clear beside the sitter at its elbows, to its right and its left (m): a counter's end, a booth's wall; left out: clear */
+  elbows?: [number, number];
+  /** a bar or a counter top over the sitter's lap, the way they face: how far ahead of the slot its edge is, and how high its top is over the seat (m); left out: none */
+  bar?: { at: number; top: number };
   /** where the slot is from the root, in the root's frame (x right, z ahead); default under it */
   at?: [number, number];
   /** the way the seat faces, from the way the root does (radians, right +); default the same */
@@ -90,6 +98,8 @@ const SIT_TIME_SIDE = 1.6;
 const EDGE = 0.5;
 /** Sitting on a seat's side edge first, how far in from it the hips go (m) */
 const EDGE_DEPTH = 0.24;
+/** Sitting on a seat's side edge first, at most this far forward of the slot (m): a chair's front corner */
+const EDGE_AHEAD = 0.3;
 
 const TAU = Math.PI * 2;
 const clamp = (v: number, a: number, b: number) => (v < a ? a : v > b ? b : v);
@@ -277,9 +287,14 @@ export class ChimpAnimator {
    * front of it (from "front") or beside it (from "side"), how far from the slot. Sitting from in
    * front with its feet on the floor, that is where its feet are as it sits, so they don't move.
    * `along`: beside a seat, how far forward of the slot (sitting on a chair's edge forward of its back).
+   * `arm`: how far out to its sides its hanging arms (elbows and hands) reach from its root.
    */
-  standOff(seat: SeatPose): { out: number; along: number } {
+  standOff(seat: SeatPose): { out: number; along: number; arm: number } {
     const k = this.scale;
+    const r = this.chimp.rig;
+    const head = (n: string) => Vector3.FromArray(r.bones[r.index[n]].head);
+    // (hanging down from the shoulder and a little forward, reaching for the thighs as it sits; and the arm's own thickness)
+    const arm = (Math.abs(head("leftUpperArm").x) + 0.25 * Vector3.Distance(head("leftUpperArm"), head("leftHand")) + 0.06) * k + 0.03;
     const side = seat.from === "side";
     const edge = this.edgeOf(seat);
     // from the front, onto the edge of a lounging seat: the edge is ahead of the slot
@@ -288,10 +303,10 @@ export class ChimpAnimator {
     const toe = this.body.toe * k;
     const clear = (edge?.shape.depth ?? seat.depth ?? 0.3) + toe + 0.05;
     const along = edge && side ? edge.ahead : 0;
-    if (!t.planted) return { out: ahead + clear, along };
+    if (!t.planted) return { out: ahead + clear, along, arm };
     // the root where the feet will be: its feet stand a little ahead of it
     const feet = ((t.ankle[0].z + t.ankle[1].z) / 2 - (this.legs[0].ankle.z + 0.02)) * k;
-    return { out: ahead + Math.max(feet, clear - toe), along };
+    return { out: ahead + Math.max(feet, clear - toe), along, arm };
   }
 
   /**
@@ -310,8 +325,9 @@ export class ChimpAnimator {
       const aside = Math.max(0, width - EDGE_DEPTH);
       return {
         shape: { height: seat.height, recline: 0, legs: "down", depth: width - aside, back: null, footrest: seat.footrest, base: Math.max(0, (seat.sideBase ?? 0) - aside) },
-        // (a chair: on its front corner, well forward of its back, so an elbow swinging round clears it)
-        ahead: seat.back != null ? Math.max(0, (depth - 0.06) * 0.9) : 0,
+        // (a chair: on its front corner, well forward of its back, so an elbow swinging round clears it;
+        // a long seat, a lounger, no further along it than that, not down by its foot end)
+        ahead: seat.back != null ? clamp((depth - 0.06) * 0.9, 0, EDGE_AHEAD) : 0,
         aside,
       };
     }
@@ -411,7 +427,9 @@ export class ChimpAnimator {
       // over the seat, the rump is above its top: up onto a high seat before back onto it, and not down through its front
       const over = clamp((frontZ - (hz - this.body.rump)) / 0.08, 0, 1);
       hy += Math.max(0, sit.hips.y - hy) * smooth(over);
-      hipsNode.position.set(lerp(standHips.x, sit.hips.x, wh), hy, hz);
+      // (sitting from beside a chair, along its side to its front corner first, then back onto it: past the end of its back)
+      const wx = seat?.from === "side" && seat.back != null ? smooth(clamp(ta / 0.5, 0, 1)) : wh;
+      hipsNode.position.set(lerp(standHips.x, sit.hips.x, wx), hy, hz);
     } else hipsNode.position.copyFrom(standHips);
     const twist = Math.sin(TAU * p) * lerp(0.1, 0.16, g) * moving;
     const list = (Math.cos(TAU * (p - duty / 2)) * 0.05 * moving * (1 - g) - shift * 0.025 * (1 - moving)) * (1 - 0.8 * w);
@@ -509,6 +527,8 @@ export class ChimpAnimator {
         const hip = this.hipAt(i);
         const standPole = new Vector3(sign * 0.12, 0, 1).normalize();
         pole = Vector3.Lerp(standPole, sit.knee[i].subtract(hip).normalize(), Math.max(wh, wf));
+        // lifting the feet up off the floor (onto a deep seat, a high one), the knee comes up with them, not down through the seat's front
+        if (!sit.planted) pole.addInPlace(new Vector3(0, 0.9, 0.3).scaleInPlace(Math.sin(Math.PI * wf)));
       }
       this.leg(side, i, foot, pitch, pole, footYaw);
     });
@@ -537,7 +557,23 @@ export class ChimpAnimator {
         const up = new Vector3(0, 1, 0).subtract(along.scale(along.y / Math.max(1e-6, along.lengthSquared()))).normalize();
         const out = new Vector3(Math.cos(bodyYaw), 0, -Math.sin(bodyYaw)).scale(sign * Math.abs(this.legs[i].hip.x) * 0.3);
         const hand = Vector3.Lerp(hip, kn, 0.52).addInPlace(up.scale(this.body.underKnee * 1.5 + 0.02)).addInPlace(out);
-        this.reach(side, i, hand, bodyYaw, smooth(clamp(ta / 0.3, 0, 1)));
+        // a bar top over the lap (a stool pulled up to it): the hands further back on the thighs, the forearms clear under its edge
+        if (seat?.bar) {
+          const turn = seat.turn ?? 0;
+          const fx = Math.sin(turn) * w;
+          const fz = Math.cos(turn) * w;
+          const ahead = (hand.x - (seat.at?.[0] ?? 0) / k) * Math.sin(turn) + (hand.z - (seat.at?.[1] ?? 0) / k) * Math.cos(turn);
+          const by = Math.max(0, ahead - (seat.bar.at - 0.1) / k);
+          hand.x -= fx * by;
+          hand.z -= fz * by;
+        }
+        // sitting sideways on a chair's edge, the elbows tucked in, not out into its back (or a desk it is pulled up to)
+        const turn = seat?.turn ?? 0;
+        let tuck = edge && seat?.from === "side" && seat.back != null ? Math.abs(Math.sin(turn)) * (1 - smooth(clamp(tb / 0.7, 0, 1))) : 0;
+        // (and beside something close at its elbows, seated: a counter's end, a booth's wall)
+        const beside = seat?.elbows?.[i === 0 ? 1 : 0] ?? Infinity;
+        tuck = Math.max(tuck, clamp((0.55 * k - beside) / (0.25 * k), 0, 1) * w);
+        this.reach(side, i, hand, bodyYaw, smooth(clamp(ta / 0.3, 0, 1)), tuck);
       }
       // the wrist relaxed, the hand turned a little palm-back
       this.local(`${side}Hand`, rot(this.hinge(`${side}IndexProximal`), 0.12 + 0.25 * g * moving - 0.25 * w, this.q.a));
@@ -618,8 +654,12 @@ export class ChimpAnimator {
         // shins drooping down over it as far as the edge lets them
         ky = flatKnee + (shape.legs === "out" ? 0.05 * k : 0);
         kz = hz + Math.sqrt(Math.max(1e-6, a * a - (hipY - ky) ** 2));
-        // (the heel on the top, the calf above it: it is thicker than the heel)
-        let ang = Math.asin(clamp((ky - (h + B.heel * k * 1.15 + 0.025)) / b, -1, 1));
+        // (the heel on the top, the calf above it: it is thicker than the heel; over what lies on the top, a rolled towel)
+        // (only a rise the heel reaches: the shin rests on it with the knee raised as far)
+        const rise = shape.legs === "out" && kz + b + B.heelBack * k > (shape.riseAt ?? Infinity) ? shape.rise ?? 0 : 0;
+        ky += rise * 0.6;
+        kz = hz + Math.sqrt(Math.max(1e-6, a * a - (hipY - ky) ** 2));
+        let ang = Math.asin(clamp((ky - (h + rise + B.heel * k * 1.15 + 0.025)) / b, -1, 1));
         if (shape.legs === "down") {
           const run = Math.max(0.02, depth - kz);
           const most = Math.atan2(Math.max(0, ky - h - B.underKnee * k * 0.9), run);
@@ -718,6 +758,8 @@ export class ChimpAnimator {
     const ty = smooth(clamp(t / 0.7, 0, 1));
     const tp = smooth(clamp((t - 0.25) / 0.75, 0, 1));
     const yaw = lerp(a.yaw, b.yaw, ty);
+    // the body (from the hips up), on a chair, turning a little ahead of the legs: its shoulders square to the chair's back sooner
+    const bodyYaw = seat.back != null && seat.legs === "down" ? lerp(a.yaw, b.yaw, smooth(clamp(t / 0.5, 0, 1))) : yaw;
     const hips = Vector3.Lerp(a.hips, b.hips, tp);
     // each point in its pose's own frame about the hips, mixed, and put back about the hips now
     const local = (v: Vector3, o: Vector3, y0: number) => {
@@ -740,14 +782,50 @@ export class ChimpAnimator {
     const h = seat.height / k;
     // (swinging the legs up onto a lounging seat, the feet over its edge; down over a chair's, they stay down)
     const lift = (i: number) => (seat.legs === "out" ? Math.max(0, h + 0.18 - Math.min(a.ankle[i].y, b.ankle[i].y)) : 0);
+    const knee = [mix(a.knee[0], b.knee[0], lift(0) * 0.7), mix(a.knee[1], b.knee[1], lift(1) * 0.7)];
+    const ankle = [mix(a.ankle[0], b.ankle[0], lift(0)), mix(a.ankle[1], b.ankle[1], lift(1))];
+    // swivelling round on a chair, the feet tucked in under it half way round, not swept out wide (into a desk);
+    // (not on a bench or a stool: under its edge is the bench itself)
+    if (seat.legs === "down" && seat.back != null) {
+      const tuck = 0.35 * Math.sin(Math.PI * ty);
+      ankle.forEach((v, i) => {
+        // (no further in than a little ahead of the knee: the calf not back under the seat's edge)
+        const out = Math.hypot(v.x - hips.x, v.z - hips.z);
+        const most = Math.min(tuck, Math.max(0, 1 - (Math.hypot(knee[i].x - hips.x, knee[i].z - hips.z) + 0.06) / Math.max(1e-6, out)));
+        v.x -= (v.x - hips.x) * most;
+        v.z -= (v.z - hips.z) * most;
+      });
+    }
+    const hand = [mix(a.hand[0], b.hand[0]), mix(a.hand[1], b.hand[1])];
+    // something in front by the feet (a desk's front panel): sliding back onto the seat sooner, as
+    // far as keeps the knees and toes clear of it as the legs swing round to it
+    if (seat.room !== undefined && Number.isFinite(seat.room)) {
+      const turn = seat.turn ?? 0;
+      const fx = Math.sin(turn);
+      const fz = Math.cos(turn);
+      const ox = (seat.at?.[0] ?? 0) / k;
+      const oz = (seat.at?.[1] ?? 0) / k;
+      const ahead = (v: Vector3) => (v.x - ox) * fx + (v.z - oz) * fz;
+      const most = seat.room / k - 0.03;
+      // (the toes reach forward as far as the body has turned to face the way the seat does)
+      const facing = Math.cos(yaw - turn);
+      let over = 0;
+      for (let i = 0; i < 2; i++) over = Math.max(over, ahead(knee[i]) + 0.05 - most, ahead(ankle[i]) + Math.max(0, facing) * this.body.toe + 0.03 - most);
+      // (no further back than it ends up, nor so far, still turned sideways, that a shoulder is in the seat's back)
+      let room = Math.max(0, ahead(hips) - ahead(b.hips));
+      // (the back's face at the shoulders: further back up there as it leans)
+      if (seat.back != null) room = Math.min(room, Math.max(0, ahead(hips) + (seat.back + 0.35 * Math.tan(seat.recline)) / k - 0.02 - this.shoulder() * Math.abs(Math.sin(bodyYaw - turn))));
+      const by = Math.min(over, room);
+      if (by > 0) for (const v of [hips, ...knee, ...ankle, ...hand]) v.subtractInPlace(new Vector3(fx * by, 0, fz * by));
+    }
     return {
       hips,
-      yaw,
+      yaw: bodyYaw,
       lean: lerp(a.lean, b.lean, tp),
-      knee: [mix(a.knee[0], b.knee[0], lift(0) * 0.7), mix(a.knee[1], b.knee[1], lift(1) * 0.7)],
-      ankle: [mix(a.ankle[0], b.ankle[0], lift(0)), mix(a.ankle[1], b.ankle[1], lift(1))],
+      knee: [knee[0], knee[1]],
+      ankle: [ankle[0], ankle[1]],
       pitch: [lerp(a.pitch[0], b.pitch[0], ty), lerp(a.pitch[1], b.pitch[1], ty)],
-      hand: [mix(a.hand[0], b.hand[0]), mix(a.hand[1], b.hand[1])],
+      hand: [hand[0], hand[1]],
       planted: a.planted && b.planted,
     };
   }
@@ -788,6 +866,12 @@ export class ChimpAnimator {
     return this.pack;
   }
 
+  /** How far out to its sides its shoulders stand from its middle (rest units): the upper arms' tops, and their thickness (a big chimp's deltoids). */
+  private shoulder(): number {
+    const r = this.chimp.rig;
+    return Math.abs(r.bones[r.index.leftUpperArm].head[0]) + 0.1;
+  }
+
   /** Where the hip joint of leg i is now (rest units, the root's frame). */
   private hipAt(i: number): Vector3 {
     const off = this.legs[i].hip.subtract(Vector3.FromArray(this.chimp.rig.bones[this.chimp.rig.index.hips].head));
@@ -808,7 +892,7 @@ export class ChimpAnimator {
    * Reach a hand to `target` (rest units, the root's frame) by two-bone IK, the elbow back and out,
    * blended in by `w` over the arm's own pose this frame (set just before).
    */
-  private reach(side: string, i: number, target: Vector3, yaw: number, w: number) {
+  private reach(side: string, i: number, target: Vector3, yaw: number, w: number, tuck = 0) {
     if (w <= 0) return;
     const r = this.chimp.rig;
     const head = (n: string) => Vector3.FromArray(r.bones[r.index[n]].head);
@@ -825,7 +909,10 @@ export class ChimpAnimator {
     const n = d.normalize();
     // the elbow back and out, turned with the body
     const sign = i === 0 ? -1 : 1;
-    const pole = new Vector3(sign * 0.6, -0.5, 0.05).applyRotationQuaternion(rot(Y, yaw, new Quaternion())).normalize();
+    // (tucked: down by its side and a little back)
+    const pole = Vector3.Lerp(new Vector3(sign * 0.6, -0.5, 0.05), new Vector3(-sign * 0.05, -0.85, -0.35), tuck)
+      .applyRotationQuaternion(rot(Y, yaw, new Quaternion()))
+      .normalize();
     const poleP = pole.subtract(n.scale(Vector3.Dot(pole, n))).normalize();
     const cosA = clamp((A * A + dist * dist - Bl * Bl) / (2 * A * dist), -1, 1);
     const elbow = S.add(n.scale(A * cosA)).addInPlace(poleP.scale(A * Math.sin(Math.acos(cosA))));
