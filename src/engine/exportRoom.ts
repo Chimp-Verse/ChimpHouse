@@ -131,6 +131,7 @@ export async function exportZone(scene: Scene, zoneId: string, level: string | u
       seatLegs: seat.legs,
       ...(seat.footrest !== undefined && { seatFootrest: seat.footrest }),
       ...(seat.turn && { seatTurn: true }),
+      ...(seat.from && { seatFrom: seat.from }),
     };
     e.metadata = { gltf: { extras: { zone: zoneId, level: sm.level, role: sm.role, slot: sm.slot, ...(stand && { stand }), ...seatProps } } };
   }

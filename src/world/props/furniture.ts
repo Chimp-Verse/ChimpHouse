@@ -210,8 +210,9 @@ export function lounger(ctx: WorldCtx, z: Zone, pos: Vector3, yaw: number, o: { 
   cush.add(softBox(0.62, 0.075, 1.24, 0.03, 0.008), xf(0, h + 0.0375, (zf + zh) / 2 - 0.01));
   const bc = onBack(bl / 2 + 0.01, 0.0375);
   cush.add(softBox(0.62, 0.075, 0.7, 0.03, 0.008), xf(bc.x, bc.y, bc.z, 0, 1, 1, 1, -th));
-  const pc = onBack(bl - 0.17, 0.13);
-  cush.add(softBox(0.42, 0.1, 0.22, 0.045, 0.03), xf(pc.x, pc.y, pc.z, 0, 1, 1, 1, -th));
+  // the headrest up at the top, where a lying chimp's head is (not at its neck)
+  const pc = onBack(bl - 0.11, 0.115);
+  cush.add(softBox(0.42, 0.08, 0.2, 0.04, 0.03), xf(pc.x, pc.y, pc.z, 0, 1, 1, 1, -th));
   ctx.g(z, "cream").add(cush, m, "Lounger cushion");
   if (o.towel) ctx.g(z, o.towel).add(cylinder(0.055, 0.52, 16), xf(-0.26, h + 0.075 + 0.055, zf + 0.2, 0, 1, 1, 1, 0, -Math.PI / 2).multiply(m), "Rolled towel");
   // lying back on the raised backrest, the legs out along the cushion toward the foot

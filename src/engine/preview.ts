@@ -575,6 +575,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       setBoom: (m: number) => fly.setBoom(m),
       toggleView: () => controller.toggleView(),
       wardrobe: (open: boolean) => controller.setWardrobe(open),
+      /** this visitor's chimp itself (its meshes, skeleton and nodes), for tools that measure it (tools/test-sit-clip.mjs) */
+      body: () => avatars.mine.chimp ?? null,
+      /** this visitor's chimp's animator (its sitting measures, and `freeze` to hold a sit part way) */
+      animator: () => avatars.mine.animator ?? null,
       /** the main stair's layout, for walking a chimp up it */
       stair: () => ({ ...STAIR }),
       /** each of this visitor's chimp's ankles, and the walkable ground under it (world y), for feet on steps */
@@ -595,6 +599,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     seats: {
       /** every seat found by role (number, kind, where, how it is sat on), who sits where, and this visitor's */
       describe: () => seats.describe(),
+      /** seat n's shape as read from the furniture (engine/seatShape.ts) */
+      shape: (n: number) => seats.shape(n),
       /** sit on seat n (walking), as E on it would; get up */
       sit: (n: number) => seats.sit(n),
       stand: () => seats.stand(),

@@ -6,10 +6,12 @@
 // - Walking up to a free seat and looking at it offers "E: Sit down", unless something else
 //   within reach already takes E (a cabinet, a remote, a controller, the screen…): seats come last.
 //   Reach and aim are measured from the visitor's eyes (fly.eye, fly.aim), never the camera.
-// - E sits: the walker holds still at the seat (engine/walker.ts sit), the eye lowered to the
-//   seated chimp's; the chimp turns, sits and leans back (avatar/animator.ts), the camera behind it
-//   as ever. E again (when nothing else takes it), a walking key or Esc gets up, back to where
-//   the visitor stood.
+// - E sits: the chimp walks to where it sits down from (engine/walker.ts sit), turns round and
+//   sits (avatar/animator.ts), fitted to the seat's shape, which is read from the furniture
+//   (engine/seatShape.ts); the eye goes down to the seated chimp's, the camera behind it as ever.
+//   A seat with a back is sat on from in front of it, back to it, feet where they stood; a stool,
+//   a pouf, a lounger or a daybed from beside it, on its edge and then round onto it. E again
+//   (when nothing else takes it), a walking key or Esc gets up, and a step clear of the seat.
 // - One chimp a seat: who sits where is the room server's (engine/seatState.ts). A page sits on its
 //   own copy at once; a seat someone else took first is refused, and the visitor gets up again. A
 //   visitor leaving the house frees their seat. Other visitors see the chimp sitting from its own
@@ -17,6 +19,7 @@
 
 import { Scene, TransformNode, Vector3 } from "@babylonjs/core";
 import type { SeatPose } from "../avatar/animator";
+import { type SeatShape, measureSeat, roomAhead } from "./seatShape";
 import type { SeatInfo, SeatMeta } from "../world/context";
 import { ROLE, findAll } from "../world/roles";
 import type { Avatars } from "./avatars";
@@ -31,8 +34,8 @@ const REACH_ACROSS = 1.7;
 const LOOK = Math.cos((35 * Math.PI) / 180);
 /** The point looked at: this far above the seat's top (m), where a chimp's lap would be. */
 const AIM_UP = 0.15;
-/** Standing up returns to where the visitor stood when they sat, when that is this near (m); otherwise to the seat's own place to stand. */
-const BACK_TO = 2.2;
+/** Getting up, the chimp steps this far clear of the seat's edge (m): the walking body's radius and a little. */
+const CLEAR = 0.38;
 
 /** A seat in the house, found by its role. */
 interface Seat {
@@ -69,8 +72,11 @@ const NAMES: Record<SeatInfo["kind"], string> = {
 export class Seats {
   readonly seats: Seat[];
   private byNumber = new Map<number, Seat>();
-  /** the seat this visitor sits on (this page's word: the shared state can lag), the way they face on it, and where they stood */
-  private mine: { seat: Seat; yaw: number; from: Vector3 } | null = null;
+  /** the seat this visitor sits on (this page's word: the shared state can lag), and where they step to getting up */
+  private mine: { seat: Seat; out: Vector3 } | null = null;
+  /** each seat's shape, measured the first time it is wanted, and the house it was measured in */
+  private shapes = new Map<number, SeatShape>();
+  private shapesOf: unknown = null;
   /** when this page last asked the server for its seat again (the server restarted, or its state crossed the sit) */
   private askedAt = 0;
 
@@ -96,7 +102,8 @@ export class Seats {
     // other visitors' chimps sit on this page's copy of their seat
     avatars.seatPose = (n) => {
       const s = this.byNumber.get(n);
-      return s ? pose(s.info) : null;
+      if (!s) return null;
+      return { pose: this.pose(s), x: s.at.x, z: s.at.z, yaw: Math.atan2(s.front.x, s.front.z) };
     };
     // the server's state: everyone's sitting and getting up, and a latecomer told who sits where
     room.watch<SeatsState>(SEATS_TOPIC, (s) => this.follow(s));
@@ -167,15 +174,88 @@ export class Seats {
     if (by !== null && by !== ME.id) return false;
     if (this.tell({ name: "sit", args: { seat: n } })) return false;
     this.askedAt = performance.now();
-    const look = seat.info.turn ? new Vector3(this.fly.aim.x, 0, this.fly.aim.z) : seat.front;
-    const yaw = look.lengthSquared() > 1e-6 ? Math.atan2(look.x, look.z) : Math.atan2(seat.front.x, seat.front.z);
-    const from = this.mine?.from ?? w.feet.clone();
-    this.mine = { seat, yaw, from };
-    const p = pose(seat.info);
-    w.sit(seat.at.x, seat.at.z, seat.floor, this.avatars.seatedEye(p));
-    this.avatars.mySeat = { n, floor: seat.floor, yaw, pose: p };
+    const look = seat.info.turn ? new Vector3(this.fly.aim.x, 0, this.fly.aim.z) : seat.front.clone();
+    const f = look.lengthSquared() > 1e-6 ? look.normalize() : seat.front.clone();
+    const seatYaw = Math.atan2(f.x, f.z);
+    let p = this.pose(seat);
+    // a stool faces the way the visitor looks: what is in front of the feet that way
+    if (seat.info.turn) p = { ...p, room: roomAhead((x, y, z, dx, dy, dz, max) => w.world.raycast(x, y, z, dx, dy, dz, max), seat.at.x, seat.at.z, f.x, f.z, seat.floor, seat.floor + p.height, Math.max(p.depth ?? 0.3, p.base ?? 0)) };
+    const { out: off, along } = this.avatars.standOff(p);
+    // what is in front the way the sitter will face (for a stool, the way the visitor looks: the bar)
+    let clear = Infinity;
+    const from0 = (p.depth ?? 0.3) + 0.02;
+    for (const up of [0.5, 0.75, 1.0, 1.1]) clear = Math.min(clear, from0 + w.world.raycast(seat.at.x + f.x * from0, seat.floor + up, seat.at.z + f.z * from0, f.x, 0, f.z, 2));
+    // where it sits down from: in front of the seat; or beside it, on the visitor's side unless
+    // that side has no room to stand in (a wall, a planter, the next lounger) and the other has
+    let to = f;
+    let edge = p.depth ?? 0.3;
+    if (p.from === "side") {
+      const right = new Vector3(f.z, 0, -f.x);
+      const wide = p.width ?? 0.25;
+      // the room from the seat's side out (at a chimp's shins, hips and chest)
+      const room = (d: Vector3) => {
+        let r = Infinity;
+        for (const up of [0.3, 0.6, 0.9]) r = Math.min(r, w.world.raycast(seat.at.x + d.x * wide, seat.floor + up, seat.at.z + d.z * wide, d.x, 0, d.z, 2));
+        return r;
+      };
+      const mine = Vector3.Dot(w.feet.subtract(seat.at), right) < 0 ? right.scale(-1) : right;
+      const other = mine.scale(-1);
+      const need = off + 0.32 - wide;
+      to = room(mine) < need && room(other) > room(mine) ? other : mine;
+      edge = p.width ?? 0.25;
+    }
+    // beside it, a little back from what it faces (a counter's edge, a desk's)
+    const stand = seat.at.add(to.scale(off)).addInPlace(f.scale(along));
+    if (p.from === "side") stand.subtractInPlace(f.scale(Math.max(0, Math.min(0.12, 0.45 - clear))));
+    this.mine = { seat, out: seat.at.add(to.scale(Math.max(off, edge + CLEAR))) };
+    const back = this.avatars.seatedEyeBack(p);
+    w.sit(stand.x, stand.z, seat.floor, this.avatars.seatedEye(p), seat.at.x - f.x * back, seat.at.z - f.z * back);
+    this.avatars.mySeat = { n, floor: seat.floor, yaw: Math.atan2(to.x, to.z), pose: p, x: seat.at.x, z: seat.at.z, seatYaw };
     store.set({ seated: n, seatPrompt: null });
     return true;
+  }
+
+  /** Seat n's shape (engine/seatShape.ts), measured in the house as it is now; null without a walker to measure with. */
+  shape(n: number): SeatShape | null {
+    const seat = this.byNumber.get(n);
+    return seat ? this.shapeOf(seat) : null;
+  }
+
+  private shapeOf(seat: Seat): SeatShape | null {
+    const world = this.fly.walker?.world;
+    if (!world) return null;
+    // cabinets came or went: the house's solid surfaces are new, and so are the seats' shapes
+    if (world !== this.shapesOf) {
+      this.shapes.clear();
+      this.shapesOf = world;
+    }
+    let sh = this.shapes.get(seat.n);
+    if (!sh) {
+      sh = measureSeat((x, y, z, dx, dy, dz, max) => world.raycast(x, y, z, dx, dy, dz, max), seat.at.x, seat.at.y, seat.at.z, seat.front.x, seat.front.z, seat.floor, seat.info);
+      this.shapes.set(seat.n, sh);
+    }
+    return sh;
+  }
+
+  /** How a chimp sits on a seat: its shape as measured (or, with nothing to measure with, as it says), and how it is sat on. */
+  private pose(seat: Seat): SeatPose {
+    const info = seat.info;
+    const sh = this.shapeOf(seat);
+    return {
+      height: sh?.height ?? info.height,
+      recline: sh?.recline ?? info.recline,
+      legs: info.legs,
+      depth: sh?.depth ?? 0.3,
+      back: sh ? sh.back : null,
+      width: sh?.width ?? 0.25,
+      rear: sh?.rear ?? 0.2,
+      base: sh?.base ?? 0,
+      sideBase: sh?.sideBase ?? 0,
+      room: sh?.room ?? Infinity,
+      // from beside it: a stool, a pouf, a lounger, or a seat pulled up to something (a desk, a counter, a piano) where its sitter would stand to sit down
+      from: info.from ?? (info.turn || info.legs === "out" || (sh && !sh.arms && sh.clear < sh.depth + 0.6) ? "side" : "front"),
+      ...(info.footrest !== undefined && { footrest: info.footrest }),
+    };
   }
 
   /** Get up from the seat, back to where the visitor stood. */
@@ -183,7 +263,7 @@ export class Seats {
     this.getUp(true);
   }
 
-  /** Get up: off the seat for everyone, and (`walk`) back on the visitor's feet where they stood. */
+  /** Get up: off the seat for everyone, and (`walk`) up on the visitor's feet, a step clear of the seat. */
   private getUp(walk: boolean): void {
     const mine = this.mine;
     if (!mine) return;
@@ -194,10 +274,7 @@ export class Seats {
     store.set({ seated: null, seatPrompt: null });
     const w = this.fly.walker;
     if (!walk || !w?.seated) return;
-    const back = mine.from;
-    const near = Math.hypot(back.x - mine.seat.at.x, back.z - mine.seat.at.z) < BACK_TO && Math.abs(back.y - mine.seat.floor) < 0.4;
-    const to = near ? back : mine.seat.stand;
-    w.stand(to.x, to.z, to.y);
+    w.stand(mine.out.x, mine.out.z);
   }
 
   /** What E would do about seats here, if nothing else takes it: get up, or sit on the seat looked at (or say who sits there). */
@@ -250,7 +327,7 @@ export class Seats {
   /** For tests and tools: every seat (number, kind, where), who sits where, and this visitor's. */
   describe() {
     return {
-      seats: this.seats.map((s) => ({ n: s.n, kind: s.info.kind, label: s.label, room: (s.node.metadata as SeatMeta).room, at: s.at.asArray(), floor: s.floor, front: s.front.asArray(), stand: s.stand.asArray(), info: s.info })),
+      seats: this.seats.map((s) => ({ n: s.n, kind: s.info.kind, label: s.label, room: (s.node.metadata as SeatMeta).room, at: s.at.asArray(), floor: s.floor, front: s.front.asArray(), stand: s.stand.asArray(), info: s.info, shape: this.shapes.get(s.n) ?? null })),
       taken: { ...store.get().seats.taken },
       mine: this.seated,
     };
@@ -260,9 +337,4 @@ export class Seats {
 /** Whether a seat can be sat on from any side: nothing much behind the sitter to lean on. */
 export function openSeat(info: SeatInfo): boolean {
   return !!info.turn || info.recline <= 0.12;
-}
-
-/** How the chimp sits on a seat, from the seat's info. */
-function pose(info: SeatInfo): SeatPose {
-  return { height: info.height, recline: info.recline, legs: info.legs, ...(info.footrest !== undefined && { footrest: info.footrest }) };
 }

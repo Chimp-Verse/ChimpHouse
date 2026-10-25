@@ -246,12 +246,12 @@ function buildBar(ctx: WorldCtx, z: Zone, b: ReturnType<typeof loungeBar>, r: Ra
   for (let i = 0; i < 8; i++) ctx.g(z, "glass", { castShadow: false, pickable: false }).add(cylinder(0.035, 0.12, 10, false), xf(cw + 0.2 + (i % 4) * 0.09, 0.9, wz - 0.05 + Math.floor(i / 4) * 0.09), "Glass rack");
   ctx.g(z, "chrome").add(lathe([[0.001, 0], [0.04, 0], [0.045, 0.16], [0.03, 0.2], [0.012, 0.24], [0.001, 0.24]], 14), xf(tx + 0.8, 0.9, wz + 0.05), "Cocktail shaker");
 
-  // stools along the front and one at the curve
+  // stools along the front and one at the curve (far enough out that a sitter's feet hang clear of the bar's front)
   const stools: P2[] = [];
   const n = Math.max(3, Math.floor((ce - cw - 0.3) / 0.7) + 1);
-  for (let i = 0; i < n; i++) stools.push({ x: ce - 0.35 - i * ((ce - cw - 0.5) / (n - 1)), z: cz - 0.86 });
+  for (let i = 0; i < n; i++) stools.push({ x: ce - 0.35 - i * ((ce - cw - 0.5) / (n - 1)), z: cz - 0.94 });
   const sa = (225 * Math.PI) / 180;
-  stools.push({ x: cw + Math.cos(sa) * (rr + 0.86), z: cz + rr + Math.sin(sa) * (rr + 0.86) });
+  stools.push({ x: cw + Math.cos(sa) * (rr + 0.94), z: cz + rr + Math.sin(sa) * (rr + 0.94) });
   for (const p of stools) stool(ctx, z, new Vector3(p.x, F, p.z), 0.75, "tealBright", "Bar stool");
   for (let i = 0; i < 3; i++) wovenPendant(ctx, z, new Vector3(cw + 0.4 + i * ((ce - cw - 0.8) / 2), C, cz - 0.05), 0.22, 1.7, { shape: "teardrop" });
 }

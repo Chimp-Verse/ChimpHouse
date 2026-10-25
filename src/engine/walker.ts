@@ -23,6 +23,8 @@ export const AVATAR = {
 };
 
 const GRAVITY = 9.81;
+/** How fast the chimp walks up to a seat, and away from it after getting up (m/s). */
+const SIT_WALK = 1.3;
 const SUBSTEP = 1 / 120;
 /** how far below the feet the ground is followed down stairs and slopes while walking */
 const SNAP_DOWN = 0.45;
@@ -60,11 +62,15 @@ export class Walker {
   private cp = new Float64Array(3);
   private under = emptyProbe();
   /**
-   * Sitting (engine/seats.ts): the feet held at a seat's place on the floor and the eye at the seated
-   * chimp's, easing there; no walking or falling meanwhile. `release`: getting up, easing back to a
-   * place to stand, where walking takes over again.
+   * Sitting (engine/seats.ts), in turn: walking up to where the chimp sits down from (`walk`, not
+   * bumping into things: it is right by the seat), held there while it sits (`sit`), getting up
+   * (`rise`, until the chimp has: `sitWeight` back to 0), and a step clear of the seat (`out`), where
+   * walking takes over again. The eye goes down to the seated chimp's and over the seat (`ex`, `ez`)
+   * as it sits. No walking or falling meanwhile.
    */
-  private held: { x: number; z: number; floor: number; eye: number; release: boolean } | null = null;
+  private held: { x: number; z: number; floor: number; eye: number; ex: number; ez: number; phase: "walk" | "sit" | "rise" | "out"; outX: number; outZ: number } | null = null;
+  /** How far the chimp has sat down (0 standing, 1 seated), for the eye: engine/avatars.ts sets it each frame. */
+  sitWeight = 0;
   /** Whether the walking keys were held this frame while sitting: a sitter who walks gets up. */
   wantsToMove = false;
 
@@ -86,23 +92,45 @@ export class Walker {
     return { x: this.vel.x, z: this.vel.z };
   }
 
-  /** Sitting on a seat, or getting up from one (see `sit`). */
+  /** Sitting on a seat, or walking up to it, or getting up from one (see `sit`). */
   get seated(): boolean {
     return !!this.held;
   }
 
-  /** Sit: the feet ease to (x, z) on the floor at `floor`, the eye to `eye` above it; walking stops until `stand`. */
-  sit(x: number, z: number, floor: number, eye: number): void {
-    this.held = { x, z, floor, eye, release: false };
+  /** Walking up to where the chimp sits down from, not there yet. */
+  get approaching(): boolean {
+    return this.held?.phase === "walk";
+  }
+
+  /** Where the eye is across the floor: over the feet, or (sitting) over the seat. */
+  get eyeX(): number {
+    const h = this.held;
+    return h ? this.feet.x + (h.ex - this.feet.x) * this.sitWeight : this.feet.x;
+  }
+  get eyeZ(): number {
+    const h = this.held;
+    return h ? this.feet.z + (h.ez - this.feet.z) * this.sitWeight : this.feet.z;
+  }
+
+  /**
+   * Sit: walk to (x, z) on the floor at `floor` (where the chimp sits down from) and stay there; the
+   * eye goes to `eye` above the floor and over (ex, ez) as the chimp sits. Walking stops until `stand`.
+   */
+  sit(x: number, z: number, floor: number, eye: number, ex: number, ez: number): void {
+    this.held = { x, z, floor, eye, ex, ez, phase: "walk", outX: x, outZ: z };
     this.vel.setAll(0);
     this.vy = 0;
     this.slideX = this.slideZ = 0;
   }
 
-  /** Get up: ease back to (x, z) on the floor at `floor` (a place to stand), then walk on from there. */
-  stand(x: number, z: number, floor: number): void {
-    if (!this.held) return;
-    this.held = { x, z, floor, eye: this.eye, release: true };
+  /** Get up: once the chimp has stood up, a step to (x, z) clear of the seat, then walk on from there. */
+  stand(x: number, z: number): void {
+    const h = this.held;
+    if (!h) return;
+    h.outX = x;
+    h.outZ = z;
+    // not sat down yet: off again at once
+    h.phase = h.phase === "walk" ? "out" : "rise";
   }
 
   /** On the ground (not falling). */
@@ -183,24 +211,41 @@ export class Walker {
     if (this.feet.y < this.safe.y - 60) this.place(this.safe.x, this.safe.y + 0.5, this.safe.z, 1);
   }
 
-  /** Sitting, or getting up: the feet and eye ease to the seat's (or the place to stand), nothing else moves. */
+  /** Sitting (see `held`): walking up to the seat at a stroll, held there, and a step clear of it after getting up. */
   private hold(dt: number, want: boolean) {
     const h = this.held!;
     this.wantsToMove = want;
-    const k = 1 - Math.exp(-dt * 5);
-    this.feet.x += (h.x - this.feet.x) * k;
-    this.feet.z += (h.z - this.feet.z) * k;
     this.feet.y = h.floor;
     this.vel.setAll(0);
     this.vy = 0;
     this.grounded = true;
-    this.camY += (h.floor + h.eye - this.camY) * (1 - Math.exp(-dt * 6));
-    if (h.release && Math.hypot(h.x - this.feet.x, h.z - this.feet.z) < 0.03) {
-      // up: walking again from the place to stand, the eye easing on up from where it is
-      const eye = this.camY;
-      if (!this.place(h.x, h.floor + 0.3, h.z, 1.5)) this.held = null;
-      this.camY = eye;
-    }
+    if (h.phase === "walk" || h.phase === "out") {
+      const tx = h.phase === "walk" ? h.x : h.outX;
+      const tz = h.phase === "walk" ? h.z : h.outZ;
+      const dx = tx - this.feet.x;
+      const dz = tz - this.feet.z;
+      const d = Math.hypot(dx, dz);
+      const step = Math.min(d, SIT_WALK * dt);
+      if (d > 1e-4) {
+        this.feet.x += (dx / d) * step;
+        this.feet.z += (dz / d) * step;
+        // walking there: the chimp steps as it goes
+        if (d > 0.02) this.vel.set((dx / d) * SIT_WALK, 0, (dz / d) * SIT_WALK);
+      }
+      if (d - step < 0.005) {
+        if (h.phase === "walk") h.phase = "sit";
+        else {
+          // clear of the seat: walking again, the eye easing on up from where it is
+          const eye = this.camY;
+          if (!this.place(this.feet.x, h.floor + 0.3, this.feet.z, 1.5)) this.held = null;
+          this.camY = eye;
+          return;
+        }
+      }
+    } else if (h.phase === "rise" && this.sitWeight < 0.01) h.phase = "out";
+    // the eye: a standing chimp's, a sitting one's, and between as it sits
+    const eye = h.floor + this.eye + (h.eye - this.eye) * this.sitWeight;
+    this.camY += (eye - this.camY) * (1 - Math.exp(-dt * 14));
   }
 
   private step(h: number) {

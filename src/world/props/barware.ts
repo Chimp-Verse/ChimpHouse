@@ -269,7 +269,7 @@ export function eggChair(ctx: WorldCtx, z: Zone, p: Vector3, yaw: number, r: Ran
   ctx.g(z, cush).add(softBox(0.62, 0.12, 0.5, 0.06, 0.04), xf(0, -0.36, -0.02).multiply(m), "Egg chair cushion");
   ctx.g(z, "cream").add(softBox(0.5, 0.4, 0.12, 0.06, 0.05), xf(0, -0.05, 0.27, 0, 1, 1, 1, -0.25).multiply(m), "Egg chair cushion");
   // on the seat cushion, the feet hanging clear of the floor
-  seat(ctx, z, xf(0, -0.3, 0.04).multiply(m), { kind: "eggChair", height: hc - 0.3, recline: 0.2, legs: "down" }, "Hanging egg chair");
+  seat(ctx, z, xf(0, -0.3, 0.04).multiply(m), { kind: "eggChair", height: hc - 0.3, recline: 0.2, legs: "down", from: "front" }, "Hanging egg chair");
   // chain to the ceiling
   ctx.g(z, "black").add(cylinder(0.012, ceil - (p.y + hc + ay), 6, false), xf(p.x, p.y + hc + ay - 0.02, p.z), "Egg chair chain");
   ctx.g(z, "black").add(cylinder(0.06, 0.03, 12), xf(p.x, ceil - 0.03, p.z));

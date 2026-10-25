@@ -150,11 +150,11 @@ export function buildCanopyBar(ctx: WorldCtx): void {
   const mats = ["bottleAmber", "bottleGreen", "bottleClear"];
   for (let i = 0; i < 7; i++) bottle(ctx, z, xf(tx - 1.3 + i * 0.09, wy, cz + 0.55), mats[i % 3], 0.28, "Bottles");
 
-  // stools along the front and at the curve
+  // stools along the front and at the curve (far enough out that a sitter's feet hang clear of the bar's front)
   const n = Math.floor((xe - xs - 0.35) / 0.65) + 1;
-  for (let i = 0; i < n; i++) stool(ctx, z, new Vector3(xs + 0.35 + (i * (xe - xs - 0.35)) / Math.max(1, n - 1), U, cz - 0.86), 0.78, "tealBright", "Bar stool");
+  for (let i = 0; i < n; i++) stool(ctx, z, new Vector3(xs + 0.35 + (i * (xe - xs - 0.35)) / Math.max(1, n - 1), U, cz - 0.94), 0.78, "tealBright", "Bar stool");
   const sa = -Math.PI / 4;
-  stool(ctx, z, new Vector3(xe + Math.cos(sa) * (rr + 0.86), U, cz + rr + Math.sin(sa) * (rr + 0.86)), 0.78, "tealBright", "Bar stool");
+  stool(ctx, z, new Vector3(xe + Math.cos(sa) * (rr + 0.94), U, cz + rr + Math.sin(sa) * (rr + 0.94)), 0.78, "tealBright", "Bar stool");
   for (let i = 0; i < 4; i++) wovenPendant(ctx, z, new Vector3(xs + 0.5 + (i * (xe - xs - 1.0)) / 3, CEIL, cz - 0.05), 0.24, 2.0, { shape: "teardrop" });
   floorPlanter(ctx, z, new Vector3(bx0 - 0.5, U, z1 - 0.55), "palm", "potCream", r);
   floorPlanter(ctx, z, new Vector3(xe + rr + 1.25, U, z1 - 0.85), "monstera", "potCharcoal", r);
@@ -523,22 +523,24 @@ function cabana(ctx: WorldCtx, z: Zone, m: Matrix, r: Rand) {
   ctx.g(z, "cream").add(softBox(W - 0.25, 0.22, D - 0.25, 0.08, 0.03), xf(0, 0.41, 0).multiply(m), "Daybed mattress");
   const pill = ["tealBright", "mustard", "coral", "tealDeep", "mustard"];
   for (let i = 0; i < 5; i++) ctx.g(z, pill[i]).add(softBox(0.45, 0.42, 0.14, 0.06, 0.05), xf(-W / 2 + 0.4 + i * 0.37, 0.72, D / 2 - 0.3, (r() - 0.5) * 0.2, 1, 1, 1, -0.3).multiply(m), "Cushion");
-  ctx.g(z, "timber").add(box(0.5, 0.03, 0.34), xf(0.35, 0.535, -0.35, 0.2).multiply(m), "Serving tray");
+  ctx.g(z, "timber").add(box(0.5, 0.03, 0.34), xf(0.83, 0.535, -0.45, Math.PI / 2 + 0.15).multiply(m), "Serving tray");
   // three places along the back, leaning on the pillows with the legs out on the mattress
-  for (const x of [-0.65, 0, 0.65]) seat(ctx, z, xf(x, 0.5, D / 2 - 0.55).multiply(m), { kind: "daybed", height: 0.5, recline: 0.35, legs: "out" }, "Daybed");
-  cocktail(ctx, z, pt(m, 0.25, 0.55, -0.38), 2, r);
-  cocktail(ctx, z, pt(m, 0.45, 0.55, -0.3), 0, r);
+  // (the end places in from the posts' gathered curtains, an elbow's width)
+  for (const x of [-0.5, 0, 0.5]) seat(ctx, z, xf(x, 0.5, D / 2 - 0.55).multiply(m), { kind: "daybed", height: 0.5, recline: 0.35, legs: "out", from: "front" }, "Daybed");
+  // (on the tray at the side, out of the way of legs stretched out along the mattress)
+  cocktail(ctx, z, pt(m, 0.84, 0.55, -0.56), 2, r);
+  cocktail(ctx, z, pt(m, 0.8, 0.55, -0.34), 0, r);
   // curtains gathered and tied at each post
   const curt = new Geo();
   for (const sx of [-1, 1])
     for (const sz of [-1, 1]) {
-      const cx = sx * (W / 2 - 0.16);
-      const cz = sz * (D / 2 - 0.16);
+      const cx = sx * (W / 2 - 0.11);
+      const cz = sz * (D / 2 - 0.11);
       curt.add(lathe([[0.1, 0], [0.06, 1.1], [0.05, 1.2], [0.08, 1.35], [0.13, H - 0.15], [0.13, H - 0.12]], 14), xf(cx, 0, cz));
     }
   ctx.g(z, "canvas").add(curt, m, "Cabana curtains");
   const ties = new Geo();
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) ties.add(torus(0.058, 0.012, 14, 4), xf(sx * (W / 2 - 0.16), 1.2, sz * (D / 2 - 0.16)));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) ties.add(torus(0.058, 0.012, 14, 4), xf(sx * (W / 2 - 0.11), 1.2, sz * (D / 2 - 0.11)));
   ctx.g(z, "rope").add(ties, m, "Cabana curtains");
   ctx.g(z, "bulb", { castShadow: false }).add(sphere(0.06, 10, 8), xf(0, H - 0.25, 0).multiply(m), "Cabana lantern");
   ctx.g(z, "lattice", { castShadow: false }).add(sphere(0.14, 14, 10), xf(0, H - 0.25, 0).multiply(m), "Cabana lantern");

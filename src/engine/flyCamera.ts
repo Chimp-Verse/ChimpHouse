@@ -188,7 +188,7 @@ export class FlyCamera {
    */
   private follow(dt: number, snap = false) {
     const w = this.walker!;
-    this.eye.set(w.feet.x, w.eyeY, w.feet.z);
+    this.eye.set(w.eyeX, w.eyeY, w.eyeZ);
     const fx = Math.sin(this.yaw) * Math.cos(this.pitch);
     const fy = -Math.sin(this.pitch);
     const fz = Math.cos(this.yaw) * Math.cos(this.pitch);
@@ -219,7 +219,7 @@ export class FlyCamera {
     // the view's right, flat: (cos yaw, 0, -sin yaw)
     const rx = fz / h;
     const rz = -fx / h;
-    return [w.feet.x + rx * this.framing.side, w.groundY + this.pivotHeight - this.framing.drop, w.feet.z + rz * this.framing.side];
+    return [w.eyeX + rx * this.framing.side, w.groundY + this.pivotHeight - this.framing.drop, w.eyeZ + rz * this.framing.side];
   }
 
   /** How long the boom can be from a pivot, looking along (fx, fy, fz): its length, or short of the first wall behind. */

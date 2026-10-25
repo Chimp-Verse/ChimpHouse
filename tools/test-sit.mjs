@@ -144,10 +144,13 @@ try {
     const p = (await state()).seatPrompt;
     check(p?.action === "sit" && p.seat === s.n, `looking at ${what}, E offers to sit down`, JSON.stringify(p));
     await page.keyboard.press("KeyE");
-    await sleep(1400);
+    // it walks to where it sits down from, turns round and sits
+    await waitFor(() => window.__chimp.chimps.describe().mine.sitting > 0.99, null, 10000).catch(() => undefined);
     await settle(5);
     return before;
   };
+  /** Getting up: until the chimp is up and has stepped clear of the seat, walking again. */
+  const upAgain = () => waitFor(() => !window.__chimp.walker().seated && window.__chimp.chimps.describe().mine.sitting < 0.01, null, 8000).catch(() => undefined);
   /** Seated on s, look round until nothing but the seat takes E; returns the state then. */
   const lookFree = async (s) => {
     let st = null;
@@ -170,13 +173,23 @@ try {
     const me = await ev(() => window.__chimp.tv.me().id);
     check(st.taken[String(s.n)] === me, "the seat is this visitor's in the shared state", JSON.stringify(st.taken));
     check(m.sitting > 0.98, "the chimp has sat down", m.sitting.toFixed(2));
-    check(Math.hypot(m.at[0] - s.at[0], m.at[2] - s.at[2]) < 0.06 && Math.abs(m.at[1] - s.floor) < 0.02, "on the seat's place, on its floor", m.at.map((v) => v.toFixed(2)).join(", "));
+    // its hips on the seat (against its back, shuffled forward on a deep one), its root on the seat's floor where it sat down from
+    const shape = await ev((n) => window.__chimp.seats.shape(n), s.n);
+    const fwd = (m.hips[0] - s.at[0]) * s.front[0] + (m.hips[2] - s.at[2]) * s.front[2];
+    const side = Math.abs((m.hips[0] - s.at[0]) * s.front[2] - (m.hips[2] - s.at[2]) * s.front[0]);
+    check(fwd > -shape.rear - 0.02 && fwd < shape.depth && side < 0.12 && Math.abs(m.at[1] - s.floor) < 0.02, "on the seat, its root on the seat's floor", `hips ${fwd.toFixed(2)} m ahead of the seat's place (its back ${shape.rear.toFixed(2)} behind, its edge ${shape.depth.toFixed(2)} ahead), ${side.toFixed(2)} aside`);
     const dy = m.hips[1] - s.at[1];
     check(dy > -0.02 && dy < 0.25, "its hips on the seat's top", `${dy.toFixed(3)} m over it`);
     if (!s.info.turn) {
+      // the body faces the way the seat does (a lounger's sitter sat down side on, its root still facing the way it stood: its hips turned round)
       const want = Math.atan2(s.front[0], s.front[2]);
-      const off = Math.abs(Math.atan2(Math.sin(m.facing - want), Math.cos(m.facing - want)));
-      check(off < 0.1, "facing the way the seat does", `${off.toFixed(3)} rad off`);
+      const hips = await ev(() => {
+        const q = window.__chimp.chimps.body().nodes.hips.absoluteRotationQuaternion;
+        const f = { x: 2 * (q.x * q.z + q.w * q.y), z: 1 - 2 * (q.x * q.x + q.y * q.y) };
+        return Math.atan2(f.x, f.z);
+      });
+      const off = Math.abs(Math.atan2(Math.sin(hips - want), Math.cos(hips - want)));
+      check(off < 0.15, "facing the way the seat does", `${off.toFixed(3)} rad off`);
     }
     // a sitter's eyes, where reach is measured from: over the seat (on a high stool, higher than standing)
     const over = eye[1] - s.at[1];
@@ -208,17 +221,19 @@ try {
   await settle(20);
   await shot("couch");
   await ev(() => window.__chimp.chimps.setBoom(0));
-  // E gets up, back to where the visitor stood (looking where nothing else takes E)
+  // E gets up, and steps clear of the sofa (looking where nothing else takes E)
   const before = await lookFree(sofa);
   await page.keyboard.press("KeyE");
-  await sleep(1500);
+  await upAgain();
   await settle(5);
   const up = await state();
   if (up.seated !== null) console.log("  before E:", JSON.stringify({ seat: before.seatPrompt, others: before.others, focus: up.focus }));
   const after = await ev(() => ({ feet: window.__chimp.walker().feet.asArray(), seated: window.__chimp.walker().seated, sitting: window.__chimp.chimps.describe().mine.sitting }));
   check(up.seated === null && Object.keys(up.taken).length === 0, "E again gets up, and the seat is free", JSON.stringify(up.taken));
   check(!after.seated && after.sitting < 0.02, "standing, walking again");
-  check(Math.hypot(after.feet[0] - sofaBefore.feet[0], after.feet[2] - sofaBefore.feet[2]) < 0.1, "back where it stood");
+  const ahead = (after.feet[0] - sofa.at[0]) * sofa.front[0] + (after.feet[2] - sofa.at[2]) * sofa.front[2];
+  check(ahead > 0.5 && ahead < 1.3, "standing in front of the sofa, clear of it", `${ahead.toFixed(2)} m in front of the seat's place`);
+  void sofaBefore;
   // a walking key gets up too, and Esc
   await approach(sofa);
   await lookAt(sofa);
@@ -235,7 +250,7 @@ try {
   await page.keyboard.press("KeyE");
   await sleep(900);
   await page.keyboard.press("Escape");
-  await sleep(1200);
+  await upAgain();
   check((await state()).seated === null && !(await ev(() => window.__chimp.walker().seated)), "and so does Esc");
 
   // ------------------------------------------------ 3. a bar stool, a theatre seat, a sun lounger

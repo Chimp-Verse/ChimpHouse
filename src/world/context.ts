@@ -72,6 +72,12 @@ export interface SeatInfo {
   footrest?: number;
   /** a sitter faces the way they looked as they sat (a stool, a pouf), not the slot's front */
   turn?: boolean;
+  /**
+   * how it is sat on: from in front (back to it: an egg chair's opening, a daybed's open front, where
+   * the sitter sits on the edge and slides back onto it) or from beside it; left out, the seat decides
+   * (engine/seats.ts: from beside a stool, a lounger, or a seat with a desk or a counter in front of it)
+   */
+  from?: "front" | "side";
 }
 
 /** A seat's slot: where it is, and how it is sat on. */
