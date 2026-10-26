@@ -10,6 +10,11 @@
       keys it receives and whether it has the keyboard, and keeps them in
       window.received for tools/test-arcade.mjs to read. It tells the play page
       when it starts, and what it shows after each key, for spectators.
+      Like a real game it keeps moving whether or not keys come: a frame count
+      ticks ten times a second, with a bar along its foot in a colour of its
+      own for each tick (TICK_COLOURS, also in standin.html), which it passes to
+      the play page too, so a test can tell a spectator's picture is live and
+      is this game's.
     -->
     <style>
       html,
@@ -55,6 +60,19 @@
         opacity: 0.7;
         font-size: 0.8em;
       }
+      #tick {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 22%;
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        padding-right: 4%;
+        color: #000;
+        font: 800 clamp(12px, 6vh, 40px) ui-monospace, monospace;
+      }
     </style>
   </head>
   <body>
@@ -66,6 +84,7 @@
         <div id="count">0 keys received</div>
       </div>
     </main>
+    <div id="tick"></div>
     <script>
       const name = new URLSearchParams(location.search).get("game");
       if (name) document.getElementById("name").textContent = name;
@@ -88,6 +107,20 @@
         focus.textContent = on ? "has the keyboard" : "no keyboard";
         focus.classList.toggle("on", on);
       };
+      // the game keeps moving: a frame count, and a bar coloured for it
+      const TICK_COLOURS = ["#ff2020", "#20e020", "#2040ff", "#ffe020", "#ff20ff", "#20e0ff"];
+      const bar = document.getElementById("tick");
+      window.tick = 0;
+      const step = () => {
+        bar.style.background = TICK_COLOURS[window.tick % TICK_COLOURS.length];
+        bar.textContent = `frame ${window.tick}`;
+        parent.postMessage({ type: "tick", tick: window.tick }, "*");
+      };
+      step();
+      setInterval(() => {
+        window.tick++;
+        step();
+      }, 100);
       addEventListener("focus", showFocus);
       addEventListener("blur", showFocus);
       showFocus();

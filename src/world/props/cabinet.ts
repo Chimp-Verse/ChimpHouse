@@ -34,6 +34,11 @@ export interface Cabinet {
   screen: Mesh;
   /** Show a sign on the screen, OUT OF ORDER by default, with the reason in small print; or the game's art again with null. */
   outOfOrder(reason: string | null, title?: string): void;
+  /**
+   * Another visitor plays it (their name), or nobody again (null). Nothing is written on the screen for it (its art
+   * shows wherever their game can't, plainly); the screen only stops offering PRESS E TO PLAY before its art loads.
+   */
+  inUse(name: string | null): void;
   dispose(): void;
 }
 
@@ -132,16 +137,17 @@ export function buildCabinet(mats: Materials, slot: TransformNode, dress: Cabine
   let art: HTMLImageElement | null = null;
   let broken: string | null = null;
   let sign = "OUT OF ORDER";
+  let user: string | null = null;
   const paint = () => {
     const ctx = screenCanvas.getContext("2d")!;
     const { width: w, height: h } = screenCanvas;
     if (broken !== null) drawOutOfOrder(ctx, w, h, broken, sign);
     else {
-      drawPlaceholder(ctx, w, h, dress.name, c);
+      drawPlaceholder(ctx, w, h, dress.name, c, user === null);
       if (art) drawCover(ctx, art, w, h);
     }
     screenTex.update(true);
-    screenTex.metadata = { art: broken === null && art ? dress.art : null, outOfOrder: broken, sign: broken === null ? null : sign };
+    screenTex.metadata = { art: broken === null && art ? dress.art : null, outOfOrder: broken, sign: broken === null ? null : sign, user };
   };
   paint();
   if (dress.art) {
@@ -165,6 +171,11 @@ export function buildCabinet(mats: Materials, slot: TransformNode, dress: Cabine
       if (reason === broken && title === sign) return;
       broken = reason;
       sign = title;
+      paint();
+    },
+    inUse(name) {
+      if (name === user) return;
+      user = name;
       paint();
     },
     dispose() {
@@ -248,8 +259,8 @@ function marqueeCanvas(name: string, c: CabinetColors): HTMLCanvasElement {
   return canvas;
 }
 
-/** The screen before the art loads (or without it): the name on the game's colours. */
-function drawPlaceholder(ctx: CanvasRenderingContext2D, W: number, H: number, name: string, c: CabinetColors): void {
+/** The screen before the art loads (or without it): the name on the game's colours, and "PRESS E TO PLAY" while it is free. */
+function drawPlaceholder(ctx: CanvasRenderingContext2D, W: number, H: number, name: string, c: CabinetColors, free = true): void {
   const bg = ctx.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, W * 0.7);
   bg.addColorStop(0, c.side);
   bg.addColorStop(1, c.dark);
@@ -260,6 +271,7 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, W: number, H: number, na
   fitFont(ctx, name, (px) => `800 ${px}px Nunito`, 110, W - 140);
   ctx.fillStyle = c.light;
   ctx.fillText(name, W / 2, H / 2 - 20);
+  if (!free) return;
   ctx.font = "600 34px Montserrat";
   ctx.fillStyle = c.trim;
   ctx.fillText("PRESS E TO PLAY", W / 2, H / 2 + 70);

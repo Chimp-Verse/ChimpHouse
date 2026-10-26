@@ -150,10 +150,20 @@ function lerpAt(a: Pt, b: Pt, t: number): Pt {
  * each ray some fifty times slower.
  */
 export function nothingInTheWay(scene: Scene, eye: Vector3, screen: Mesh, g: ScreenGeometry): boolean {
+  return screenRays(scene, eye, screen, g).every((hit) => hit());
+}
+
+/** Whether any of a screen can be seen from `eye`: its centre or a corner, with nothing in the way (the same rays as nothingInTheWay). */
+export function partlyInSight(scene: Scene, eye: Vector3, screen: Mesh, g: ScreenGeometry): boolean {
+  return screenRays(scene, eye, screen, g).some((hit) => hit());
+}
+
+/** For the screen's centre and each corner, a ray from `eye`: whether it reaches the screen before anything else in its room. */
+function screenRays(scene: Scene, eye: Vector3, screen: Mesh, g: ScreenGeometry): (() => boolean)[] {
   const { room, level } = screen.metadata as MeshMeta;
   const pickable = (m: AbstractMesh) => m.isPickable && m.isEnabled() && m.isVisible && (m.metadata as MeshMeta | undefined)?.room === room && (m.metadata as MeshMeta).level === level;
   const from = eye.clone();
-  return [g.centre, ...g.corners.map((c) => Vector3.Lerp(c, g.centre, 0.04))].every((t) => {
+  return [g.centre, ...g.corners.map((c) => Vector3.Lerp(c, g.centre, 0.04))].map((t) => () => {
     const d = t.subtract(from);
     const dist = d.length();
     return scene.pickWithRay(new Ray(from, d.scaleInPlace(1 / dist), dist + 0.5), pickable)?.pickedMesh === screen;

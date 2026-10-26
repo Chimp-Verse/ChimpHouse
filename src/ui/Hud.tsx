@@ -207,8 +207,14 @@ function Panels({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
       )}
       {s.pointerLocked && <div className="crosshair" />}
       {s.walking && s.arcadePrompt && (
-        <div className="play-prompt">
-          {s.arcadePrompt.outOfOrder ? (
+        // someone else's cabinet: low, clear of the game being watched on its screen
+        <div className={s.arcadePrompt.taken ? "play-prompt low" : "play-prompt"}>
+          {s.arcadePrompt.taken ? (
+            <>
+              {s.arcadePrompt.taken.by} is playing {s.arcadePrompt.name}
+              <span>{s.arcadePrompt.taken.away ? "they stepped away, leaving it running" : "watch over their shoulder"}</span>
+            </>
+          ) : s.arcadePrompt.outOfOrder ? (
             <>
               <kbd>E</kbd>Try {s.arcadePrompt.name} again
               <span>{s.arcadePrompt.full ? "it's full" : "it's out of order"}</span>

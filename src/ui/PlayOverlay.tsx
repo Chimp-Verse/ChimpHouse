@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Arcade } from "../engine/arcade";
-import { Focus, PreviewState, RunningGame } from "../engine/store";
+import { Focus, PreviewState, RunningGame, WatchedGame } from "../engine/store";
 import { endedText } from "../engine/embed";
 import { FocusFrame } from "./FocusFrame";
 
@@ -24,6 +24,11 @@ import { FocusFrame } from "./FocusFrame";
  * page that sends no messages gets the usual hint. An "ended" message (disconnected)
  * shows above the game, which stays open; an "error" puts the
  * cabinet out of order.
+ *
+ * Other visitors' games at cabinets in view are watched live on their screens
+ * (engine/arcade.ts): ChimpVibe's spectator mode following the player, muted,
+ * each in a frame of its own, placed by the arcade under the canvas through the
+ * screen's hole. They never take the keyboard or a click.
  */
 export function PlayOverlay({ s, arcade }: { s: PreviewState; arcade: Arcade }) {
   const f = s.focus?.kind === "cabinet" ? s.focus : null;
@@ -31,6 +36,9 @@ export function PlayOverlay({ s, arcade }: { s: PreviewState; arcade: Arcade }) 
     <>
       {s.arcadeRunning.map((g) => (
         <CabinetGame key={`${g.slot}:${g.gameId}`} game={g} arcade={arcade} focus={f?.slot === g.slot ? f : null} rect={f?.slot === g.slot && f.phase === "on" ? s.focusRect : null} />
+      ))}
+      {s.arcadeWatched.map((w) => (
+        <WatchedFrame key={w.key} watched={w} arcade={arcade} />
       ))}
     </>
   );
@@ -104,4 +112,26 @@ function CabinetGame({ game, arcade, focus, rect }: { game: RunningGame; arcade:
       )}
     </>
   );
+}
+
+/** Another visitor's game at a cabinet, watched: its address is fixed when it mounts (a new try is a new frame). */
+function WatchedFrame({ watched, arcade }: { watched: WatchedGame; arcade: Arcade }) {
+  const frame = useRef<HTMLIFrameElement>(null);
+  const [src] = useState(watched.url);
+  const { slot, key } = watched;
+  // listened for as the frame mounts, before its page can load and say it is showing
+  useLayoutEffect(() => {
+    const el = frame.current!;
+    arcade.attachWatched(slot, key, el);
+    const origin = new URL(src, location.href).origin;
+    const onMessage = (e: MessageEvent) => {
+      if (e.source === el.contentWindow && e.origin === origin) arcade.receiveWatched(slot, key, e.data);
+    };
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      arcade.detachWatched(slot, key, el);
+    };
+  }, [arcade, slot, key, src]);
+  return <iframe ref={frame} className="play-frame watched" src={src} title={`${watched.name} playing ${watched.game}`} tabIndex={-1} allow="autoplay" />;
 }
