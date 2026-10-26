@@ -32,7 +32,7 @@ try {
       Element.prototype.requestFullscreen = () => Promise.resolve();
     });
     page.on("pageerror", (e) => console.log(`[${label} pageerror]`, e.message));
-    await page.goto(`${URL}/?lobby=1&quality=low`, { timeout: 120000, waitUntil: "domcontentloaded" });
+    await page.goto(`${URL}/house.html?lobby=1&quality=low`, { timeout: 120000, waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => window.__chimp?.chimps?.describe().mine, null, { timeout: 90000 });
     const ev = (fn, a) => page.evaluate(fn, a);
     return { page, ctx, ev, chimps: () => ev(() => window.__chimp.chimps.describe()), lobby: () => ev(() => window.__chimp.chimps.lobby()) };
