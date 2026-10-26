@@ -7,8 +7,10 @@
 // chimp's skin (skinned on the CPU, as the GPU draws it) is tested against the triangles of every
 // mesh drawn near the seat: the nearest surface and its outward normal say whether the vertex is
 // inside, and how deep. Reported per seat (worst seated, worst while sitting down or getting up,
-// which part of the chimp, into what), per kind of seat, and in a JSON file. A worn hat and
-// backpack are checked the same way on the Game Room's couch (WEAR=0 skips it).
+// which part of the chimp, into what), per kind of seat, and in a JSON file. The head is checked
+// for going right through a surface too (a thin shell's top: past it, it is outside it again), and
+// how close the nearest surface comes to it. A worn cap, hoodie and backpack are checked the same
+// way on the Game Room's couch and in the egg chairs, on every body (WEAR=0 skips it).
 //
 //   URL=http://localhost:5173 node tools/test-sit-clip.mjs
 //     SEATS=sofa,stool or SEATS=301,302   only these kinds or seat numbers
@@ -238,11 +240,16 @@ function clipLib() {
     },
     /** Whether a ray from p along (dx, dy, dz) first meets a surface from behind it (leaving a solid), within `max`. */
     exits(px, py, pz, dx, dy, dz, max) {
+      return lib.hit(px, py, pz, dx, dy, dz, max)?.out ?? false;
+    },
+    /** The first surface a ray from p along (dx, dy, dz) meets within `max`: how far, which triangle, and whether from behind it; null when none. */
+    hit(px, py, pz, dx, dy, dz, max) {
       const G = lib.grid;
       const { min, cells, key, tris, nrm } = G;
       const seen = new Set();
       let best = max;
       let out = false;
+      let tri = -1;
       for (let s = 0; s <= max; s += CELL * 0.25) {
         const l = cells.get(key(Math.floor((px + dx * s - min[0]) / CELL), Math.floor((py + dy * s - min[1]) / CELL), Math.floor((pz + dz * s - min[2]) / CELL)));
         if (!l) continue;
@@ -266,6 +273,7 @@ function clipLib() {
           const d = (e2x * rx + e2y * ry + e2z * rz) * inv;
           if (d <= 1e-5 || d >= best) continue;
           best = d;
+          tri = t;
           const w = 1 - u - v;
           const nx = nrm[o] * w + nrm[o + 3] * u + nrm[o + 6] * v;
           const ny = nrm[o + 1] * w + nrm[o + 4] * u + nrm[o + 7] * v;
@@ -275,7 +283,94 @@ function clipLib() {
         // a hit nearer than the cells still to come can't be beaten
         if (best < s - CELL) break;
       }
-      return out;
+      return tri < 0 ? null : { d: best, t: tri, out };
+    },
+    /** How far p is from the nearest gathered surface (m), looked for up to a cell away; Infinity past that. */
+    nearest(px, py, pz) {
+      const G = lib.grid;
+      const { min, cells, key } = G;
+      const ci = Math.floor((px - min[0]) / CELL), cj = Math.floor((py - min[1]) / CELL), ck = Math.floor((pz - min[2]) / CELL);
+      const c = new Float64Array(6);
+      const seen = new Set();
+      let best = Infinity;
+      for (let i = ci - 1; i <= ci + 1; i++)
+        for (let j = cj - 1; j <= cj + 1; j++)
+          for (let k = ck - 1; k <= ck + 1; k++) {
+            const l = cells.get(key(i, j, k));
+            if (!l) continue;
+            for (const t of l) {
+              if (seen.has(t)) continue;
+              seen.add(t);
+              lib.closest(t, px, py, pz, c);
+              const d = Math.hypot(px - c[0], py - c[1], pz - c[2]);
+              if (d < best) best = d;
+            }
+          }
+      return best <= CELL ? best : Infinity;
+    },
+    /**
+     * The head: whether any of it (or a hat) is through a surface, and how near the nearest is.
+     * A head gone right through a thin shell (an egg chair's top) is outside it again, so the depth
+     * test doesn't see it: here the spine is followed from the hips up to the head, and the head
+     * from its joint out to each point of its skin and of what it wears on it; a surface met on
+     * the way is one it is through, by what is past it. Returns the worst (cm), and the head's
+     * clearance: how near the nearest surface is to any point of it, up to 12 cm.
+     */
+    head() {
+      const c = window.__chimp.chimps.body();
+      const N = c.nodes;
+      const res = { through: 0, part: null, into: null, clear: Infinity };
+      const seg = (a, bx, by, bz, part) => {
+        const dx = bx - a.x, dy = by - a.y, dz = bz - a.z;
+        const L = Math.hypot(dx, dy, dz);
+        if (L < 1e-4) return;
+        const h = lib.hit(a.x, a.y, a.z, dx / L, dy / L, dz / L, L);
+        if (h && L - h.d > res.through) {
+          res.through = L - h.d;
+          res.part = part;
+          res.into = lib.grid.names[h.t];
+          res.at = [bx, by, bz].map((v) => +v.toFixed(3));
+        }
+      };
+      const chain = ["hips", "spine", "chest", "upperChest", "neck", "head"].filter((n) => N[n]);
+      for (let i = 1; i < chain.length; i++) {
+        const b = N[chain[i]].getAbsolutePosition();
+        seg(N[chain[i - 1]].getAbsolutePosition(), b.x, b.y, b.z, chain[i]);
+      }
+      const head = N.head;
+      const from = head.getAbsolutePosition().clone();
+      const bones = c.skeleton.bones;
+      // the skin's bones from the head up (its jaw, ears, eyes)
+      const onHead = new Set(bones.filter((b) => { for (let p = b; p; p = p.getParent()) if (p.name === "head") return true; return false; }).map((b) => bones.indexOf(b)));
+      const furs = new Set(c.furMeshes);
+      for (const m of c.root.getChildMeshes(false)) {
+        if (furs.has(m) || !m.isVisible) continue;
+        const skinned = !!m.skeleton;
+        if (!skinned && !m.isDescendantOf(head)) continue;
+        const pos = m.getPositionData(true, false);
+        if (!pos) continue;
+        const wm = m.computeWorldMatrix(true).m;
+        const mi = skinned ? m.getVerticesData("matricesIndices") : null;
+        const mw = skinned ? m.getVerticesData("matricesWeights") : null;
+        const worn = !c.meshes.includes(m);
+        for (let i = 0; i < pos.length; i += 3) {
+          if (skinned) {
+            if (!mi || !mw) break;
+            const v = (i / 3) * 4;
+            let b = 0;
+            for (let k = 1; k < 4; k++) if (mw[v + k] > mw[v + b]) b = k;
+            if (!onHead.has(mi[v + b])) continue;
+          }
+          const x = pos[i], y = pos[i + 1], z = pos[i + 2];
+          const px = wm[0] * x + wm[4] * y + wm[8] * z + wm[12];
+          const py = wm[1] * x + wm[5] * y + wm[9] * z + wm[13];
+          const pz = wm[2] * x + wm[6] * y + wm[10] * z + wm[14];
+          seg(from, px, py, pz, worn ? `${m.name.replace(/^.*? /, "")} (worn)` : "head");
+          const d = lib.nearest(px, py, pz);
+          if (d < res.clear) res.clear = d;
+        }
+      }
+      return { through: +(res.through * 100).toFixed(2), part: res.part, into: res.into, at: res.at ?? null, clear: res.clear === Infinity ? 12 : +(res.clear * 100).toFixed(1) };
     },
     /**
      * The chimp now: how deep its skin (and, apart, what it wears) goes into the gathered surfaces.
@@ -326,6 +421,7 @@ function clipLib() {
       }
       res.skin.cm = +res.skin.cm.toFixed(2);
       res.worn.cm = +res.worn.cm.toFixed(2);
+      res.head = lib.head();
       return res;
     },
     /**
@@ -482,6 +578,14 @@ try {
     }, s);
 
   const AT = [0.2, 0.4, 0.6, 0.8];
+  /** The head's numbers from a sit: seated (through and clearance) and the worst through while moving. */
+  const heads = (r) => {
+    const moving = [...r.down, ...r.up].reduce((a, f) => (f.head && f.head.through > a.through ? f.head : a), { through: 0, part: null, into: null });
+    return { head: r.seated?.head ?? null, headMoving: moving };
+  };
+  const headBad = (row) => (row.head?.through ?? 0) > LIMIT || row.headMoving.through > LIMIT;
+  const headText = (row) =>
+    `head through ${(row.head?.through ?? NaN).toFixed(1)}${row.head?.part ? ` (${row.head.part} in ${row.head.into})` : ""}, clear ${(row.head?.clear ?? NaN).toFixed(1)} cm, moving ${row.headMoving.through.toFixed(1)}${row.headMoving.part ? ` (${row.headMoving.part} in ${row.headMoving.into})` : ""}`;
   const setBody = async (body) => {
     await ev(async (shape) => {
       const c = window.__chimp.chimps;
@@ -518,40 +622,41 @@ try {
       }
       const worst = (l) => l.reduce((a, b) => (b.skin.cm > a.skin.cm ? b : a), { skin: { cm: 0 } });
       const tr = worst([...r.down, ...r.up]);
-      const row = { body, n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, transition: tr.skin, transitionAt: tr.at ?? null, phase: r.down.includes(tr) ? "down" : r.up.includes(tr) ? "up" : null, frames: { down: r.down.map((f) => f.skin.cm), up: r.up.map((f) => f.skin.cm) } };
+      const row = { body, n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, transition: tr.skin, transitionAt: tr.at ?? null, phase: r.down.includes(tr) ? "down" : r.up.includes(tr) ? "up" : null, frames: { down: r.down.map((f) => f.skin.cm), up: r.up.map((f) => f.skin.cm) }, ...heads(r) };
       results.push(row);
-      const bad = !!r.error || (row.seated?.cm ?? 99) > LIMIT || row.transition.cm > LIMIT;
+      const bad = !!r.error || (row.seated?.cm ?? 99) > LIMIT || row.transition.cm > LIMIT || headBad(row);
       if (bad) failed++;
       console.log(
-        `  ${bad ? "FAIL" : "ok  "} ${body.padEnd(7)} ${String(s.n).padStart(5)} ${s.kind.padEnd(8)} ${s.label.slice(0, 28).padEnd(28)} seated ${(row.seated?.cm ?? NaN).toFixed(1).padStart(5)} cm${row.seated?.bone ? ` (${row.seated.bone} in ${row.seated.into})` : ""}  moving ${row.transition.cm.toFixed(1).padStart(5)} cm${row.transition.bone ? ` (${row.transition.bone} in ${row.transition.into} ${row.phase} at ${row.transitionAt})` : ""}${r.error ? `  ${r.error}` : ""}`,
+        `  ${bad ? "FAIL" : "ok  "} ${body.padEnd(7)} ${String(s.n).padStart(5)} ${s.kind.padEnd(8)} ${s.label.slice(0, 28).padEnd(28)} seated ${(row.seated?.cm ?? NaN).toFixed(1).padStart(5)} cm${row.seated?.bone ? ` (${row.seated.bone} in ${row.seated.into})` : ""}  moving ${row.transition.cm.toFixed(1).padStart(5)} cm${row.transition.bone ? ` (${row.transition.bone} in ${row.transition.into} ${row.phase} at ${row.transitionAt})` : ""}  ${headText(row)}${r.error ? `  ${r.error}` : ""}`,
       );
     }
   }
 
-  // a hat and a backpack on the Game Room's couch
+  // a hat and a backpack on the Game Room's couch and in the egg chairs (round shells close over the head), on every body
   if (process.env.WEAR !== "0") {
-    const couch = all.filter((s) => s.label.startsWith("Curved console sofa"));
-    const dress = async () => {
-      await ev(async () => {
+    const dressSeats = all.filter((s) => (s.label.startsWith("Curved console sofa") || s.kind === "eggChair") && (!ONLY || seats.includes(s)));
+    const dress = (body) => async () => {
+      await ev(async (shape) => {
         const c = window.__chimp.chimps;
         const d = structuredClone(c.dna());
-        d.shape.height = 1.5;
+        Object.assign(d.shape, shape);
         d.outfit = { head: { id: "cap", colors: ["#1f6f6c", "#24272b"] }, back: { id: "backpack", colors: ["#6d8c58", "#6a4128"] }, top: { id: "hoodie", colors: ["#2f8a62", "#24272b"] }, bottom: { id: "shorts", colors: ["#24365a"] } };
         await c.setDna(d);
-      });
+      }, SHAPES[body]);
+      await page.waitForFunction((h) => window.__chimp.chimps.describe().mine?.height === h, SHAPES[body].height ?? 1.5, { timeout: 60000 }).catch(() => undefined);
       await settle(40);
     };
-    if (couch.length) {
-      await retrying("dressing", null, dress);
-      for (const s of couch) {
-        const r = await retrying(`dressed ${s.n}`, dress, () => sitOn(s));
+    for (const body of dressSeats.length ? BODIES : []) {
+      await retrying(`dressing ${body}`, null, dress(body));
+      for (const s of dressSeats) {
+        const r = await retrying(`dressed ${body} ${s.n}`, dress(body), () => sitOn(s));
         if (!r) continue;
         const worn = r.seated?.worn ?? { cm: NaN };
-        const row = { body: "dressed", n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, worn, transition: { cm: Math.max(0, ...[...r.down, ...r.up].map((f) => f.skin.cm)) }, wornMoving: Math.max(0, ...[...r.down, ...r.up].map((f) => f.worn.cm)) };
+        const row = { body: `dressed ${body}`, n: s.n, kind: s.kind, label: s.label, room: s.room, error: r.error, seated: r.seated?.skin ?? null, worn, transition: { cm: Math.max(0, ...[...r.down, ...r.up].map((f) => f.skin.cm)) }, wornMoving: Math.max(0, ...[...r.down, ...r.up].map((f) => f.worn.cm)), ...heads(r) };
         results.push(row);
-        const bad = !!r.error || (row.seated?.cm ?? 99) > LIMIT || worn.cm > LIMIT || row.wornMoving > LIMIT;
+        const bad = !!r.error || (row.seated?.cm ?? 99) > LIMIT || row.transition.cm > LIMIT || worn.cm > LIMIT || row.wornMoving > LIMIT || headBad(row);
         if (bad) failed++;
-        console.log(`  ${bad ? "FAIL" : "ok  "} dressed ${s.n} ${s.label}: skin ${(row.seated?.cm ?? NaN).toFixed(1)} cm, cap/backpack/hoodie seated ${worn.cm.toFixed(1)} cm${worn.bone ? ` (${worn.bone} in ${worn.into})` : ""}, moving ${row.wornMoving.toFixed(1)} cm`);
+        console.log(`  ${bad ? "FAIL" : "ok  "} dressed ${body.padEnd(7)} ${String(s.n).padStart(5)} ${s.label.slice(0, 28).padEnd(28)} skin ${(row.seated?.cm ?? NaN).toFixed(1)} cm, moving ${row.transition.cm.toFixed(1)} cm, cap/backpack/hoodie seated ${worn.cm.toFixed(1)} cm${worn.bone ? ` (${worn.bone} in ${worn.into})` : ""}, moving ${row.wornMoving.toFixed(1)} cm  ${headText(row)}`);
       }
     }
   }
@@ -562,7 +667,7 @@ try {
 // ------------------------------------------------------------------ per kind
 const kinds = {};
 for (const r of results) {
-  const k = (kinds[r.kind] ??= { seats: new Set(), seated: 0, moving: 0, worst: null, errors: 0 });
+  const k = (kinds[r.kind] ??= { seats: new Set(), seated: 0, moving: 0, head: 0, headClear: 12, worst: null, errors: 0 });
   k.seats.add(r.n);
   if (r.error) k.errors++;
   if ((r.seated?.cm ?? 0) > k.seated) {
@@ -570,9 +675,11 @@ for (const r of results) {
     k.worst = `${r.body} ${r.n} ${r.label}: ${r.seated.bone} in ${r.seated.into}`;
   }
   k.moving = Math.max(k.moving, r.transition?.cm ?? 0);
+  k.head = Math.max(k.head, r.head?.through ?? 0, r.headMoving?.through ?? 0);
+  k.headClear = Math.min(k.headClear, r.head?.clear ?? 12);
 }
 console.log("\nper kind (worst over every seat and body, cm):");
-for (const [k, v] of Object.entries(kinds)) console.log(`  ${k.padEnd(9)} ${String(v.seats.size).padStart(3)} seats  seated ${v.seated.toFixed(1).padStart(5)}  moving ${v.moving.toFixed(1).padStart(5)}${v.errors ? `  ${v.errors} errors` : ""}  ${v.worst ?? ""}`);
+for (const [k, v] of Object.entries(kinds)) console.log(`  ${k.padEnd(9)} ${String(v.seats.size).padStart(3)} seats  seated ${v.seated.toFixed(1).padStart(5)}  moving ${v.moving.toFixed(1).padStart(5)}  head through ${v.head.toFixed(1).padStart(4)} clear ${v.headClear.toFixed(1).padStart(4)}${v.errors ? `  ${v.errors} errors` : ""}  ${v.worst ?? ""}`);
 await writeFile(OUT, JSON.stringify({ limit: LIMIT, results, kinds: Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, { ...v, seats: v.seats.size }])) }, null, 1));
 console.log(`\n${results.length} sits measured; ${failed} past ${LIMIT} cm (or failed). Numbers: ${OUT}`);
 process.exit(failed ? 1 : 0);

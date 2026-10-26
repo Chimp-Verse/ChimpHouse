@@ -213,22 +213,37 @@ export function slattedSideTable(ctx: WorldCtx, z: Zone, p: Vector3) {
 /**
  * Rattan egg chair hanging from the ceiling on a chain: woven shell with an
  * oval opening facing `yaw`, and a teal seat cushion. Base point p on the floor.
+ *
+ * Sized for chimps: the hood over the seat is taller than the bowl under it (an egg, its tall
+ * end up), so a big chimp's head (a cap on it too) is under it, clear of the rim, as it sits back
+ * into it and as it gets up; the opening is wide enough for its elbows and its lip low enough for
+ * the legs to hang out over it: it is cut down below the cushion, as a real egg chair's is.
  */
 export function eggChair(ctx: WorldCtx, z: Zone, p: Vector3, yaw: number, r: Rand, ceil: number) {
   ensureBarMats(ctx);
-  const hc = 1.12; // shell centre height
-  const ax = 0.5;
-  const ay = 0.7;
-  const az = 0.46;
+  const hc = 1.12; // shell centre height (its widest)
+  const ax = 0.56;
+  const az = 0.5;
+  // the bowl's depth under the centre, the hood's height over it, and between them a smooth change
+  const ayB = 0.7;
+  const ayT = 1.1;
+  const ayAt = (v: number) => {
+    const t = Math.min(1, Math.max(0, (v + 0.25) / 0.6));
+    return ayB + (ayT - ayB) * t * t * (3 - 2 * t);
+  };
+  // the opening: across (u, from the front) and from its lip to its top (v, elevation)
+  const uOpen = 1.15;
+  const vLo = -0.85;
+  const vHi = 1.2;
   const m = xf(p.x, p.y + hc, p.z, yaw);
   const shell = (s: number) => {
     const g = new Geo();
-    const nu = 36;
-    const nv = 20;
+    const nu = 40;
+    const nv = 24;
     const open = (u: number, v: number) => {
       // u: angle around (0 = front, local -Z); v: elevation
       const du = Math.atan2(Math.sin(u), Math.cos(u));
-      return Math.abs(du) < 1.05 && v > -0.38 && v < 0.95;
+      return Math.abs(du) < uOpen && v > vLo && v < vHi;
     };
     const idx: number[][] = [];
     for (let i = 0; i <= nu; i++) {
@@ -237,7 +252,7 @@ export function eggChair(ctx: WorldCtx, z: Zone, p: Vector3, yaw: number, r: Ran
       for (let j = 0; j <= nv; j++) {
         const v = -Math.PI / 2 + (j / nv) * Math.PI;
         const x = Math.sin(u) * Math.cos(v) * ax * s;
-        const y = Math.sin(v) * ay * s;
+        const y = Math.sin(v) * ayAt(v) * s;
         const zz = -Math.cos(u) * Math.cos(v) * az * s;
         row.push(g.vert(x, y, zz, (i / nu) * 4, (j / nv) * 3));
       }
@@ -257,21 +272,21 @@ export function eggChair(ctx: WorldCtx, z: Zone, p: Vector3, yaw: number, r: Ran
   ctx.g(z, "jute").add(shell(0.95).flip(), m, "Hanging egg chair");
   // rim around the opening
   const rim: Vector3[] = [];
-  for (let k = 0; k <= 40; k++) {
-    const t = (k / 40) * Math.PI * 2;
-    const u = Math.sin(t) * 1.05;
-    const v = 0.285 + Math.cos(t) * 0.665;
-    rim.push(new Vector3(Math.sin(u) * Math.cos(v) * ax * 0.975, Math.sin(v) * ay * 0.975, -Math.cos(u) * Math.cos(v) * az * 0.975));
+  for (let k = 0; k <= 48; k++) {
+    const t = (k / 48) * Math.PI * 2;
+    const u = Math.sin(t) * uOpen;
+    const v = (vLo + vHi) / 2 + Math.cos(t) * ((vHi - vLo) / 2);
+    rim.push(new Vector3(Math.sin(u) * Math.cos(v) * ax * 0.975, Math.sin(v) * ayAt(v) * 0.975, -Math.cos(u) * Math.cos(v) * az * 0.975));
   }
   ctx.g(z, "timber").add(tube(rim, 0.025, 8, false), m, "Hanging egg chair");
   // seat and back cushions
   const cush = ["tealBright", "mustard", "coral"][Math.floor(r() * 3)];
-  ctx.g(z, cush).add(softBox(0.62, 0.12, 0.5, 0.06, 0.04), xf(0, -0.36, -0.02).multiply(m), "Egg chair cushion");
+  ctx.g(z, cush).add(softBox(0.68, 0.16, 0.5, 0.07, 0.04), xf(0, -0.38, -0.02).multiply(m), "Egg chair cushion");
   ctx.g(z, "cream").add(softBox(0.5, 0.4, 0.12, 0.06, 0.05), xf(0, -0.05, 0.27, 0, 1, 1, 1, -0.25).multiply(m), "Egg chair cushion");
   // on the seat cushion, the feet hanging clear of the floor
   seat(ctx, z, xf(0, -0.3, 0.04).multiply(m), { kind: "eggChair", height: hc - 0.3, recline: 0.2, legs: "down", from: "front" }, "Hanging egg chair");
   // chain to the ceiling
-  ctx.g(z, "black").add(cylinder(0.012, ceil - (p.y + hc + ay), 6, false), xf(p.x, p.y + hc + ay - 0.02, p.z), "Egg chair chain");
+  ctx.g(z, "black").add(cylinder(0.012, ceil - (p.y + hc + ayT), 6, false), xf(p.x, p.y + hc + ayT - 0.02, p.z), "Egg chair chain");
   ctx.g(z, "black").add(cylinder(0.06, 0.03, 12), xf(p.x, ceil - 0.03, p.z));
 }
 
