@@ -24,6 +24,7 @@ import { Rand, pottedPlant, vine } from "../props/plants";
 import { canvasMat, screenMat, speaker, taskChair } from "../props/tech";
 import { faceToward, faceYaw, interiorArch, panel, roomLight } from "./common";
 import { rugs } from "./rugs";
+import { seatAt } from "../props/seats";
 
 const F = LEVEL.lower + 0.012;
 const C = LEVEL.lowerCeil;
@@ -101,6 +102,7 @@ export function buildMixChimp(ctx: WorldCtx): void {
   keys(ctx, z, xf(px, F, z0 + 0.27, Math.PI), 1.4, true);
   ctx.g(z, "leatherBlack").add(softBox(0.9, 0.1, 0.36, 0.03, 0.02), xf(px, 0.52, z0 + 0.95), "Piano bench");
   ctx.g(z, "black").add(new Geo().add(box(0.06, 0.47, 0.3), xf(-0.38, 0.235, 0)).add(box(0.06, 0.47, 0.3), xf(0.38, 0.235, 0)), xf(px, F, z0 + 0.95), "Piano bench");
+  seatAt(ctx, z, px, 0.57, z0 + 0.98, 0, { kind: "bench", height: 0.57 - F, recline: 0, legs: "down" }, "Piano bench");
   goldRecord(ctx, z, new Vector3(px, 1.75, z0 + 0.02), Math.PI);
   for (const [dx, mat] of [
     [-1.0, "fabricTeal"],
@@ -388,6 +390,7 @@ function vocalBooth(ctx: WorldCtx, z: Zone, b: { x0: number; x1: number; z0: num
   ctx.g(z, "black").add(new Geo().add(cylinder(0.01, 1.05, 6)).add(box(0.42, 0.3, 0.012), xf(0, 1.15, 0, faceYaw(singer.x - ms.x, singer.z - ms.z), 1, 1, 1, -0.45)), xf(ms.x, ms.y, ms.z), "Music stand");
   ctx.g(z, "paper", { castShadow: false }).add(box(0.38, 0.27, 0.004), xf(0, 1.152, -0.009, faceYaw(singer.x - ms.x, singer.z - ms.z), 1, 1, 1, -0.45).multiply(xf(ms.x, ms.y, ms.z)), "Lyric sheet");
   ctx.g(z, "timberDark").add(new Geo().add(cylinder(0.17, 0.04, 16), xf(0, 0.7, 0)).add(cylinder(0.02, 0.7, 6)).add(torus(0.13, 0.01, 16, 4), xf(0, 0.25, 0)), xf(x1 - 0.5, F + fl, z0 + 0.45), "Stool");
+  seatAt(ctx, z, x1 - 0.5, F + fl + 0.74, z0 + 0.45, 0, { kind: "stool", height: 0.74, recline: 0, legs: "down", footrest: 0.26, turn: true }, "Vocal booth stool");
   headphoneStand(ctx, z, xf(x1 - 0.45, F + fl + 0.75, z0 + 0.45));
   wovenPendant(ctx, z, new Vector3(xm + 0.2, F + H, zm), 0.16, 0.35);
   roomLight(ctx, "mixchimp", "lower", new Vector3(xm, F + 2.2, zm), 1, 4, 3.5);

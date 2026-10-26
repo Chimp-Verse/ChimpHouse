@@ -9,7 +9,8 @@
 // lab's (headFront, head3, headSide, headBack, neckFront, neck3, neckBack, torsoFront,
 // torso3, torsoSide, torsoBack, hem, legsFront, legs3, legsBack, wristOut, wristTop, front,
 // three, side, back…); a view
-// can carry a pose, "torso3@walk:0.4" (0.4 s into a walk). The chimp stands in its
+// can carry a pose, "torso3@walk:0.4" (0.4 s into a walk; "sit", "perch" and "lounge" sit it as on a
+// sofa, a bar stool and a lounger: "legs3@sit"). The chimp stands in its
 // idle pose otherwise. SIZE sets each tile's pixels (default 360); TINT the items' colours
 // (TINT="tee:efe4cc|78d8aa,shorts:d8a133"), else each wears its own.
 import { chromium } from "playwright";

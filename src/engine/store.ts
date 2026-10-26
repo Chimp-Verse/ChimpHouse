@@ -3,6 +3,8 @@
 import type { FoosballView, FoosballPrompt } from "./foosballMatch";
 import { LiftState, initialLift } from "./liftState";
 import { TheatreState, initialTheatre } from "./theatreState";
+import { SeatsState, initialSeats } from "./seatState";
+import type { SeatPrompt } from "./seats";
 import { ME } from "./room";
 
 export type Quality = "low" | "medium" | "high";
@@ -306,6 +308,12 @@ export interface PreviewState {
   snackPrompt: { action: "key" | "take" | "eat" | "use"; label: string } | null;
   /** the snack in this visitor's hand, by name */
   snackHeld: string | null;
+  /** who sits on which seat, as one object the room server owns (engine/seatState.ts) */
+  seats: SeatsState;
+  /** the seat this visitor sits on (engine/seats.ts), or null */
+  seated: number | null;
+  /** at a seat, or on one, when nothing else takes E: sit down, who sits there, or get up */
+  seatPrompt: SeatPrompt | null;
 }
 
 type Listener = (s: PreviewState) => void;
@@ -372,6 +380,9 @@ class Store {
     foosball: null,
     snackPrompt: null,
     snackHeld: null,
+    seats: initialSeats(),
+    seated: null,
+    seatPrompt: null,
   };
   private listeners = new Set<Listener>();
 

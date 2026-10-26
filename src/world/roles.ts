@@ -125,6 +125,12 @@ export const ROLE = {
   fountain: "fountain",
   /** where a visitor arrives (engine/preview.ts spawn): a floor point, its front (-Z) the way they face, with open paving all round it */
   spawnPoint: "spawn-point",
+  /**
+   * A place to sit (engine/seats.ts): a slot on the seat's top where a sitter's hips go, its front (-Z)
+   * the way they face, numbered room by room (props/seats.ts), with how it is sat on (`seat`: SeatInfo
+   * in context.ts). One per sitter: a sofa has one for each of its places.
+   */
+  seat: "seat",
 } as const;
 
 type Meta = { role?: string; slot?: number };

@@ -19,6 +19,7 @@ import { heightFromCanvas, makeCanvas, normalFromHeight, toTexture } from "../ma
 import { FOUNTAIN } from "../props/fountainSpec";
 import { PlantKind, plant } from "../props/plants";
 import { ROLE } from "../roles";
+import { seatAt } from "../props/seats";
 import { ledStrip } from "../structure/elements";
 import { terrainHeight } from "./terrain";
 
@@ -607,6 +608,12 @@ function benches(ctx: WorldCtx, z: Zone): void {
     // a warm strip under the seat's front edge, lighting the paving at night
     const strip = arcPath(b.r0 + 0.05, a0 + 0.02, a1 - 0.02, 0.3).map((p) => new Vector3(p.x, Y + b.seat - 0.07, p.z));
     ledStrip(ctx, z, strip, "amberStrip", 0.022);
+    // three places to sit along it, backs to the planter, facing the fountain
+    for (const k of [-1, 0, 1]) {
+      const a = mid + k * (1.0 / b.r1);
+      const p = P(b.r1 - 0.24, a);
+      seatAt(ctx, z, p.x, Y + b.seat, p.z, Math.atan2(Math.sin(a), Math.cos(a)), { kind: "bench", height: b.seat, recline: 0.1, legs: "down" }, "Courtyard bench");
+    }
   }
 }
 

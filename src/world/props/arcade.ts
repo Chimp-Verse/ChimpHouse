@@ -8,6 +8,7 @@
 import { Matrix } from "@babylonjs/core";
 import { lathe, softBox, torus, xf } from "../geometry/geo";
 import { WorldCtx, Zone } from "../context";
+import { seat } from "./seats";
 
 /** The games room's shared colours and neons, which its other builders and the room itself use too. */
 function mats(ctx: WorldCtx) {
@@ -35,18 +36,22 @@ function mats(ctx: WorldCtx) {
 /** Bean bag slumped into a seat, back toward +Z. Base at m. */
 export function beanBag(ctx: WorldCtx, z: Zone, m: Matrix, mat: string): void {
   mats(ctx);
+  // a low bag, its top sunk into a shallow hollow where it is sat on
   const prof: [number, number][] = [
     [0.001, 0],
     [0.42, 0.02],
-    [0.48, 0.14],
-    [0.46, 0.3],
-    [0.36, 0.48],
-    [0.2, 0.6],
-    [0.001, 0.63],
+    [0.48, 0.12],
+    [0.47, 0.21],
+    [0.41, 0.28],
+    [0.3, 0.312],
+    [0.15, 0.302],
+    [0.001, 0.3],
   ];
   ctx.g(z, mat).add(lathe(prof, 28), xf(0, 0, 0, 0, 1, 1, 0.92).multiply(m), "Bean bag");
-  // the seat hollow and the raised back
-  ctx.g(z, mat).add(softBox(0.62, 0.22, 0.42, 0.1, 0.06), xf(0, 0.48, 0.18, 0, 1, 1, 1, -0.35).multiply(m), "Bean bag");
-  ctx.g(z, "white").add(torus(0.05, 0.006, 12, 4), xf(0.33, 0.33, -0.25, 0.6, 1, 1, 1, Math.PI / 2).multiply(m));
+  // the raised back, slumped back from the hollow
+  ctx.g(z, mat).add(softBox(0.62, 0.34, 0.28, 0.12, 0.06), xf(0, 0.44, 0.27, 0, 1, 1, 1, -0.4).multiply(m), "Bean bag");
+  ctx.g(z, "white").add(torus(0.05, 0.006, 12, 4), xf(0.33, 0.2, -0.29, 0.6, 1, 1, 1, Math.PI / 2).multiply(m));
+  // sunk into its hollow, leaning back into the raised back
+  seat(ctx, z, xf(0, 0.3, -0.02).multiply(m), { kind: "beanBag", height: 0.3, recline: 0.45, legs: "down" }, "Bean bag");
 }
 

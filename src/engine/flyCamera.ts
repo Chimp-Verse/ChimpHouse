@@ -73,6 +73,8 @@ export class FlyCamera {
   framing = { drop: 0, side: 0 };
   /** The boom as it is this frame: cut short by a wall at once, easing back out when it clears. */
   private reach = 0;
+  /** How far (0 to 1) the pivot has gone down to the eyes: seated under a hood (see `follow`). */
+  private hooded = 0;
   /** While set (the wardrobe is open) the walking keys do nothing; the mouse still turns the camera round the chimp. */
   holdStill = false;
   /** The visitor's eyes and the way they look (unit), for what is within reach: see the class's note. */
@@ -188,7 +190,7 @@ export class FlyCamera {
    */
   private follow(dt: number, snap = false) {
     const w = this.walker!;
-    this.eye.set(w.feet.x, w.eyeY, w.feet.z);
+    this.eye.set(w.eyeX, w.eyeY, w.eyeZ);
     const fx = Math.sin(this.yaw) * Math.cos(this.pitch);
     const fy = -Math.sin(this.pitch);
     const fz = Math.cos(this.yaw) * Math.cos(this.pitch);
@@ -198,8 +200,19 @@ export class FlyCamera {
       this.reach = 0;
       return;
     }
-    const [px, py, pz] = this.pivot(w, fx, fz);
-    const want = this.boomAt(px, py, pz, fx, fy, fz);
+    let [px, py, pz] = this.pivot(w, fx, fz);
+    let want = this.boomAt(px, py, pz, fx, fy, fz);
+    // seated under a hood (an egg chair's), the pivot over the head is inside it and the boom can't
+    // get out: it turns about the eyes instead, out through the seat's opening (eased, either way)
+    const low = w.seated && want < Math.min(this.boom, 1) ? this.boomAt(w.eyeX, w.eyeY, w.eyeZ, fx, fy, fz) : 0;
+    const toEyes = low > want + 0.3 ? 1 : 0;
+    this.hooded = snap ? toEyes : this.hooded + (toEyes - this.hooded) * (1 - Math.exp(-dt * 6));
+    if (this.hooded > 0.001) {
+      px += (w.eyeX - px) * this.hooded;
+      py += (w.eyeY - py) * this.hooded;
+      pz += (w.eyeZ - pz) * this.hooded;
+      want = this.boomAt(px, py, pz, fx, fy, fz);
+    }
     // in at once (the camera never looks through a wall), back out gently
     this.reach = snap || want < this.reach ? want : this.reach + (want - this.reach) * (1 - Math.exp(-dt * 3.5));
     const cx = px - fx * this.reach;
@@ -219,7 +232,7 @@ export class FlyCamera {
     // the view's right, flat: (cos yaw, 0, -sin yaw)
     const rx = fz / h;
     const rz = -fx / h;
-    return [w.feet.x + rx * this.framing.side, w.groundY + this.pivotHeight - this.framing.drop, w.feet.z + rz * this.framing.side];
+    return [w.eyeX + rx * this.framing.side, w.groundY + this.pivotHeight - this.framing.drop, w.eyeZ + rz * this.framing.side];
   }
 
   /** How long the boom can be from a pivot, looking along (fx, fy, fz): its length, or short of the first wall behind. */

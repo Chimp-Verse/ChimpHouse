@@ -18,6 +18,7 @@ import { LEVEL, core } from "../layout";
 import { Ctx, makeCanvas, paintPixels, toTexture } from "../materials/canvas";
 import { drawLeafEmblem } from "../materials/textures";
 import { pottedPlant } from "../props/plants";
+import { seat } from "../props/seats";
 import { faceYaw, roomLight } from "./common";
 
 type RGB = [number, number, number];
@@ -1109,6 +1110,8 @@ function goldenToilet(ctx: WorldCtx, z: Zone, wall: Vector3): void {
   g.add(banana(0.06, 0.012), xf(-0.21, 0.74, 0.34, Math.PI / 2, 1, 1, 1, 0, Math.PI));
   ctx.g(z, "bathGold", { castShadow: false }).add(g, xf(wall.x - 0.53, wall.y, wall.z, faceYaw(-1, 0)), "Golden toilet");
   ctx.g(z, "bathWater", { castShadow: false }).add(disc(0.1, 24), xf(wall.x - 0.53 + 0.05, wall.y + 0.31, wall.z, 0, 1.28, 1, 1), "Toilet water");
+  // on the seat (its top 0.44 m over the toilet's foot, sunk 0.03 m into the dais the feet stand on)
+  seat(ctx, z, xf(0, 0.44, 0.1).multiply(xf(wall.x - 0.53, wall.y, wall.z, faceYaw(-1, 0))), { kind: "toilet", height: 0.41, recline: 0.05, legs: "down" }, "Golden toilet");
 }
 
 /** A porcelain bidet with a gold rim and tap, against the wall at x = wall.x, facing west. */

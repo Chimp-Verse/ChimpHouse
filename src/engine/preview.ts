@@ -34,6 +34,7 @@ import { Theatre } from "./theatre";
 import { Pinball } from "./pinball";
 import { parseYouTube } from "./youtube";
 import { Avatars, prepareMyChimp } from "./avatars";
+import { Seats } from "./seats";
 import type { ChimpDna } from "../avatar/dna";
 
 export interface PreviewController {
@@ -64,6 +65,8 @@ export interface PreviewController {
   readonly snacks: SnackMachine;
   /** This visitor's chimp, and everyone else's. */
   readonly avatars: Avatars;
+  /** The house's seats: sitting down on one, and getting up. */
+  readonly seats: Seats;
   /** Change this visitor's chimp (the wardrobe): kept for their next visit, shown to everyone. */
   setChimp(dna: ChimpDna): void;
   /** Open the wardrobe (walking: the camera swings round in front of the chimp to dress it), or close it. */
@@ -154,6 +157,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   const claw = new ClawMachine(scene, world.mats, lighting, fly, focus, (msg) => flash(msg));
   // the pinball machines: their moving parts, lamps and displays, and playing them
   const pinball = new Pinball(scene, world.mats, lighting, fly, focus, canvas);
+  // the seats: sitting down on any of them (E), one chimp a seat
+  const seats = new Seats(scene, fly, avatars, (msg) => flash(msg));
   // a click on a screen, a remote, a controller or a lift button in reach uses it, instead of capturing the mouse
   fly.onClick = (e) => arcade.click(e) || remotes.click(e) || tv.click(e) || theatre.click(e) || lift.click(e) || pinball.click(e) || snacks.click(e);
   const arcadeReady = arcade.refresh(gameList).catch((e: unknown) => console.warn("[arcade] no game list:", e));
@@ -219,6 +224,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         // without the fly-in camera (engine/devFlags.ts) a visitor is always their chimp
         if (!FLY_IN_ENABLED) return;
         controller.setWardrobe(false);
+        seats.stand();
         fly.walker = null;
         store.set({ walking: false, blocked: null });
         return;
@@ -245,6 +251,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       flash(fly.firstPerson ? `Walking, from your chimp's eyes · V to see it${orFly}` : `Walking as your chimp · V for its eyes · C to dress it${orFly}`);
     },
     avatars,
+    seats,
     setChimp: (dna) => avatars.setDna(dna),
     setWardrobe(open) {
       const s = store.get();
@@ -253,6 +260,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
         if (s.focus) return;
         if (!s.walking) controller.setWalking(true);
         if (!fly.walker) return;
+        // dressed standing up: the wardrobe frames the chimp whole
+        seats.stand();
         store.set({ wardrobe: true });
         fly.holdStill = true;
         // round in front of the chimp, the whole of it framed left of the wardrobe's panel
@@ -416,6 +425,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     }
     else if (e.code === "KeyE" && s.walking && s.airHockeyPrompt?.end) airHockey.act();
     else if (e.code === "KeyE" && s.walking && s.foosballPrompt && "side" in s.foosballPrompt) void foosball.use();
+    // a seat: only offered when nothing above takes E (engine/seats.ts), and before eating a snack in hand
+    else if (e.code === "KeyE" && s.walking && (s.seatPrompt?.action === "sit" || s.seatPrompt?.action === "stand")) seats.act();
     else if (e.code === "KeyE" && s.walking && s.snackPrompt) snacks.act();
     // a remote's buttons (YouTube's own keys for them), and putting it back
     else if (remotes.held !== null && (e.code === "KeyK" || e.code === "KeyJ" || e.code === "KeyL")) {
@@ -431,6 +442,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     else if (e.code === "KeyV" && s.walking) controller.toggleView();
     else if (e.code === "KeyC" && s.walking) controller.setWardrobe(!s.wardrobe);
     else if (e.code === "Escape" && s.wardrobe) controller.setWardrobe(false);
+    else if (e.code === "Escape" && s.seated !== null) seats.stand();
     else if (FLY_IN_ENABLED && e.code === "KeyF") controller.setWalking(!s.walking);
     // N, R, U, I and P are the builder's tools (engine/devFlags.ts)
     else if (DEV_TOOLS_ENABLED && e.code === "KeyN") controller.setNight(!s.night);
@@ -563,6 +575,10 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       setBoom: (m: number) => fly.setBoom(m),
       toggleView: () => controller.toggleView(),
       wardrobe: (open: boolean) => controller.setWardrobe(open),
+      /** this visitor's chimp itself (its meshes, skeleton and nodes), for tools that measure it (tools/test-sit-clip.mjs) */
+      body: () => avatars.mine.chimp ?? null,
+      /** this visitor's chimp's animator (its sitting measures, and `freeze` to hold a sit part way) */
+      animator: () => avatars.mine.animator ?? null,
       /** the main stair's layout, for walking a chimp up it */
       stair: () => ({ ...STAIR }),
       /** each of this visitor's chimp's ankles, and the walkable ground under it (world y), for feet on steps */
@@ -580,6 +596,21 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     },
     pose: () => fly.getPose(),
     state: () => store.get(),
+    seats: {
+      /** every seat found by role (number, kind, where, how it is sat on), who sits where, and this visitor's */
+      describe: () => seats.describe(),
+      /** seat n's shape as read from the furniture (engine/seatShape.ts) */
+      shape: (n: number) => seats.shape(n),
+      /** sit on seat n (walking), as E on it would; get up */
+      sit: (n: number) => seats.sit(n),
+      stand: () => seats.stand(),
+      /** E, as the visitor would: whatever the seat prompt offers */
+      act: () => seats.act(),
+      /** every seat free, for everyone in the room (tests; the server must allow it) */
+      reset: () => seats.tell({ name: "reset" }),
+      /** send the server a seat command as it is, for tests: as a page that skips its own checks would */
+      send: (name: string, args?: Record<string, unknown>) => room.command("seats", name, args),
+    },
     remotes: {
       held: () => remotes.held,
       take: (n: number) => remotes.take(n),
@@ -934,6 +965,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     pinball.update(dt);
     airHockey.update();
     foosball.update(dt);
+    // after everything else that offers E: a seat is offered only when nothing else is
+    seats.update();
     fountain.update(dt);
     for (const a of world.ctx.animators) a(t, dt);
     engine._drawCalls.fetchNewFrame();

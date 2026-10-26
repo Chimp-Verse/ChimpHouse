@@ -1,6 +1,6 @@
 import { Color3, DynamicTexture, Material, Matrix, Mesh, MultiMaterial, PBRMaterial, Quaternion, Scene, SubMesh, Texture, TransformNode, Vector3, VertexBuffer, VertexData } from "@babylonjs/core";
 import { GLTF2Export } from "@babylonjs/serializers/glTF/2.0";
-import { LightDef, MeshMeta, ROOM_NAMES, SlotMeta } from "../world/context";
+import { LightDef, MeshMeta, ROOM_NAMES, SeatMeta, SlotMeta } from "../world/context";
 import { pointInPolygon } from "../world/geometry/curves";
 import { ROOMS } from "../world/layout";
 import { SUN_DIR } from "../world/environment/sky";
@@ -122,7 +122,18 @@ export async function exportZone(scene: Scene, zoneId: string, level: string | u
     e.parent = zoneNode;
     // the stand point in the slot's own space, converted to glTF's axes like the geometry
     const stand = sm.stand && [-sm.stand[0], sm.stand[1], sm.stand[2]];
-    e.metadata = { gltf: { extras: { zone: zoneId, level: sm.level, role: sm.role, slot: sm.slot, ...(stand && { stand }) } } };
+    // a seat says how it is sat on (world/context.ts SeatInfo), as flat custom properties
+    const seat = (sm as Partial<SeatMeta>).seat;
+    const seatProps = seat && {
+      seatKind: seat.kind,
+      seatHeight: seat.height,
+      seatRecline: seat.recline,
+      seatLegs: seat.legs,
+      ...(seat.footrest !== undefined && { seatFootrest: seat.footrest }),
+      ...(seat.turn && { seatTurn: true }),
+      ...(seat.from && { seatFrom: seat.from }),
+    };
+    e.metadata = { gltf: { extras: { zone: zoneId, level: sm.level, role: sm.role, slot: sm.slot, ...(stand && { stand }), ...seatProps } } };
   }
   // in the scene only for the export: never drawn
   for (const n of root.getDescendants(false)) if (n instanceof Mesh) n.layerMask = 0;

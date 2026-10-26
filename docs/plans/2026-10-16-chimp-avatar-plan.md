@@ -50,7 +50,7 @@ The clothes are ChimpVerse's too: the ChimpVibe tee carries the tree mark (from 
 | `src/avatar/build.worker.ts`, `builder.ts` | Building in two workers side by side, each making some of the parts, and kept by geometry key (12 bodies, 12 items) |
 | `src/avatar/materials.ts` | Babylon PBR materials with plugins, so a chimp is lit as the house is: the skin (painted from each vertex), the fur (shells), cloth (two colours; what it is made of, for its sheen and grain; its folds, seams and stitching; a print). All fade with a dither |
 | `src/avatar/chimp.ts` | A chimp in the scene: the bone nodes driving the Babylon skeleton, the skinned skin, the fur shells (thin instances, one draw call a part), eyes and lids, and what it wears |
-| `src/avatar/animator.ts` | Procedural animation: the gait from a walk through a jog to a run, feet placed by two-bone IK and kept still while they bear weight, each on the ground under it (a step of the stairs), stepping round when it turns on the spot, the stoop, sway, twist, lean, arm swing, breathing, glances, blinks and the look |
+| `src/avatar/animator.ts` | Procedural animation: the gait from a walk through a jog to a run, feet placed by two-bone IK and kept still while they bear weight, each on the ground under it (a step of the stairs), stepping round when it turns on the spot, the stoop, sway, twist, lean, arm swing, breathing, glances, blinks and the look; sitting on a seat (`Motion.seat`: the seat's shape as `engine/seatShape.ts` reads it from the furniture, where it is from the chimp, and whether it is sat on from in front or beside), fitted to the chimp's own measures read from its skin (`SitBody`: what is under its hips and knees, its rump, its heel), with the feet staying where they stood as it lowers itself in an arc, and the hands on the thighs by IK |
 | `src/avatar/wardrobe.ts` | The items, by slot, with their colours |
 | `src/avatar/items.ts`, `garments.ts` | Making an item for a chimp's shape: worn on a bone (cap, beanie, headphones, glasses, bandana, chain, backpack, watch) or fitted to the body and skinned (tee, hoodie, shorts), each saying which fur it hides |
 | `src/engine/avatars.ts` | Chimps in the house: this visitor's (where the walker is, which way it turns, what it looks at) and the others' (from the room server, drawn a moment behind, smoothly); its lights (copies of the room lights where it stands, `ChimpLights` in `src/engine/lighting.ts`), fur detail by distance, shadows, name tags |
@@ -95,7 +95,7 @@ Fewer shells are drawn the further a chimp is from the camera (14, 9, 5, then no
 Chimps go through the room server (`server/house.ts`, `engine/room.ts`) as two families of topics, one member per visitor:
 
 - `chimpdna:<visitor id>`: the visitor's name and DNA, sent whenever they change.
-- `chimp:<visitor id>`: where the chimp stands, which way it faces and moves, whether it's on the ground, where it looks, and the room's clock. Sent ten times a second while it moves, and every 1.5 s while it stands.
+- `chimp:<visitor id>`: where the chimp stands, which way it faces and moves, whether it's on the ground, where it looks, the seat it sits on (by number; its root then stays where it sat down from, in front of the seat or beside it, and every page puts the seated pose on its own copy of the seat from there), and the room's clock. Sent ten times a second while it moves, and every 1.5 s while it stands.
 
 Each page draws other visitors' chimps 160 ms behind the room's clock, smoothly between what it last heard, and carries on a moment at the last speed heard. When a visitor leaves, the room server drops their topics and every page drops their chimp. The standalone room server (`docs/plans/2026-10-09-standalone-room-server-plan.md`) should own these positions, checking movement against the house as the research recommends.
 
@@ -115,6 +115,8 @@ The code-built chimp is the stand-in, as the code-built arcade cabinet is: once 
 - **Facing and axes:** +Z forward, +Y up, metres. Its left is −X in Babylon, which is +X in glTF; Babylon's glTF loader converts.
 - **Rest pose:** the A-pose (arms about 38° down from level, knees and elbows a touch bent). Every bone rests unrotated, so the animator turns bones about the character's own axes. A Blender rig whose bones carry rest rotations needs them applied before export, or the animator taught them.
 - **Hinges:** each hinge joint's axis is worked out from the rest pose: elbows, knees, finger joints (bending toward the palm), the jaw and the toes.
+
+A Blender chimp sits with the same code: the seated pose is worked out from the skeleton's rest (the hips over the seat, the legs by the same IK), so its bones need nothing more. A seat modelled in Blender is an empty with the seat role and its `seat…` properties (README "Sitting down").
 
 ### The meshes
 
@@ -161,8 +163,8 @@ Until then, the generator is cheap to keep. It builds any chimp in about a secon
 
 ## Next
 
-- **Sitting and holding:**
-  - sitting on the theatre's seats, the sofas and stools;
+- **Sitting** is done: every seat in the house, found by role (README "Sitting down"); the seated pose is `Motion.seat` in `animator.ts`.
+- **Holding:**
   - holding a remote, a controller or a carried plush in a hand;
   - the chimp's pose at a cabinet or table while its visitor plays.
 - **Emotes and talking:**
