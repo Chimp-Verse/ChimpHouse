@@ -23,6 +23,21 @@ export interface TopicState {
 export interface JoinOptions {
   id: string;
   name: string;
+  /**
+   * The name was chosen in the lobby and the server took it (a page joining again after a
+   * restart or a long drop): it counts as taken for anyone asking for it after. Left out by older
+   * pages, and by a page whose visitor hasn't chosen yet.
+   */
+  named?: boolean;
+}
+
+/** Normalised for comparing: two names that differ only in case or spacing are the same name. */
+export const nameKey = (name: string) => cleanName(name).toLowerCase();
+
+/** A name as it is shown: trimmed, runs of spaces made one, no control characters. */
+export function cleanName(name: string): string {
+  // eslint-disable-next-line no-control-regex
+  return String(name ?? "").replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim();
 }
 
 // ------------------------------------------------ page to server
@@ -39,6 +54,12 @@ export interface CommandMsg {
   topic: string;
   name: string;
   args?: Record<string, unknown>;
+}
+
+/** The lobby asking for a name (`ask` matches the answer to the question): the server says whether it is free. */
+export interface ClaimNameMsg {
+  ask: number;
+  name: string;
 }
 
 /** A clock check: the server answers with its time. */
@@ -68,6 +89,18 @@ export interface GoneMsg {
   id: string;
 }
 
+/**
+ * The answer to a ClaimNameMsg: `ok` and the name now this visitor's, or why not, with a free
+ * name like it to offer (`suggestion`) when it was taken.
+ */
+export interface NamedMsg {
+  ask: number;
+  ok: boolean;
+  name: string;
+  why?: "taken" | "empty" | "long";
+  suggestion?: string;
+}
+
 /** The server turned a message down (for the page's console: a feature sending too much, or to the wrong place). */
 export interface RefusedMsg {
   what: string;
@@ -84,6 +117,9 @@ export const MSG = {
   time: "time",
   gone: "gone",
   refused: "refused",
+  /** page to server: ClaimNameMsg; server to page: NamedMsg */
+  claimName: "name",
+  named: "named",
 } as const;
 
 // ------------------------------------------------ limits
@@ -92,6 +128,8 @@ export const LIMITS = {
   /** a visitor id, as room.ts makes them */
   visitorId: /^v-[a-z0-9]{4,16}$/,
   nameChars: 24,
+  /** a name chosen in the lobby (the 24 above is what older pages may still send) */
+  chosenNameChars: 16,
   /** topic names: letters, digits and / : _ - . only */
   topic: /^[A-Za-z0-9/:_.-]{1,80}$/,
   /** the largest state one topic may hold (bytes of its JSON) */
@@ -111,6 +149,17 @@ export const LIMITS = {
   /** the highest version number a topic may have */
   maxVersion: 2 ** 40,
 } as const;
+
+/** A free name like `name` ("Bob 2", "Bob 3"...), within the lobby's length, when `taken(key)` says it is in use. */
+export function freeName(name: string, taken: (key: string) => boolean): string {
+  const base = cleanName(name);
+  for (let n = 2; n < 1000; n++) {
+    const tail = ` ${n}`;
+    const tryName = `${base.slice(0, LIMITS.chosenNameChars - tail.length).trim()}${tail}`;
+    if (!taken(nameKey(tryName))) return tryName;
+  }
+  return `Chimp ${Math.floor(1000 + Math.random() * 9000)}`;
+}
 
 /** How long (s) the server holds a dropped visitor's place while their page tries to come back. */
 export const RECONNECT_GRACE_S = 15;

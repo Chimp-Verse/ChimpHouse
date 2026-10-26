@@ -1824,3 +1824,89 @@ kbd {
 .wardrobe-foot kbd {
   margin-left: 4px;
 }
+
+/* ---------------------------------------------------------------- the lobby (ui/Lobby.tsx) */
+/* the wardrobe's panel, with the name above the chimp's controls and the way in below */
+
+.lobby {
+  width: 360px;
+  max-height: calc(100% - 28px);
+}
+
+.lobby-title {
+  font: 700 20px "Montserrat", sans-serif;
+  color: var(--mint);
+}
+
+.lobby-name {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lobby-name em.over {
+  color: #ff8a6a;
+}
+
+.lobby-name input {
+  font: 600 16px "Montserrat", sans-serif;
+  padding: 9px 11px;
+  border-radius: 9px;
+  border: 1px solid var(--edge);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--ink);
+  outline: none;
+}
+
+.lobby-name input:focus {
+  border-color: rgba(111, 247, 198, 0.65);
+}
+
+.lobby-name input[aria-invalid="true"] {
+  border-color: #ff8a6a;
+}
+
+.lobby-problem {
+  color: #ff8a6a;
+  font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.lobby-problem button {
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(111, 247, 198, 0.55);
+  background: rgba(111, 247, 198, 0.12);
+  color: var(--mint);
+  font: 600 12px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.lobby .lobby-enter {
+  justify-content: center;
+  padding: 11px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--mint);
+  color: #102018;
+  font: 700 15px "Montserrat", sans-serif;
+  cursor: pointer;
+}
+
+.lobby .lobby-enter:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.lobby-note {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.lobby .lobby-enter:hover:not(:disabled) {
+  background: #9dfbd9;
+  color: #102018;
+}

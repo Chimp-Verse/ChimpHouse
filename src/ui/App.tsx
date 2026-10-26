@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { CAPTURE, PreviewController, startPreview } from "../engine/preview";
 import { store } from "../engine/store";
 import { Hud } from "./Hud";
+import { Lobby } from "./Lobby";
 
 export function useStore() {
   return useSyncExternalStore(
@@ -50,7 +51,7 @@ export function App() {
           </div>
         </div>
       )}
-      {!CAPTURE && ctl && !s.loading && <Hud ctl={ctl} s={s} />}
+      {!CAPTURE && ctl && !s.loading && (s.lobby ? <Lobby ctl={ctl} s={s} /> : <Hud ctl={ctl} s={s} />)}
     </div>
   );
 }

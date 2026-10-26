@@ -31,7 +31,7 @@ import { LIFT_TOPIC, letGoOfLift, parseLiftCommand, runLiftCommand } from "../sr
 import { THEATRE_TOPIC, letGoOfTheatre, parseTheatreCommand, runTheatreCommand } from "../src/engine/theatreCommands";
 import { initialTheatre, type TheatreState } from "../src/engine/theatreState";
 import { SEATS_TOPIC, initialSeats, letGoOfSeats, parseSeatCommand, runSeatCommand, type SeatsState } from "../src/engine/seatState";
-import { LIMITS, MSG, RECONNECT_GRACE_S, newer, type CommandMsg, type JoinOptions, type RefusedMsg, type StateMsg, type TimeAsk, type TopicState, type Version, type Welcome } from "../src/engine/roomProtocol";
+import { LIMITS, MSG, RECONNECT_GRACE_S, cleanName, freeName, nameKey, newer, type ClaimNameMsg, type CommandMsg, type JoinOptions, type NamedMsg, type RefusedMsg, type StateMsg, type TimeAsk, type TopicState, type Version, type Welcome } from "../src/engine/roomProtocol";
 
 /** How many of the visitors who left a newcomer is told about (they let go of anything those still hold). */
 const DEPARTED = 100;
@@ -64,6 +64,8 @@ interface Visitor {
   id: string;
   name: string;
   sessionId: string;
+  /** the name was chosen in the lobby and taken (no one else may take it while they are here) */
+  named: boolean;
   /** dropped, and held for a reconnect: the deferred that gives up on them */
   held: Deferred<Client> | null;
   messages: Bucket;
@@ -106,6 +108,7 @@ export class House extends Room {
     this.origins = options.origins?.length ? options.origins : null;
     this.onMessage(MSG.state, (client: Client, m: StateMsg) => this.onState(client, m));
     this.onMessage(MSG.command, (client: Client, m: CommandMsg) => this.onCommand(client, m));
+    this.onMessage(MSG.claimName, (client: Client, m: ClaimNameMsg) => this.onClaimName(client, m));
     this.onMessage(MSG.time, (client: Client, m: TimeAsk) => {
       const v = this.bySession.get(client.sessionId);
       if (!v || !this.allowed(client, v, "time")) return;
@@ -133,7 +136,7 @@ export class House extends Room {
   onJoin(client: Client, options: JoinOptions) {
     const id = String(options?.id ?? "");
     if (!LIMITS.visitorId.test(id)) throw new Error("A visitor id like v-abc123 is needed to join");
-    const name = String(options?.name ?? "").trim().slice(0, LIMITS.nameChars) || "A chimp";
+    const name = cleanName(String(options?.name ?? "")).slice(0, LIMITS.nameChars) || "A chimp";
     const was = this.visitors.get(id);
     if (was) {
       // the same visitor joining again: a page whose reconnect gave up while the server still held
@@ -146,6 +149,8 @@ export class House extends Room {
       id,
       name,
       sessionId: client.sessionId,
+      // joining again with a name the lobby took (a restarted server): it is still theirs
+      named: options?.named === true,
       held: null,
       messages: new Bucket(LIMITS.messagesPerSecond, LIMITS.messageBurst),
       commands: new Bucket(LIMITS.commandsPerSecond, LIMITS.commandBurst),
@@ -271,6 +276,22 @@ export class House extends Room {
     this.seats = next;
     this.seatsV = { n: this.seatsV.n + 1, by: "server" };
     this.broadcast(MSG.state, { topic: SEATS_TOPIC, state: next, v: this.seatsV });
+  }
+
+  /** The lobby asking for a name: theirs if no one else here has chosen it, else a free one like it is offered. */
+  private onClaimName(client: Client, m: ClaimNameMsg) {
+    const v = this.bySession.get(client.sessionId);
+    if (!v || !this.allowed(client, v, "name")) return;
+    const ask = typeof m?.ask === "number" && Number.isFinite(m.ask) ? m.ask : 0;
+    const name = cleanName(typeof m?.name === "string" ? m.name.slice(0, 200) : "");
+    const answer = (a: Omit<NamedMsg, "ask">) => client.send(MSG.named, { ask, ...a });
+    if (!name) return answer({ ok: false, name, why: "empty" });
+    if (name.length > LIMITS.chosenNameChars) return answer({ ok: false, name, why: "long" });
+    const taken = (key: string) => [...this.visitors.values()].some((o) => o !== v && o.named && nameKey(o.name) === key);
+    if (taken(nameKey(name))) return answer({ ok: false, name, why: "taken", suggestion: freeName(name, taken) });
+    v.name = name;
+    v.named = true;
+    answer({ ok: true, name });
   }
 
   /** The visitor's message allowance: false (and the message dropped) when they are sending too fast. */

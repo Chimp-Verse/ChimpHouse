@@ -26,7 +26,8 @@ import * as foosballRobot from "./foosballRobot";
 import * as foosballSpec from "../world/props/foosballSpec";
 import { ButtonId, Lift } from "./lift";
 import { GameTv } from "./gameTv";
-import { ME, room } from "./room";
+import { ME, type NameAnswer, room } from "./room";
+import { lobbyWanted, saveName } from "./lobby";
 import { ClawMachine } from "./clawMachine";
 import { Remotes } from "./remotes";
 import { SnackMachine } from "./snackMachine";
@@ -73,6 +74,11 @@ export interface PreviewController {
   setWardrobe(open: boolean): void;
   /** Walking: from the chimp's eyes, or from behind it. */
   toggleView(): void;
+  /**
+   * Leave the lobby for the house as `name` (ui/Lobby.tsx): the room server is asked for the name,
+   * and if it is free the visitor's chimp is shown to everyone and can walk. The answer says why not, if not.
+   */
+  enterHouse(name: string): Promise<NameAnswer>;
   /** Export a room (by default the one the camera is in) as a .glb file for Blender and download it. */
   downloadRoom(id?: string): Promise<void>;
   copyReport(): Promise<string>;
@@ -126,7 +132,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   // the courtyard fountain's water, spray and sound, on its slot (roles.ts ROLE.fountain)
   const fountain = new Fountain(scene, world.mats, lighting, fly, world.sky.dome);
   // the chimps: this visitor's, which the walker carries, and every other visitor's
-  const avatars = new Avatars(scene, fly, lighting);
+  // the fly-in camera (engine/devFlags.ts) may start flying (nobody spawns); otherwise this visitor
+  // arrives as their chimp, through the lobby (engine/lobby.ts) unless it is skipped
+  const flyingStart = FLY_IN_ENABLED && (params.has("view") || params.has("pose") || CAPTURE);
+  const inLobby = !flyingStart && lobbyWanted(params);
+  const avatars = new Avatars(scene, fly, lighting, inLobby);
   // using a screen: a cabinet's game, the theatre's video
   const focus = new ScreenFocus(scene, fly, canvas);
   // cabinets for the admitted games; the walker's collisions are rebuilt when they come or go
@@ -173,6 +183,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   let exporting = false;
   /** the camera's boom before the wardrobe opened, to go back to */
   let wardrobeBoom: number | null = null;
+  /** the way the spawn point faces: the chimp leaves the lobby facing it */
+  let spawnYaw = 0;
 
   const applyVisibility = () => {
     const s = store.get();
@@ -283,6 +295,21 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       if (!store.get().walking) return;
       fly.toggleView();
       flash(fly.firstPerson ? "From your chimp's eyes · V to see it again" : "Behind your chimp · wheel to come closer or go further");
+    },
+    async enterHouse(name) {
+      if (!store.get().lobby) return { ok: true, name: ME.name };
+      const answer = await room.claimName(name);
+      if (!answer.ok || !store.get().lobby) return answer;
+      saveName(ME.name);
+      store.set({ lobby: false });
+      controller.setWardrobe(false);
+      avatars.enter();
+      // round behind the chimp, which turns to face the way in
+      avatars.face(spawnYaw);
+      void fly.glide(fly.settlePose({ ...fly.getPose(), yaw: spawnYaw, pitch: 0.12 }), 0.8);
+      canvas.focus();
+      flash(`Welcome to ChimpHouse, ${ME.name} · W A S D to walk · C to dress your chimp`);
+      return answer;
     },
     arcade,
     theatre,
@@ -404,6 +431,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   window.addEventListener("keydown", (e) => {
     if (isTyping(e) || e.metaKey || e.ctrlKey) return;
     const s = store.get();
+    // in the lobby: none of the house's keys until the visitor goes in
+    if (s.lobby) return;
     // using a screen: keys are the game's or the player's, ChimpHouse's own do nothing
     if (s.focus) return;
     // dressing the chimp: only the wardrobe's own keys (C or Esc to close it)
@@ -466,7 +495,7 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
   else lighting.refreshEnvironment();
   // the fly-in camera (engine/devFlags.ts) starts flying where the address or the last visit says,
   // as the house's tools and browser tests open it; everyone else arrives as their chimp
-  if (FLY_IN_ENABLED && (params.has("view") || params.has("pose") || CAPTURE)) {
+  if (flyingStart) {
     const startView = findView(params.get("view"));
     if (startView) applyView(startView, false);
     else if (!fly.restoreSaved()) applyView(VIEWPOINTS[0], false);
@@ -481,6 +510,11 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
     if (import.meta.env.DEV && !FLY_IN_ENABLED && (params.has("view") || params.has("pose")))
       console.error("[ChimpHouse] ?view= and ?pose= are the fly-in camera's, which is off: you arrive as your chimp at the spawn point. Start the dev server with VITE_ENABLE_FLY_IN=true (README: Developer-only fly-in camera and builder's tools).");
     spawn();
+    if (inLobby && store.get().walking) {
+      // the lobby: the chimp stands at the spawn point facing the camera, framed beside the lobby's panel
+      store.set({ lobby: true });
+      controller.setWardrobe(true);
+    }
   }
   window.addEventListener("resize", () => {
     engine.resize();
@@ -502,6 +536,8 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       Object.assign(pose, { x: at.x, y: at.y + (SPAWN.y - LEVEL.ground), z: at.z, yaw: Math.atan2(front.x, front.z) });
     }
     fly.setPose(pose);
+    spawnYaw = pose.yaw;
+    avatars.face(pose.yaw);
     controller.setWalking(true);
     if (!store.get().walking) console.error("[ChimpHouse] nowhere to stand at the spawn point", pose);
   }
@@ -579,6 +615,9 @@ export async function startPreview(canvas: HTMLCanvasElement): Promise<PreviewCo
       body: () => avatars.mine.chimp ?? null,
       /** this visitor's chimp's animator (its sitting measures, and `freeze` to hold a sit part way) */
       animator: () => avatars.mine.animator ?? null,
+      /** the lobby (engine/lobby.ts): whether it is up, and going in from it as a visitor would (Enter) */
+      lobby: () => store.get().lobby,
+      enter: (name: string) => controller.enterHouse(name),
       /** the main stair's layout, for walking a chimp up it */
       stair: () => ({ ...STAIR }),
       /** each of this visitor's chimp's ankles, and the walkable ground under it (world y), for feet on steps */

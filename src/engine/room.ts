@@ -21,7 +21,7 @@
 // or this page's own host on port VITE_CHIMPHOUSE_ROOM_PORT (2567 unless the dev runner set it).
 
 import { Client, type Room as Connection } from "@colyseus/sdk";
-import { LIMITS, MSG, ROOM_NAME, newer, type GoneMsg, type JoinOptions, type RefusedMsg, type TimeReply, type TopicState, type Version, type Welcome } from "./roomProtocol";
+import { LIMITS, MSG, ROOM_NAME, cleanName, newer, type GoneMsg, type JoinOptions, type NamedMsg, type RefusedMsg, type TimeReply, type TopicState, type Version, type Welcome } from "./roomProtocol";
 
 /** A visitor as shared state names them. */
 export interface Visitor {
@@ -31,11 +31,21 @@ export interface Visitor {
 
 const params = new URLSearchParams(location.search);
 
-/** This visitor: a new id per page load, and a name from ?name= or made up (ChimpHouse has no accounts yet). */
+/**
+ * This visitor: a new id per page load, and a name (ChimpHouse has no accounts). The lobby
+ * (ui/Lobby.tsx) sets the name the visitor chooses; until then, and when the lobby is skipped,
+ * it is ?name= or made up.
+ */
 export const ME: Visitor = {
   id: `v-${Math.random().toString(36).slice(2, 10).padEnd(4, "0")}`,
-  name: (params.get("name") ?? "").trim().slice(0, LIMITS.nameChars) || `Chimp ${Math.floor(1000 + Math.random() * 9000)}`,
+  name: cleanName(params.get("name") ?? "").slice(0, LIMITS.nameChars) || `Chimp ${Math.floor(1000 + Math.random() * 9000)}`,
 };
+
+/** What the room says to a name asked for (NamedMsg, less its question number). */
+export type NameAnswer = Omit<NamedMsg, "ask">;
+
+/** How long (ms) the lobby waits for the server to answer about a name before taking it unchecked. */
+const NAME_WAIT_MS = 3000;
 
 /** The room server's address. */
 export function roomUrl(): string {
@@ -83,6 +93,10 @@ class Room {
   /** where the connection stands, and how many times it has joined (for tests) */
   status: RoomStatus = "connecting";
   joins = 0;
+  /** ME.name was chosen in the lobby (and taken, if a server could be asked) */
+  private named = false;
+  private asks = 0;
+  private answers = new Map<number, (a: NameAnswer) => void>();
 
   constructor() {
     if (typeof WebSocket === "undefined") {
@@ -153,6 +167,36 @@ class Room {
     return this.share<T>(`${prefix}${ME.id}`, undefined as T, () => undefined);
   }
 
+  /**
+   * Ask for a name chosen in the lobby: the room server says whether anyone here has it already
+   * (and offers a free one like it). With no server to ask (offline, or still connecting, or an
+   * older server that doesn't know the question), it is taken unchecked. Once taken it is ME.name.
+   */
+  claimName(name: string): Promise<NameAnswer> {
+    const take = (n: string): NameAnswer => {
+      ME.name = n;
+      this.named = true;
+      return { ok: true, name: n };
+    };
+    const clean = cleanName(name);
+    if (!clean) return Promise.resolve({ ok: false, name: clean, why: "empty" });
+    if (clean.length > LIMITS.chosenNameChars) return Promise.resolve({ ok: false, name: clean, why: "long" });
+    if (this.status !== "connected" || !this.conn) return Promise.resolve(take(clean));
+    const ask = ++this.asks;
+    return new Promise<NameAnswer>((resolve) => {
+      const timer = setTimeout(() => {
+        this.answers.delete(ask);
+        resolve(take(clean));
+      }, NAME_WAIT_MS);
+      this.answers.set(ask, (a) => {
+        clearTimeout(timer);
+        this.answers.delete(ask);
+        resolve(a.ok ? take(cleanName(a.name) || clean) : a);
+      });
+      this.send(MSG.claimName, { ask, name: clean });
+    });
+  }
+
   /** Call `fn` with each visitor's id as they leave (their page closed, or their connection stayed down). */
   onGone(fn: (id: string) => void): void {
     this.goneListeners.add(fn);
@@ -164,7 +208,7 @@ class Room {
     if (!this.client || this.closing) return;
     this.status = this.joins ? "reconnecting" : "connecting";
     try {
-      const options: JoinOptions = { id: ME.id, name: ME.name };
+      const options: JoinOptions = { id: ME.id, name: ME.name, ...(this.named ? { named: true } : {}) };
       const conn = await this.client.joinOrCreate(ROOM_NAME, options);
       this.attempt = 0;
       this.joins++;
@@ -179,7 +223,15 @@ class Room {
       conn.onMessage(MSG.state, (m: TopicState) => this.receive(m));
       conn.onMessage(MSG.gone, (m: GoneMsg) => this.gone(m.id));
       conn.onMessage(MSG.time, (m: TimeReply) => this.timed(m));
-      conn.onMessage(MSG.refused, (m: RefusedMsg) => this.refused(m));
+      conn.onMessage(MSG.named, (m: NamedMsg) => this.answers.get(m?.ask)?.({ ok: !!m.ok, name: String(m.name ?? ""), why: m.why, suggestion: m.suggestion }));
+      conn.onMessage(MSG.refused, (m: RefusedMsg) => {
+        // an older server, which doesn't know names are asked for: whatever was asked is taken unchecked
+        if (m?.what === MSG.claimName) {
+          for (const answer of [...this.answers.values()]) answer({ ok: true, name: "" });
+          return;
+        }
+        this.refused(m);
+      });
       conn.onDrop(() => (this.status = "reconnecting"));
       conn.onReconnect(() => {
         this.status = "connected";

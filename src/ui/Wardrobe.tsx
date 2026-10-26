@@ -5,7 +5,7 @@
 // Shape sliders that change the body's geometry rebuild the chimp (a second or two,
 // in a worker) when let go; height, colours and clothes change at once.
 
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { COLOURS, type ChimpDna, PRESETS, SHAPES, SLOTS, type ShapeParam, type Slot, defaultDna, presetDna, randomDna } from "../avatar/dna";
 import { ITEMS, type ItemDef, itemColours } from "../avatar/wardrobe";
 import type { PreviewController } from "../engine/preview";
@@ -15,6 +15,27 @@ type Tab = "Body" | "Face" | "Fur" | "Clothes";
 const TABS: Tab[] = ["Body", "Face", "Fur", "Clothes"];
 
 export function Wardrobe({ ctl, s }: { ctl: PreviewController; s: PreviewState }) {
+  return (
+    <div className="panel wardrobe">
+      <div className="wardrobe-head">
+        <div className="section">Your chimp</div>
+        {s.chimpBuilding && <div className="wardrobe-busy">Reshaping…</div>}
+      </div>
+      <ChimpControls ctl={ctl}>
+        <button className="done" onClick={() => ctl.setWardrobe(false)}>
+          Done <kbd>C</kbd>
+        </button>
+      </ChimpControls>
+    </div>
+  );
+}
+
+/**
+ * The wardrobe's controls: its tabs, their settings, and Surprise me and Start again, then
+ * `children` (the wardrobe's Done, the lobby's nothing). The wardrobe and the lobby (ui/Lobby.tsx)
+ * both use them, so the two always offer the same.
+ */
+export function ChimpControls({ ctl, children }: { ctl: PreviewController; children?: ReactNode }) {
   const [dna, setDna] = useState<ChimpDna>(() => ctl.avatars.dna);
   const [tab, setTab] = useState<Tab>("Body");
   // keep up with changes made elsewhere (a test, another tab of the house) while open
@@ -26,11 +47,7 @@ export function Wardrobe({ ctl, s }: { ctl: PreviewController; s: PreviewState }
   const shape = (key: ShapeParam["key"], v: number) => ({ ...dna, shape: { ...dna.shape, [key]: v } });
 
   return (
-    <div className="panel wardrobe">
-      <div className="wardrobe-head">
-        <div className="section">Your chimp</div>
-        {s.chimpBuilding && <div className="wardrobe-busy">Reshaping…</div>}
-      </div>
+    <>
       <div className="wardrobe-tabs">
         {TABS.map((t) => (
           <button key={t} className={tab === t ? "active" : ""} onClick={() => setTab(t)}>
@@ -69,11 +86,9 @@ export function Wardrobe({ ctl, s }: { ctl: PreviewController; s: PreviewState }
         <button onClick={() => apply(defaultDna())} title="The chimp everyone starts as">
           Start again
         </button>
-        <button className="done" onClick={() => ctl.setWardrobe(false)}>
-          Done <kbd>C</kbd>
-        </button>
+        {children}
       </div>
-    </div>
+    </>
   );
 }
 

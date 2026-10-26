@@ -231,12 +231,17 @@ export class Avatars {
   mySeat: MySeat | null = null;
   /** how seat n is sat on, for other visitors' chimps that sit on it (engine/seats.ts sets it) */
   seatPose: (n: number) => SeatPlace | null = () => null;
+  /** this visitor's chimp is in the house for others to see: not while the lobby is up (enter()) */
+  private present = true;
 
   constructor(
     private scene: Scene,
     private fly: FlyCamera,
     private lighting: Lighting,
+    /** the lobby comes first: nobody else hears of this chimp until enter() */
+    lobby = false,
   ) {
+    this.present = !lobby;
     this.mine = new Body(scene, loadDna(), "My chimp", lighting.chimpLights(), (b) => this.built(b));
     this.labels = document.createElement("div");
     this.labels.className = "chimp-labels";
@@ -245,7 +250,21 @@ export class Avatars {
     this.sayDna = room.family<Identity>("chimpdna:", (topic, i) => this.heardDna(topic.slice("chimpdna:".length), i));
     this.sayPose = room.family<Presence>("chimp:", (topic, p) => this.heardPose(topic.slice("chimp:".length), p));
     room.onGone((id) => this.forget(id));
+    if (this.present) this.sayDna({ name: ME.name, dna: this.mine.dna });
+  }
+
+  /** Turn this visitor's chimp to face `yaw` (where it arrives, facing the way in). */
+  face(yaw: number): void {
+    this.facing = yaw;
+    this.lastFacing = yaw;
+  }
+
+  /** Out of the lobby, into the house: everyone is told this visitor's name and look, and where their chimp is. */
+  enter(): void {
+    if (this.present) return;
+    this.present = true;
     this.sayDna({ name: ME.name, dna: this.mine.dna });
+    this.lastSaid = null;
   }
 
   /** What visitor `who`'s chimp holds in its hand (this visitor's too), or null: it shows the next time their chimp is drawn. */
@@ -303,7 +322,7 @@ export class Avatars {
     } catch {
       /* storage unavailable: it lasts this visit */
     }
-    this.sayDna({ name: ME.name, dna: d });
+    if (this.present) this.sayDna({ name: ME.name, dna: d });
     if (reshaping) store.set({ chimpBuilding: true });
   }
 
@@ -419,6 +438,8 @@ export class Avatars {
 
   /** Tell the room where this visitor's chimp is: often while it moves, now and then while it stands. */
   private say(walking: boolean, at?: { x: number; y: number; z: number; vx: number; vz: number; ground: boolean; seat?: number }) {
+    // in the lobby: where the chimp stands is nobody else's business yet
+    if (!this.present) return;
     const now = room.now();
     const last = this.lastSaid;
     // sliding onto a seat or off it moves the chimp without walking: said as often as walking
@@ -561,12 +582,15 @@ export class Avatars {
   describe() {
     const c = this.mine.chimp;
     return {
+      present: this.present,
       mine: c
         ? { shown: c.root.isEnabled(), at: c.root.position.asArray(), facing: this.facing, height: this.mine.dna.shape.height, lights: { room: this.mine.room, copied: this.mine.lights.describe() }, wearing: c.wearing(), holding: c.holding, seat: this.mySeat?.n ?? null, sitting: this.mine.animator?.sitting ?? 0, hips: c.nodes.hips.getAbsolutePosition().asArray() }
         : null,
       others: [...this.others].map(([id, r]) => ({
         id,
         name: r.name,
+        fur: r.dna?.colors.fur ?? null,
+        outfit: Object.keys(r.dna?.outfit ?? {}),
         built: !!r.body?.chimp,
         shown: !!r.body?.chimp?.root.isEnabled(),
         heard: r.said.length,
